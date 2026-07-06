@@ -13,7 +13,7 @@ export async function triggerOutboundCall(customerPhone: string, customerName: s
           number: customerPhone,
           name: customerName,
         },
-        phoneNumberId: process.env.VAPI_PHONE_NUMBER_ID,
+        phoneNumberId: process.env.VAPI_PHONE_NUMBER_ID || 'd710a085-0a9b-45bc-ab03-d40bdcab095d',
         assistantId: VAPI_ASSISTANT_ID,
         // Override variables so the script knows the customer name and desired loan type
         assistantOverrides: {
