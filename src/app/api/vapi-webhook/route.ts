@@ -45,7 +45,21 @@ export async function POST(request: Request) {
         triggerPabblyWebhook(lead)
       ]);
       
-      // Trigger WhatsApp integration
+      // Send data to main AVANI LOAN AGENTS dashboard
+      try {
+        await axios.post('https://avani-loan-agents.onrender.com/api/incoming-lead', {
+          name: lead.name,
+          phone: lead.phone,
+          loanType: lead.loanType,
+          requestedAmount: lead.requestedAmount,
+          callSummary: summary
+        });
+        console.log("Successfully pushed lead to AVANI LOAN AGENTS dashboard");
+      } catch (err: any) {
+        console.error("Failed to push lead to dashboard:", err.message);
+      }
+      
+      // Keep legacy WhatsApp logic just in case
       await sendWhatsAppChecklist(lead.phone, lead.name, lead.loanType);
     } else {
       lead.status = 'Not Interested';

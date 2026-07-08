@@ -43,3 +43,6 @@ next-env.d.ts
 .vercel
 
 temp-app/
+
+*.ps1
+*.js
