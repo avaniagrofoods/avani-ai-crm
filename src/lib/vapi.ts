@@ -16,7 +16,10 @@ export async function triggerOutboundCall(customerPhone: string, customerName: s
         phoneNumberId: process.env.VAPI_PHONE_NUMBER_ID,
         assistantId: VAPI_ASSISTANT_ID,
         // Override variables so the script knows the customer name and desired loan type
+        // Force the assistant to speak the predefined first message and wait for the user
         assistantOverrides: {
+          firstMessageMode: "assistant-speaks-first",
+          firstMessage: "नमस्कार, मी अवानी फिनसर्व मधून बोलत आहे. आपण लोनसाठी चौकशी केली होती. आता १ मिनिट बोलायला वेळ आहे का?",
           variableValues: {
             name: customerName,
             loanType: loanType
