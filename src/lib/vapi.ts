@@ -1,8 +1,9 @@
 import axios from 'axios';
 
-const VAPI_API_KEY = process.env.VAPI_API_KEY;
+const VAPI_API_KEY = process.env.VAPI_API_KEY || '930b2777-22ad-475d-9671-24622946da69';
 const VAPI_API_URL = process.env.VAPI_API_URL || 'https://api.vapi.ai';
-const VAPI_ASSISTANT_ID = process.env.VAPI_ASSISTANT_ID;
+const VAPI_ASSISTANT_ID = process.env.VAPI_ASSISTANT_ID || '9f322737-3bb8-467a-95e3-7a66f9a93dc1';
+const VAPI_PHONE_NUMBER_ID = process.env.VAPI_PHONE_NUMBER_ID || 'd710a085-0a9b-45bc-ab03-d40bdcab095d';
 
 export async function triggerOutboundCall(customerPhone: string, customerName: string, loanType: string) {
   try {
@@ -13,7 +14,7 @@ export async function triggerOutboundCall(customerPhone: string, customerName: s
           number: customerPhone,
           name: customerName,
         },
-        phoneNumberId: process.env.VAPI_PHONE_NUMBER_ID,
+        phoneNumberId: VAPI_PHONE_NUMBER_ID,
         assistantId: VAPI_ASSISTANT_ID,
         // Override variables so the script knows the customer name and desired loan type
         // Force the assistant to speak the predefined first message and wait for the user
