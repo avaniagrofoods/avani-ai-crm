@@ -35,8 +35,8 @@ export async function POST(request: Request) {
     lead.requestedAmount = requestedAmount;
     
     // Check if the call was missed/unanswered
-    const endedReason = call?.endedReason;
-    const isMissedCall = ['customer-did-not-answer', 'customer-busy', 'voicemail', 'failed'].includes(endedReason);
+    const endedReason = call?.endedReason || '';
+    const isMissedCall = ['customer-did-not-answer', 'customer-busy', 'voicemail', 'failed', 'silence', 'customer-ended-call', 'hangup'].includes(endedReason.toLowerCase());
 
     if (isMissedCall) {
       lead.status = 'Missed Call';
