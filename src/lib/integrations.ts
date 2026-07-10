@@ -86,14 +86,25 @@ export async function sendMissedCallWhatsApp(phone: string, name: string) {
 export async function sendWhatsAppChecklist(phone: string, name: string, loanType: string) {
   const accountSid = process.env.TWILIO_ACCOUNT_SID;
   const authToken = process.env.TWILIO_AUTH_TOKEN;
-  // Use the 9175635165 number for the final docs message
-  const twilioWhatsApp = "+919175635165";
+  // Use the 7249108474 number as requested by the user
+  const twilioWhatsApp = "+917249108474";
   
   if (!accountSid || !authToken) return;
 
   const url = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`;
 
-  const message = `Hello ${name}, thank you for your interest in a ${loanType} from Avani Loan Services! Please upload your PAN card, Aadhar card, and other required documents securely here: https://www.avanifinserv.com/documents`;
+  const message = `नमस्कार ${name},
+'अवनी लोन सर्विसेस' (Avani Loan Services) शी संपर्क साधल्याबद्दल धन्यवाद. 🙏
+आमच्या कॉलवरील चर्चेनुसार, आमच्याकडे तुमच्यासाठी आकर्षक व्याजदरात पर्सनल, बिझनेस, होम, मॉर्गेज, एज्युकेशन, डॉक्टर आणि सीए लोन उपलब्ध आहेत.
+अधिक माहितीसाठी तुम्ही या नंबरवर 7249108474 वर 'YES' लिहून रिप्लाय करू शकता.
+धन्यवाद,
+
+नमस्ते ${name},
+अवनी लोन सर्विसेस (Avani Loan Services) से बात करने के लिए धन्यवाद। 🙏
+जैसा कि हमने कॉल पर चर्चा की थी, हमारे पास आपके लिए आकर्षक ब्याज दरों पर पर्सनल, बिज़नेस, होम, मॉर्गेज, एजुकेशन, डॉक्टर और सीए लोन उपलब्ध हैं।
+अधिक जानकारी के लिए आप इस नंबर 7249108474 पर 'YES' लिखकर रिप्लाई कर सकते हैं।
+धन्यवाद,
+अवनी लोन सर्विसेस.`;
 
   const formattedPhone = phone.startsWith('+') ? phone : `+${phone}`;
 
