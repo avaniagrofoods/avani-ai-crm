@@ -23,27 +23,36 @@ export async function POST(request: Request) {
       
       if (!name || !phone || !loanType) continue;
       
-      let newLead: any = { name, phone, loanType, status: 'New' };
+      let formattedPhone = phone.trim();
+      if (!formattedPhone.startsWith('+')) {
+        if (formattedPhone.length === 10) {
+          formattedPhone = '+91' + formattedPhone;
+        } else {
+          formattedPhone = '+' + formattedPhone;
+        }
+      }
+      
+      let newLead: any = { name, phone: formattedPhone, loanType, status: 'New' };
       
       try {
         if (process.env.MONGODB_URI && !process.env.MONGODB_URI.includes('localhost')) {
-          newLead = await Lead.create({ name, phone, loanType, status: 'New' });
+          newLead = await Lead.create({ name, phone: formattedPhone, loanType, status: 'New' });
         }
       } catch (dbError) {
-        console.warn("DB Save skipped (Likely no cloud DB provided yet):", dbError);
+        console.warn("DB Save skipped:", dbError);
       }
       
       try {
         // Trigger Bland AI Call
-        const blandResponse = await triggerBlandCall(phone, name, loanType);
+        const blandResponse = await triggerBlandCall(formattedPhone, name, loanType);
         
         // Update lead with callId to track the webhook later
         if (blandResponse && blandResponse.call_id && newLead.save) {
           newLead.callId = blandResponse.call_id;
           await newLead.save();
         }
-      } catch (callError) {
-        console.error(`Failed to trigger call for ${name}:`, callError);
+      } catch (callError: any) {
+        console.error(`Failed to trigger call for ${name}:`, callError?.response?.data || callError.message);
       }
       
       savedLeads.push(newLead);
