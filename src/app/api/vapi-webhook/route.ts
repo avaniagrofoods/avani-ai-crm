@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import connectToDatabase from '@/lib/db';
 import { Lead } from '@/models/Lead';
-import { logToGoogleSheets, syncToHubSpot, triggerMakeWebhook, triggerPabblyWebhook, sendWhatsAppChecklist } from '@/lib/integrations';
+import { logToGoogleSheets, syncToHubSpot, triggerMakeWebhook, triggerPabblyWebhook, sendWhatsAppChecklist, sendMissedCallWhatsApp } from '@/lib/integrations';
 import axios from 'axios';
 
 export async function POST(request: Request) {
@@ -36,7 +36,7 @@ export async function POST(request: Request) {
     
     // Check if the call was missed/unanswered
     const endedReason = call?.endedReason || '';
-    const isMissedCall = ['customer-did-not-answer', 'customer-busy', 'voicemail', 'failed', 'silence', 'customer-ended-call', 'hangup'].includes(endedReason.toLowerCase());
+    const isMissedCall = ['customer-did-not-answer', 'customer-busy', 'voicemail', 'failed', 'silence', 'customer-ended-call', 'hangup'].includes(endedReason.toLowerCase()) || endedReason.toLowerCase().includes('error') || endedReason.toLowerCase().includes('failed');
 
     if (isMissedCall) {
       lead.status = 'Missed Call';
@@ -55,6 +55,9 @@ export async function POST(request: Request) {
       } catch (err: any) {
         console.error("Failed to push missed call event:", err.message);
       }
+      
+      // Send WhatsApp message from 7249108474
+      await sendMissedCallWhatsApp(lead.phone, lead.name);
     } else if (isInterested) {
       lead.status = 'Documents Requested';
       

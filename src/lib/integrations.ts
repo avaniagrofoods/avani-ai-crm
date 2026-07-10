@@ -56,7 +56,7 @@ export async function triggerPabblyWebhook(lead: any) {
   }
 }
 
-export async function sendWhatsAppChecklist(phone: string, name: string, loanType: string) {
+export async function sendMissedCallWhatsApp(phone: string, name: string) {
   const accountSid = process.env.TWILIO_ACCOUNT_SID;
   const authToken = process.env.TWILIO_AUTH_TOKEN;
   const twilioWhatsApp = process.env.TWILIO_WHATSAPP_NUMBER || "+917249108474";
@@ -64,8 +64,36 @@ export async function sendWhatsAppChecklist(phone: string, name: string, loanTyp
   if (!accountSid || !authToken) return;
 
   const url = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`;
+  const message = `Hello ${name}, we tried calling you from Avani Finserv regarding your loan inquiry but couldn't connect. Are you still looking for a loan? Reply YES to continue chatting with our AI assistant.`;
+  const formattedPhone = phone.startsWith('+') ? phone : `+${phone}`;
 
-  const message = `Hello ${name}, thank you for your interest in a ${loanType} from Avani Loan Services! Please reply to this message with your PAN card and Aadhar card to proceed with your fast 48-hour approval.`;
+  const data = new URLSearchParams({
+    To: `whatsapp:${formattedPhone}`,
+    From: `whatsapp:${twilioWhatsApp}`,
+    Body: message
+  });
+
+  try {
+    const auth = Buffer.from(`${accountSid}:${authToken}`).toString('base64');
+    await axios.post(url, data.toString(), {
+      headers: { 'Authorization': `Basic ${auth}`, 'Content-Type': 'application/x-www-form-urlencoded' }
+    });
+  } catch (error: any) {
+    console.error("Twilio Missed Call WA error:", error?.response?.data || error.message);
+  }
+}
+
+export async function sendWhatsAppChecklist(phone: string, name: string, loanType: string) {
+  const accountSid = process.env.TWILIO_ACCOUNT_SID;
+  const authToken = process.env.TWILIO_AUTH_TOKEN;
+  // Use the 9175635165 number for the final docs message
+  const twilioWhatsApp = "+919175635165";
+  
+  if (!accountSid || !authToken) return;
+
+  const url = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`;
+
+  const message = `Hello ${name}, thank you for your interest in a ${loanType} from Avani Loan Services! Please upload your PAN card, Aadhar card, and other required documents securely here: https://www.avanifinserv.com/documents`;
 
   const formattedPhone = phone.startsWith('+') ? phone : `+${phone}`;
 
