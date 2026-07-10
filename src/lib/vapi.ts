@@ -21,6 +21,12 @@ export async function triggerOutboundCall(customerPhone: string, customerName: s
         assistantOverrides: {
           firstMessageMode: "assistant-speaks-first",
           firstMessage: "नमस्कार, मी 'अवनी फिनसर्व्ह' मधून बोलत आहे. आमच्या संस्थेतर्फे सध्या वैयक्तिक, व्यावसायिक, गृहकर्ज आणि तारण कर्जासह डॉक्टर आणि सीए (CA) यांच्यासाठी विशेष कर्ज योजना उपलब्ध आहेत. याविषयी सविस्तर माहिती देण्यासाठी मी आपला फक्त एक मिनिट वेळ घेऊ शकेन का?",
+          voice: {
+            provider: "11labs",
+            voiceId: "FUfBrNit0NNZAwb58KWH",
+            model: "eleven_turbo_v2_5",
+            language: "mr"
+          },
           systemPrompt: `You are an elite Loan Consultant representing 'Avani Finserv'. 
 You are currently speaking to a customer named {{name}}. They might be interested in a {{loanType}}.
 
