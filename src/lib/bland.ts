@@ -1,7 +1,7 @@
 import axios from 'axios';
 
-const BLAND_API_KEY = process.env.BLAND_API_KEY || '';
-const BLAND_ENCRYPTED_KEY = process.env.BLAND_ENCRYPTED_KEY || '';
+const BLAND_API_KEY = process.env.BLAND_API_KEY || 'org_5569713d952117d8fa4d43d69fb86ead136a4cbb8549d9542b725599808886217e913dd161aa705c66a169';
+const BLAND_ENCRYPTED_KEY = process.env.BLAND_ENCRYPTED_KEY || '6c8204fe-e206-46e2-bfd7-4141f1d4f7e2';
 
 const getSystemPrompt = (customerName: string, loanType: string) => `
 You are an AI sales agent for "Avani Loan Services".
