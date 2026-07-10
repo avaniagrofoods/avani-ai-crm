@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import connectToDatabase from '@/lib/db';
 import { Lead } from '@/models/Lead';
-import { triggerOutboundCall } from '@/lib/vapi';
+import { triggerBlandCall } from '@/lib/bland';
 
 export async function POST(request: Request) {
   try {
@@ -41,16 +41,16 @@ export async function POST(request: Request) {
     }
     
     try {
-      const vapiResponse = await triggerOutboundCall(formattedPhone, name, loanType);
+      const blandResponse = await triggerBlandCall(formattedPhone, name, loanType);
       
-      if (vapiResponse && vapiResponse.id && newLead.save) {
-        newLead.callId = vapiResponse.id;
+      if (blandResponse && blandResponse.call_id && newLead.save) {
+        newLead.callId = blandResponse.call_id;
         await newLead.save();
       }
-      return NextResponse.json({ success: true, callId: vapiResponse.id });
+      return NextResponse.json({ success: true, callId: blandResponse?.call_id || 'unknown' });
     } catch (callError: any) {
       console.error(`Failed to trigger call for ${name}:`, callError);
-      return NextResponse.json({ error: "Failed to trigger VAPI call" }, { status: 500 });
+      return NextResponse.json({ error: "Failed to trigger Bland AI call" }, { status: 500 });
     }
     
   } catch (error: any) {

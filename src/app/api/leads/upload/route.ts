@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import connectToDatabase from '@/lib/db';
 import { Lead } from '@/models/Lead';
-import { triggerOutboundCall } from '@/lib/vapi';
+import { triggerBlandCall } from '@/lib/bland';
 
 export async function POST(request: Request) {
   try {
@@ -34,12 +34,12 @@ export async function POST(request: Request) {
       }
       
       try {
-        // Trigger VAPI Call
-        const vapiResponse = await triggerOutboundCall(phone, name, loanType);
+        // Trigger Bland AI Call
+        const blandResponse = await triggerBlandCall(phone, name, loanType);
         
         // Update lead with callId to track the webhook later
-        if (vapiResponse && vapiResponse.id && newLead.save) {
-          newLead.callId = vapiResponse.id;
+        if (blandResponse && blandResponse.call_id && newLead.save) {
+          newLead.callId = blandResponse.call_id;
           await newLead.save();
         }
       } catch (callError) {
