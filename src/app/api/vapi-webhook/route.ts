@@ -15,24 +15,53 @@ export async function POST(request: Request) {
 
     const { call, analysis } = body.message;
     const callId = call?.id;
-    const summary = call?.summary;
-    const duration = call?.duration;
+    const summary = analysis?.summary || call?.summary || '';
+    const duration = call?.duration || 0;
     
     // Check structured data from the call analysis
-    const isInterested = analysis?.structuredData?.isInterested || false;
-    const requestedAmount = analysis?.structuredData?.loanAmount || '';
+    const isInterested = analysis?.structuredData?.qualification_status === 'qualified' || analysis?.structuredData?.isInterested || false;
+    let requestedAmount = analysis?.structuredData?.loanAmount || analysis?.structuredData?.loan_amount || '';
 
-    await connectToDatabase();
+    // Extract fallback lead info from Vapi payload
+    const fallbackName = analysis?.structuredData?.customer_name || body.message.artifact?.variableValues?.name || call?.customer?.name || 'Customer';
+    const fallbackPhone = call?.customer?.number || body.message.artifact?.variableValues?.customer?.number || '';
+    const fallbackLoanType = analysis?.structuredData?.loan_type || body.message.artifact?.variableValues?.loanType || 'Personal Loan';
 
-    const lead = await Lead.findOne({ callId });
-    if (!lead) {
-      console.warn("Lead not found for callId:", callId);
-      return NextResponse.json({ success: true, note: "Lead not found" });
+    let lead: any = null;
+    let dbConnected = false;
+
+    try {
+      await connectToDatabase();
+      dbConnected = true;
+      lead = await Lead.findOne({ callId });
+    } catch (dbErr) {
+      console.warn("MongoDB unavailable. Falling back to Vapi payload data.");
     }
 
-    lead.callSummary = summary;
-    lead.callDuration = duration?.toString() || '0';
-    lead.requestedAmount = requestedAmount;
+    if (!lead) {
+      console.warn("Lead not found in DB or DB failed. Constructing from payload.");
+      if (!fallbackPhone) {
+        return NextResponse.json({ success: true, note: "No phone number available to process" });
+      }
+      lead = {
+        name: fallbackName,
+        phone: fallbackPhone,
+        loanType: fallbackLoanType,
+        callSummary: summary,
+        callDuration: duration.toString(),
+        requestedAmount: requestedAmount,
+        status: 'Unknown',
+        save: async () => {} // Dummy save function to avoid crash
+      };
+    } else {
+      lead.callSummary = summary;
+      lead.callDuration = duration.toString();
+      if (!lead.requestedAmount && requestedAmount) {
+        lead.requestedAmount = requestedAmount;
+      } else if (lead.requestedAmount) {
+        requestedAmount = lead.requestedAmount;
+      }
+    }
     
     // Check if the call was missed/unanswered
     const endedReason = call?.endedReason || '';
@@ -58,7 +87,7 @@ export async function POST(request: Request) {
       
       // Send WhatsApp message from 7249108474
       await sendMissedCallWhatsApp(lead.phone, lead.name);
-    } else if (isInterested) {
+    } else if (isInterested || analysis?.structuredData?.next_action === 'human_callback') {
       lead.status = 'Documents Requested';
       
       // Trigger Integrations
@@ -90,9 +119,11 @@ export async function POST(request: Request) {
       lead.status = 'Not Interested';
     }
 
-    await lead.save();
+    if (dbConnected && typeof lead.save === 'function' && lead.constructor.modelName === 'Lead') {
+      await lead.save();
+    }
 
-    return NextResponse.json({ success: true, leadId: lead._id });
+    return NextResponse.json({ success: true, leadId: lead._id || 'fallback-id' });
   } catch (error: any) {
     console.error("VAPI Webhook Error:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
