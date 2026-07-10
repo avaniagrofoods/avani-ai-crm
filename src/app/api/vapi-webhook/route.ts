@@ -34,7 +34,28 @@ export async function POST(request: Request) {
     lead.callDuration = duration?.toString() || '0';
     lead.requestedAmount = requestedAmount;
     
-    if (isInterested) {
+    // Check if the call was missed/unanswered
+    const endedReason = call?.endedReason;
+    const isMissedCall = ['customer-did-not-answer', 'customer-busy', 'voicemail', 'failed'].includes(endedReason);
+
+    if (isMissedCall) {
+      lead.status = 'Missed Call';
+      
+      // Forward to AVANI LOAN AGENTS for WhatsApp Fallback
+      try {
+        await axios.post('https://avani-loan-agents.onrender.com/api/incoming-lead', {
+          name: lead.name,
+          phone: lead.phone,
+          loanType: lead.loanType,
+          requestedAmount: lead.requestedAmount,
+          callSummary: summary,
+          event_type: 'missed_call'
+        });
+        console.log("Pushed Missed Call event to AVANI LOAN AGENTS");
+      } catch (err: any) {
+        console.error("Failed to push missed call event:", err.message);
+      }
+    } else if (isInterested) {
       lead.status = 'Documents Requested';
       
       // Trigger Integrations
@@ -52,7 +73,8 @@ export async function POST(request: Request) {
           phone: lead.phone,
           loanType: lead.loanType,
           requestedAmount: lead.requestedAmount,
-          callSummary: summary
+          callSummary: summary,
+          event_type: 'interested_lead'
         });
         console.log("Successfully pushed lead to AVANI LOAN AGENTS dashboard");
       } catch (err: any) {
