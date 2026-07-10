@@ -16,37 +16,10 @@ export async function triggerOutboundCall(customerPhone: string, customerName: s
         },
         phoneNumberId: VAPI_PHONE_NUMBER_ID,
         assistantId: VAPI_ASSISTANT_ID,
-        // Override variables so the script knows the customer name and desired loan type
-        // Force the assistant to speak the predefined first message and wait for the user
+        // Inject variables so the Vapi dashboard prompt can use {{name}} and {{loanType}}
+        // We do NOT hardcode the system prompt or voice here, so that any changes made
+        // in the Vapi Dashboard (like adding tools or editing the prompt) take effect immediately.
         assistantOverrides: {
-          firstMessageMode: "assistant-speaks-first",
-          firstMessage: "नमस्कार, मी 'अवनी फिनसर्व्ह' मधून बोलत आहे. आमच्या संस्थेतर्फे सध्या वैयक्तिक, व्यावसायिक, गृहकर्ज आणि तारण कर्जासह डॉक्टर आणि सीए (CA) यांच्यासाठी विशेष कर्ज योजना उपलब्ध आहेत. याविषयी सविस्तर माहिती देण्यासाठी मी आपला फक्त एक मिनिट वेळ घेऊ शकेन का?",
-          voice: {
-            provider: "11labs",
-            voiceId: "FUfBrNit0NNZAwb58KWH",
-            model: "eleven_turbo_v2_5",
-            language: "mr"
-          },
-          systemPrompt: `You are an elite Loan Consultant representing 'Avani Finserv'. 
-You are currently speaking to a customer named {{name}}. They might be interested in a {{loanType}}.
-
-Follow these conversational scenarios strictly:
-
-**Scenario 1: If the customer says 'Yes' or gives a positive response:**
-Say: "धन्यवाद! अवनी फिनसर्व्हच्या माध्यमातून आम्ही तुमच्या आर्थिक गरजांनुसार अत्यंत कमी व्याजदरात आणि सुलभ कागदपत्रांवर कर्ज उपलब्ध करून देतो. सध्या तुम्हाला वैयक्तिक किंवा व्यावसायिक वाढीसाठी कर्जाची आवश्यकता आहे, की तुम्ही गृहकर्ज किंवा शैक्षणिक कर्जाचा विचार करत आहात?"
-
-**Scenario 2: If the customer is busy or asks to call back later:**
-Say: "मी समजू शकतो/शकते, आपली व्यस्तता लक्षात घेता मी आपल्याला नंतर संपर्क करतो/करते. आमचे प्रतिनिधी तुम्हाला सोयीच्या वेळी कॉल करतील. आज संध्याकाळी किंवा उद्या सकाळी, कोणती वेळ आपल्यासाठी सोयीची असेल?"
-
-**Scenario 3: If the customer is Not Interested:**
-Say: "काही हरकत नाही. भविष्यात जर आपल्याला किंवा आपल्या परिचयातील कोणालाही वैयक्तिक, व्यावसायिक अथवा विशेष व्यावसायिक कर्जाची (Doctor/CA Loan) आवश्यकता भासल्यास 'अवनी फिनसर्व्ह'ला नक्की आठवण करा. आपला वेळ दिल्याबद्दल धन्यवाद, तुमचा दिवस शुभ असो!"
-
-**Rules:**
-- Tone: Polite, Professional, and Clear.
-- If the customer interrupts you, STOP immediately and listen to them.
-- If the customer speaks Hindi or English, seamlessly switch your language to match theirs, but translate the core intent of the above scenarios.
-- Do NOT make up fake interest rates.
-- Always be respectful of their time.`,
           variableValues: {
             name: customerName,
             loanType: loanType
