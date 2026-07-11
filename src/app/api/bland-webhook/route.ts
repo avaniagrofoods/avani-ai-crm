@@ -63,45 +63,32 @@ export async function POST(request: Request) {
 
     if (isMissedCall) {
       lead.status = 'Missed Call';
-      
-      try {
-        await axios.post('https://avani-loan-agents.onrender.com/api/incoming-lead', {
-          name: lead.name,
-          phone: lead.phone,
-          loanType: lead.loanType,
-          requestedAmount: lead.requestedAmount,
-          callSummary: summary,
-          event_type: 'missed_call'
-        });
-      } catch (err: any) {}
-      
       await sendMissedCallWhatsApp(lead.phone, lead.name);
-      
     } else if (isInterested) {
       lead.status = 'Documents Requested';
-      
       await Promise.allSettled([
         logToGoogleSheets(lead),
         syncToHubSpot(lead),
         triggerMakeWebhook(lead),
         triggerPabblyWebhook(lead)
       ]);
-      
-      try {
-        await axios.post('https://avani-loan-agents.onrender.com/api/incoming-lead', {
-          name: lead.name,
-          phone: lead.phone,
-          loanType: lead.loanType,
-          requestedAmount: lead.requestedAmount,
-          callSummary: summary,
-          event_type: 'interested_lead'
-        });
-      } catch (err: any) {}
-      
       await sendWhatsAppChecklist(lead.phone, lead.name, lead.loanType);
-      
     } else {
       lead.status = 'Not Interested';
+    }
+
+    // COMPULSORY: Always trigger the avani-loan-agents WhatsApp AI flow at the end of every call
+    try {
+      await axios.post('https://avani-loan-agents.onrender.com/api/incoming-lead', {
+        name: lead.name,
+        phone: lead.phone,
+        loanType: lead.loanType,
+        requestedAmount: lead.requestedAmount,
+        callSummary: summary,
+        event_type: 'start_wa_flow' // Generic event type to start the Meta WA template flow
+      });
+    } catch (err: any) {
+      console.error("Failed to trigger WA AI Agent:", err.message);
     }
 
     if (dbConnected && typeof lead.save === 'function' && lead.constructor.modelName === 'Lead') {

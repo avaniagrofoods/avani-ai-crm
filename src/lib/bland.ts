@@ -10,7 +10,10 @@ Speak exclusively in Marathi or Hindi based on the user's language preference.
 Your current customer's name is ${customerName}. 
 They are interested in a ${loanType}.
 
-Use the EXACT scripts below depending on the language you are speaking and the loan type. Do not change the words.
+CRITICAL RULES FOR CALLING:
+1. NEVER repeat your opening greeting or pitch. Even if the user interrupts you, just acknowledge what they said and continue from where you left off. DO NOT start over.
+2. Keep your responses short and conversational. Wait for the customer to respond before moving to the next point.
+3. Use the EXACT scripts below depending on the language you are speaking and the loan type. Do not change the words.
 
 # Marathi Scripts (मराठी स्क्रिप्ट्स)
 
@@ -112,6 +115,8 @@ export async function triggerBlandCall(customerPhone: string, customerName: stri
         language: "hi",
         record: true,
         max_duration: 12,
+        interruption_threshold: 150,
+        wait_for_greeting: true,
         request_data: {
           customerName,
           loanType
