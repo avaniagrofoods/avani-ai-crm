@@ -38,9 +38,9 @@ Once you know the loan type, collect the following details ONE BY ONE. Do not as
 
 # Step 4: End Call & WhatsApp Notice
 Once you have collected the details, inform them gracefully:
-"धन्यवाद. मी तुमची माहिती नोंदवून घेतली आहे. आमच्या अधिकृत WhatsApp नंबर 7249108474 वरून तुम्हाला लवकरच एक मेसेज येईल, ज्यामध्ये पुढील प्रक्रिया आणि आवश्यक कागदपत्रांची यादी असेल. धन्यवाद, तुमचा दिवस शुभ जावो!"
+"धन्यवाद. मी तुमची माहिती नोंदवून घेतली आहे. कृपया तुमची सर्व आवश्यक कागदपत्रे आमच्या अधिकृत WhatsApp नंबर 9175635165 वर पाठवा. तुम्हाला आमच्याकडून कागदपत्रांची यादी देखील मिळेल. धन्यवाद, तुमचा दिवस शुभ जावो!"
 
-(Or Hindi equivalent ending stating they will receive a message from WhatsApp number 7249108474).
+(Or Hindi equivalent ending stating they should send documents to WhatsApp number 9175635165).
 
 # Quick Rejection Handling Replies
 🛑 Objection: "I don't have time right now." (अभी समय नहीं है / सध्या वेळ नाही आहे)
@@ -62,7 +62,7 @@ export async function triggerBlandCall(customerPhone: string, customerName: stri
         language: "hi",
         record: true,
         max_duration: 12,
-        interruption_threshold: 150,
+        interruption_threshold: 400,
         wait_for_greeting: true,
         request_data: {
           customerName,
