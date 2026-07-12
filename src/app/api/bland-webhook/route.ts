@@ -59,7 +59,11 @@ export async function POST(request: Request) {
     const isInterested = summary.toLowerCase().includes('interested') || 
                          summary.toLowerCase().includes('wants') || 
                          summary.toLowerCase().includes('yes') ||
-                         summary.toLowerCase().includes('send');
+                         summary.toLowerCase().includes('send') ||
+                         summary.toLowerCase().includes('provided') ||
+                         summary.toLowerCase().includes('details') ||
+                         summary.toLowerCase().includes('loan') ||
+                         summary.toLowerCase().includes('agreed');
 
     if (isMissedCall) {
       lead.status = 'Missed Call';
