@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import connectToDatabase from '@/lib/db';
 import { Lead } from '@/models/Lead';
-import { logToGoogleSheets, syncToHubSpot, triggerMakeWebhook, triggerPabblyWebhook, sendWhatsAppChecklist, sendMissedCallWhatsApp } from '@/lib/integrations';
+import { logToGoogleSheets, syncToHubSpot, triggerMakeWebhook, triggerPabblyWebhook, sendWhatsAppChecklist, sendMissedCallWhatsApp, syncToZapier } from '@/lib/integrations';
+import { logCallToPostgres } from '@/lib/postgres';
 import axios from 'axios';
 
 export async function POST(request: Request) {
@@ -53,6 +54,16 @@ export async function POST(request: Request) {
       }
     }
     
+    // Always log call to Postgres (Supabase)
+    try {
+      if (callId) {
+        const start = new Date(Date.now() - Number(duration) * 1000);
+        await logCallToPostgres(callId, lead.phone, start, new Date(), summary || "Call finished. No transcript available yet.");
+      }
+    } catch (pgErr: any) {
+      console.error("Postgres logging failed:", pgErr.message);
+    }
+    
     const isMissedCall = ['no-answer', 'busy', 'failed', 'canceled'].includes(status?.toLowerCase());
     
     // Basic sentiment extraction from summary since Bland provides a raw summary
@@ -74,7 +85,8 @@ export async function POST(request: Request) {
         logToGoogleSheets(lead),
         syncToHubSpot(lead),
         triggerMakeWebhook(lead),
-        triggerPabblyWebhook(lead)
+        triggerPabblyWebhook(lead),
+        syncToZapier(lead)
       ]);
       await sendWhatsAppChecklist(lead.phone, lead.name, lead.loanType);
     } else {
@@ -83,7 +95,8 @@ export async function POST(request: Request) {
 
     // COMPULSORY: Always trigger the avani-loan-agents WhatsApp AI flow at the end of every call
     try {
-      await axios.post('https://avani-loan-agents.onrender.com/api/incoming-lead', {
+      const loanAgentsUrl = process.env.LOAN_AGENTS_URL || 'https://avani-loan-agents-67xaww674-avaniagrofoods1356-4705s-projects.vercel.app';
+      await axios.post(`${loanAgentsUrl}/api/incoming-lead`, {
         name: lead.name,
         phone: lead.phone,
         loanType: lead.loanType,

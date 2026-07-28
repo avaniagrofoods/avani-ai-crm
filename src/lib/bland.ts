@@ -62,7 +62,7 @@ export async function triggerBlandCall(customerPhone: string, customerName: stri
           customerName,
           loanType
         },
-        webhook: 'https://avani-ai-crm.onrender.com/api/bland-webhook'
+        webhook: process.env.BLAND_WEBHOOK_URL || 'https://avani-ai-crm.vercel.app/api/bland-webhook'
       },
       {
         headers: {
