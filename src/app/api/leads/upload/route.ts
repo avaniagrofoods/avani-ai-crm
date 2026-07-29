@@ -19,9 +19,9 @@ export async function POST(request: Request) {
     for (const leadData of leads) {
       const name = leadData.Name || leadData.name;
       const phone = leadData.Phone || leadData.phone || leadData.PhoneNumber;
-      const loanType = leadData.LoanType || leadData['Loan Type'] || leadData.loanType;
+      const loanType = leadData.LoanType || leadData['Loan Type'] || leadData.loanType || "General";
       
-      if (!name || !phone || !loanType) continue;
+      if (!name || !phone) continue;
       
       let formattedPhone = phone.trim();
       if (!formattedPhone.startsWith('+')) {
@@ -32,7 +32,7 @@ export async function POST(request: Request) {
         }
       }
       
-      let newLead: any = { name, phone: formattedPhone, loanType, status: 'New' };
+      let newLead: any = { name, phone: formattedPhone, loanType, status: 'New', details: '' };
       
       try {
         if (process.env.MONGODB_URI && !process.env.MONGODB_URI.includes('localhost')) {
@@ -46,13 +46,20 @@ export async function POST(request: Request) {
         // Trigger Bland AI Call
         const blandResponse = await triggerBlandCall(formattedPhone, name, loanType);
         
-        // Update lead with callId to track the webhook later
-        if (blandResponse && blandResponse.call_id && newLead.save) {
+        if (blandResponse && blandResponse.call_id) {
+          newLead.status = 'Initiated';
           newLead.callId = blandResponse.call_id;
-          await newLead.save();
+          newLead.details = 'Call initiated via Bland AI';
+          if (newLead.save) await newLead.save();
         }
       } catch (callError: any) {
-        console.error(`Failed to trigger call for ${name}:`, callError?.response?.data || callError.message);
+        const errObj = callError?.response?.data;
+        const errMsg = errObj?.message || errObj?.error || callError.message || "Insufficient Credits on Bland AI Account";
+        console.error(`Failed to trigger call for ${name}:`, errMsg);
+        newLead.status = 'Failed';
+        newLead.details = errMsg.includes("credit") || errMsg.includes("402") || errMsg.includes("balance") 
+          ? "Bland AI Insufficient Balance (-1.31 Credits)" 
+          : `API Error: ${errMsg}`;
       }
       
       savedLeads.push(newLead);
