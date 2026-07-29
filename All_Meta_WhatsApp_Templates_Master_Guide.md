@@ -5,9 +5,16 @@ This document contains the complete, consolidated master collection of all Meta-
 
 ---
 
+## 🚨 IMPORTANT NOTICE FOR META WHATSAPP MANAGER TEMPLATE CREATION:
+If Meta shows the error modal: **`"Message template language is being deleted. New English content can't be added while the existing English content is being deleted. Try again in 4 weeks or consider creating a new message template."`**
+
+👉 **SOLUTION**: Do **NOT** reuse the deleted template name (e.g. `avani_loan_intro`). Create a new template name like **`avani_loan_intro_v2`** or **`avani_welcome_v2`**. Meta will approve it immediately in 2-5 minutes!
+
+---
+
 ## 🟢 Section 1: Standard Pre-Configured Templates in CRM & Bulk Campaign Upload
 
-### 1. Template Name: `avani_loan_intro`
+### 1. Template Name: `avani_loan_intro_v2` *(Recommended for instant approval)*
 **Category:** `Marketing` / `Utility` | **Target:** All New Inquiries & Welcome Broadcasts  
 **Header:** Avani Loan Services Welcome 🏦  
 **Body:**
