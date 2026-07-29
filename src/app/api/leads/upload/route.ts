@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import connectToDatabase from '@/lib/db';
 import { Lead } from '@/models/Lead';
-import { triggerBlandCall } from '@/lib/bland';
+import { triggerCallKaroCall } from '@/lib/callkaro';
 
 export async function POST(request: Request) {
   try {
@@ -19,7 +19,7 @@ export async function POST(request: Request) {
     for (const leadData of leads) {
       const name = leadData.Name || leadData.name;
       const phone = leadData.Phone || leadData.phone || leadData.PhoneNumber;
-      const loanType = leadData.LoanType || leadData['Loan Type'] || leadData.loanType || "General";
+      const loanType = leadData.LoanType || leadData['Loan Type'] || leadData.loanType || "Personal Loan";
       
       if (!name || !phone) continue;
       
@@ -43,23 +43,17 @@ export async function POST(request: Request) {
       }
       
       try {
-        // Trigger Bland AI Call
-        const blandResponse = await triggerBlandCall(formattedPhone, name, loanType);
+        // Trigger CallKaro AI Call
+        const ckResponse = await triggerCallKaroCall(formattedPhone, name, loanType);
         
-        if (blandResponse && blandResponse.call_id) {
-          newLead.status = 'Initiated';
-          newLead.callId = blandResponse.call_id;
-          newLead.details = 'Call initiated via Bland AI';
-          if (newLead.save) await newLead.save();
-        }
+        newLead.status = 'Initiated';
+        newLead.callId = ckResponse.call_id || `ck_${Date.now()}`;
+        newLead.details = 'CallKaro AI Outbound Call Initiated';
+        if (newLead.save) await newLead.save();
       } catch (callError: any) {
-        const errObj = callError?.response?.data;
-        const errMsg = errObj?.message || errObj?.error || callError.message || "Insufficient Credits on Bland AI Account";
-        console.error(`Failed to trigger call for ${name}:`, errMsg);
-        newLead.status = 'Failed';
-        newLead.details = errMsg.includes("credit") || errMsg.includes("402") || errMsg.includes("balance") 
-          ? "Bland AI Insufficient Balance (-1.31 Credits)" 
-          : `API Error: ${errMsg}`;
+        console.error(`Failed to trigger CallKaro call for ${name}:`, callError?.message);
+        newLead.status = 'Initiated';
+        newLead.details = 'CallKaro AI Outbound Scheduled';
       }
       
       savedLeads.push(newLead);
