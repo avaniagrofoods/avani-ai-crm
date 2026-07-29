@@ -1,3 +1,6 @@
+import { NextResponse } from 'next/server';
+import connectToDatabase from '@/lib/db';
+import { Lead } from '@/models/Lead';
 import { logToGoogleSheets, syncToHubSpot, triggerMakeWebhook, triggerPabblyWebhook, sendWhatsAppChecklist, sendMissedCallWhatsApp, syncToZapier } from '@/lib/integrations';
 import { logCallToPostgres } from '@/lib/postgres';
 import axios from 'axios';
