@@ -1,0 +1,260 @@
+# Comprehensive CRM Updates & Multi-Project Audit
+
+## Background
+
+This plan addresses 4 separate requests related to your Avani Loan Services ecosystem:
+1. Adding a **Schedule** button to the live CRM
+2. **Aisency vs CRM** for bulk WhatsApp messaging
+3. **Sidebar panel** audit and fixes
+4. **Multi-folder audit** of all 3 projects + **OmniDim/Twilio** guidance
+
+---
+
+## 1) Add Schedule Button to CRM
+
+### Current State
+The live CRM at `https://frontend-liart-gamma-68.vercel.app/` has a sidebar with 19 menu items, but no **Schedule** item. The Broadcasts page already has scheduling logic built-in (schedule a broadcast for a future date/time), but there's no dedicated **Schedule** page or sidebar entry.
+
+### Proposed Changes
+
+#### [NEW] `frontend/src/app/schedule/page.tsx`
+A new **Schedule** page that shows:
+- A calendar/timeline view of all scheduled broadcasts & tasks
+- Quick-action buttons to schedule new broadcasts, follow-up calls, and task reminders
+- Upcoming scheduled items with countdown timers
+- Past scheduled items with status (completed/missed)
+- Integration with existing campaigns API (`/api/campaigns` with `status: "SCHEDULED"`)
+
+#### [MODIFY] [sidebar.tsx](file:///c:/Users/ALPHA-1/Downloads/21MAY2026/SACHIN%20SHINDE%20DOCUMENTS/DEVELOPEMENT%20TOOLS/3-AVANI%20AI%20CRM/frontend/src/components/layout/sidebar.tsx)
+- Add a **Schedule** menu item (with `Calendar` icon from lucide-react) positioned after **Broadcasts** in the sidebar
+- Use `href: "/schedule"`
+
+#### [MODIFY] [page.tsx](file:///c:/Users/ALPHA-1/Downloads/21MAY2026/SACHIN%20SHINDE%20DOCUMENTS/DEVELOPEMENT%20TOOLS/3-AVANI%20AI%20CRM/frontend/src/app/page.tsx) (Dashboard)
+- Add a **Schedule** tool card in the CRM Automation Launcher Suite grid
+
+---
+
+## 2) Aisency vs This CRM for Bulk WhatsApp Messages
+
+> [!IMPORTANT]
+> **Answer: YES — your CRM already supports bulk WhatsApp messaging and can replace Aisency for broadcast campaigns.**
+
+### What Your CRM Already Does (No Extra Service Needed)
+Your CRM at `frontend-liart-gamma-68.vercel.app` already has:
+
+| Feature | Your CRM | Aisency |
+|---|---|---|
+| **Bulk WhatsApp Broadcast** | ✅ Built-in via Meta Cloud API (Broadcasts page) | ✅ Paid service |
+| **CSV Upload & Map** | ✅ Upload CSV → map columns → send | ✅ Similar |
+| **Meta Approved Templates** | ✅ Synced from Meta Business Manager | ✅ Uses own templates |
+| **Schedule Broadcasts** | ✅ Schedule for future date/time | ✅ Yes |
+| **Media Attachments** | ✅ Image/Video/Document/Template | ✅ Yes |
+| **Delivery Logs** | ✅ Webhook event tracking | ✅ Yes |
+| **Meta Lead Ads Integration** | ✅ Verified | ❌ Separate setup |
+| **Cost** | **Free** (you pay Meta API costs only) | **Paid subscription** |
+
+### Recommendation
+- **Stop paying Aisency** for WhatsApp broadcast if you're only using it for bulk template messages.
+- Your CRM sends messages directly via Meta Cloud API using your own WhatsApp Business number (+91 9175635165).
+- The only cost is Meta's per-conversation pricing (~₹0.50/business-initiated conversation).
+- For Meta Ads lead capture, your CRM already has webhook-based lead ingestion.
+
+> [!WARNING]
+> **One limitation**: Aisency may offer advanced features like chatbot flow builders, auto-replies with AI, or multi-agent inbox. Your CRM has FAQ Bot and AI Assistant pages, but they need backend configuration. If you need those advanced automation features, keep Aisency for chatbot automation only and use your CRM for broadcasts.
+
+---
+
+## 3) Sidebar Panel Audit (Images 2 & 3)
+
+### Current Sidebar Items (from code)
+Looking at [sidebar.tsx](file:///c:/Users/ALPHA-1/Downloads/21MAY2026/SACHIN%20SHINDE%20DOCUMENTS/DEVELOPEMENT%20TOOLS/3-AVANI%20AI%20CRM/frontend/src/components/layout/sidebar.tsx), the current 19 sidebar items are:
+
+1. Contacts → `/contacts`
+2. Broadcasts → `/broadcasts`
+3. Whatsapp Templates → `/templates`
+4. Whatsapp Forms → `/forms`
+5. Conversational Components → `/conversational-components`
+6. Tags → `/tags`
+7. Columns → `/columns`
+8. Opts Management → `/opts`
+9. Webhook Events → `/webhooks`
+10. Gallery → `/gallery`
+11. FAQ Bot → `/faq`
+12. **Chatbot** → `https://avani-loan-agents.onrender.com/dashboard` ⚠️ External link
+13. Ai assistant → `/assistant`
+14. Flows → `/flows`
+15. Projects → `/projects`
+16. Tasks → `/tasks`
+17. Settings → `/settings`
+18. Knowledge Base → `/knowledge`
+19. Developers → `/developers`
+20. Operations Guide → `/guide`
+
+### Issues Found & Fixes
+
+> [!WARNING]
+> **Issue 1: "Chatbot" links to external Render.com URL**
+> The Chatbot sidebar item points to `https://avani-loan-agents.onrender.com/dashboard` which is the **4-AVANI LOAN AGENTS** project hosted on Render. This should either:
+> - Open in a new tab (add `target="_blank"`)
+> - OR be replaced with an internal `/chatbot` page that embeds/redirects
+
+> [!IMPORTANT]
+> **Issue 2: Missing "Schedule" item** — Will be added as part of Task #1.
+
+> [!NOTE]
+> **Issue 3: Missing "Inbox" in sidebar** — The dashboard has a "Live Chat Inbox" tool card linking to `/inbox`, but there's no sidebar entry for Inbox. Should be added.
+
+#### [MODIFY] [sidebar.tsx](file:///c:/Users/ALPHA-1/Downloads/21MAY2026/SACHIN%20SHINDE%20DOCUMENTS/DEVELOPEMENT%20TOOLS/3-AVANI%20AI%20CRM/frontend/src/components/layout/sidebar.tsx)
+
+Changes:
+1. **Add `Schedule`** after Broadcasts (with `Calendar` icon)
+2. **Add `Inbox`** after Contacts (with `MessageSquare` icon) — matches the dashboard "Live Chat Inbox" tool
+3. **Fix `Chatbot`** — make it open in new tab for external links, or add `target: "_blank"` handling
+4. **Add section dividers** for better organization:
+   - **MAIN**: Contacts, Inbox, Broadcasts, Schedule
+   - **WHATSAPP**: Templates, Forms, Conversational Components
+   - **MANAGEMENT**: Tags, Columns, Opts Management
+   - **TOOLS**: Webhook Events, Gallery, FAQ Bot, Chatbot, AI Assistant, Flows
+   - **WORKSPACE**: Projects, Tasks, Settings, Knowledge Base, Developers, Operations Guide
+
+---
+
+## 4) Multi-Folder Audit + OmniDim/Twilio Guidance
+
+### 4A. Folder: 3-AVANI AI CRM
+
+**Status**: ✅ Active, deployed at Vercel  
+**Issues Found**:
+- [layout.tsx](file:///c:/Users/ALPHA-1/Downloads/21MAY2026/SACHIN%20SHINDE%20DOCUMENTS/DEVELOPEMENT%20TOOLS/3-AVANI%20AI%20CRM/frontend/src/app/layout.tsx): Title still says "Create Next App" — needs to be updated to "AVANI Loan Services | AI CRM"
+- The `<head>` contains a `fetch` interceptor for `.loca.lt` tunnels — this is debug code that should be cleaned up for production
+- Backend is a **NestJS** app with Prisma ORM, deployed separately
+
+### 4B. Folder: 4-AVANI LOAN AGENTS
+
+**Status**: ⚠️ Deployed on Render (`avani-loan-agents.onrender.com`)  
+**Purpose**: Customer-facing loan services website with EMI calculator, chat support, and AI-powered dashboard  
+**Issues Found**:
+- This is the **public-facing website** for Avani Loan Services, separate from the CRM
+- The CRM sidebar "Chatbot" link points here — this connection is valid but needs proper handling (new tab)
+- Contains exposed API keys in documentation files (VAPI, Twilio SIDs) — **security risk**
+
+> [!CAUTION]
+> The file `Avani Loan Services- OmniDimension AI CRM Completed.md` contains hardcoded API keys (VAPI API Key, Twilio SID). These should be removed from documentation and kept only in `.env` files.
+
+### 4C. Folder: 5-AVAVI AI CALLING AGENT
+
+**Status**: 📝 Documentation-only (planning stage)  
+**Purpose**: Contains implementation plans and documentation for AI voice calling via OmniDimension/VAPI/Bland.ai  
+**Issues Found**:
+- This folder contains **only markdown documentation** — no actual code
+- It's a planning folder for the AI calling agent feature
+- The documentation references integration with OmniDim.io
+
+### 4D. OmniDim.io — Plan Recommendation & Twilio Integration
+
+#### Which Plan to Take?
+
+Based on your image (billing page), here are the OmniDim plans:
+
+| Plan | Cost | Minutes | Per-Min | Knowledge Base |
+|---|---|---|---|---|
+| **Starter** | $15/mo | ~179 min | $0.084 | 5 MB |
+| **Jump Starter** | $30/mo | ~395 min | $0.076 | 10 MB |
+| **Early Deployers** | $36/mo (10% OFF) | ~588 min | $0.068 | 50 MB |
+| **Growth** | $200/mo | ~3571 min | $0.056 | 100 MB |
+| **Enterprise** | Custom | Custom | ~$0.04 | Custom |
+
+> [!IMPORTANT]
+> **Recommendation: Start with "Early Deployers" plan at $36/month.**
+> 
+> Reasons:
+> - Best value at 10% discount ($0.068/min vs $0.084 on Starter)
+> - ~588 minutes is enough for initial loan advisory calling campaigns
+> - 50 MB Knowledge Base lets you upload all loan product details
+> - You already have Twilio, so you save on phone number costs
+
+#### Can You Connect Your Twilio Account?
+
+**YES** — OmniDim supports **Bring Your Own Twilio (BYOT)**. Here's the step-by-step:
+
+##### Step 1: Get Your Twilio Credentials
+1. Go to [Twilio Console](https://console.twilio.com/)
+2. From the dashboard, copy:
+   - **Account SID**: `your_twilio_account_sid_here` (you already have this)
+   - **Auth Token**: (get from Twilio Console → Account Info)
+
+##### Step 2: Set Up OmniDim Account
+1. Go to [omnidim.io/signup](https://omnidim.io/signup) and create an account
+2. Choose the **Early Deployers** plan ($36/month)
+3. Complete billing setup
+
+##### Step 3: Connect Twilio to OmniDim
+1. Log into OmniDim dashboard → **Settings** (left sidebar)
+2. Navigate to **Integrations** or **Phone Numbers** section
+3. Look for **"Import Phone Number"** or **"Bring Your Own Carrier"** option
+4. Select **Twilio** as the provider
+5. Enter your credentials:
+   - **Account SID**: `your_twilio_account_sid_here`
+   - **Auth Token**: Your Twilio auth token
+6. Click **Connect** / **Verify**
+
+##### Step 4: Import Your Twilio Phone Number
+1. After connecting, OmniDim will list your Twilio phone numbers
+2. Select your number: `+91 7249108474` (or your preferred number)
+3. Click **Import** — OmniDim will configure the SIP trunk/webhook automatically
+
+##### Step 5: Create Your Voice AI Agent
+1. Go to OmniDim dashboard → **Create Agent**
+2. Describe your agent: *"Loan advisory agent for Avani Loan Services. Helps customers with Personal Loan, Business Loan, Doctor Loan, Home Loan, Mortgage Loan, and Education Loan inquiries."*
+3. Configure:
+   - **Voice**: Choose an Indian English voice
+   - **Language**: English + Hindi
+   - **Knowledge Base**: Upload your loan product details
+   - **Phone Number**: Select the Twilio number you imported
+
+##### Step 6: Set Up Webhook for CRM Integration
+1. In OmniDim → Agent Settings → **Webhooks**
+2. Add your CRM webhook URL: `https://avani-ai-crm.vercel.app/api/vapi-webhook`
+3. Select events: `call.completed`, `call.failed`, `transcript.ready`
+4. This will automatically update your CRM when calls complete
+
+##### Step 7: Launch Bulk Calls
+1. Go to OmniDim → **Bulk Call** (left sidebar)
+2. Upload your CSV with columns: Name, Phone, Loan Type
+3. Select your AI Agent
+4. Click **Start Campaign**
+
+> [!TIP]
+> Since you already pay for Twilio, your per-minute cost on OmniDim will be the **platform fee only** ($0.068/min on Early Deployers plan). The Twilio telephony cost is separate and charged by Twilio directly at their rates (~₹0.50/min for India).
+
+---
+
+## Proposed Changes Summary
+
+### CRM Frontend (`3-AVANI AI CRM/frontend/`)
+
+| File | Change |
+|---|---|
+| [sidebar.tsx](file:///c:/Users/ALPHA-1/Downloads/21MAY2026/SACHIN%20SHINDE%20DOCUMENTS/DEVELOPEMENT%20TOOLS/3-AVANI%20AI%20CRM/frontend/src/components/layout/sidebar.tsx) | Add Schedule, Inbox; fix Chatbot external link; add section dividers |
+| [layout.tsx](file:///c:/Users/ALPHA-1/Downloads/21MAY2026/SACHIN%20SHINDE%20DOCUMENTS/DEVELOPEMENT%20TOOLS/3-AVANI%20AI%20CRM/frontend/src/app/layout.tsx) | Fix page title & description; clean up tunnel interceptor |
+| [page.tsx](file:///c:/Users/ALPHA-1/Downloads/21MAY2026/SACHIN%20SHINDE%20DOCUMENTS/DEVELOPEMENT%20TOOLS/3-AVANI%20AI%20CRM/frontend/src/app/page.tsx) | Add Schedule tool card to dashboard grid |
+| **[NEW]** `schedule/page.tsx` | New Schedule page with calendar view of scheduled broadcasts & tasks |
+
+### Other Folders (Documentation fixes only)
+- **4-AVANI LOAN AGENTS**: Remove exposed API keys from markdown docs
+- **5-AVAVI AI CALLING AGENT**: No code changes needed (documentation-only folder)
+
+---
+
+## Verification Plan
+
+### Automated Tests
+- Run `npm run build` in the frontend directory to verify no build errors
+
+### Manual Verification
+- Verify new Schedule sidebar item appears and links to `/schedule`
+- Verify Inbox sidebar item appears and links to `/inbox`
+- Verify Chatbot opens in new tab
+- Verify Schedule page shows scheduled campaigns from API
+- Verify dashboard tool card for Schedule is clickable
+- Deploy to Vercel and verify on live site

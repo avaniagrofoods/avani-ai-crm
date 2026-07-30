@@ -1,0 +1,49 @@
+# Integrate OmniDim API Key & Automate Deployment
+
+This plan outlines the steps to securely integrate your provided OmniDim API key across the Avani Loan Services environment, update the relevant documentation, and fully automate the deployment process.
+
+## User Review Required
+
+> [!IMPORTANT]
+> **Automatic Execution**
+> As requested ("do everythings in auto me only"), once you click **Proceed / Approve**, I will execute all the steps below autonomously. I will inject the API keys, commit the changes to Git, push them to GitHub, and trigger the deployment process for `4-AVANI LOAN AGENTS`.
+
+## Open Questions
+
+> [!NOTE]
+> - Do you want the OmniDim API to completely replace Vapi, or should we keep both active side-by-side? (I will keep both configured side-by-side by default so nothing breaks).
+
+## Proposed Changes
+
+### Component 1: `4-AVANI LOAN AGENTS` (Codebase & Environment)
+We will add the new OmniDim API key into your local and production environment settings. Since OmniDim acts as a drop-in replacement/extension for Vapi, we will ensure it is available for outbound AI calling scenarios.
+
+#### [MODIFY] `4-AVANI LOAN AGENTS/.env.local`
+- Inject `OMNIDIM_API_KEY=w-uV11bJBZ3g5icPI-uw97k2Fz8VswFsCUCcMIjBqok` securely into the file.
+- Inject `OMNIDIM_API_KEY` into the standard `.env` file as well.
+
+#### [MODIFY] `4-AVANI LOAN AGENTS/app/api/vapi/route.ts` (or create `omnidim/route.ts`)
+- Ensure the webhook endpoint is capable of authenticating or processing OmniDim requests if they differ from the standard VAPI headers.
+
+### Component 2: `5-AVAVI AI CALLING AGENT` (Documentation)
+We will update the technical documentation to mark Step 2 as completed.
+
+#### [MODIFY] `5-AVAVI AI CALLING AGENT/Avani Loan Services- OmniDimension AI CRM Completed.md`
+- Update the document to reflect that the OmniDim API key (`w-uV11bJBZ3g5icPI-uw97k2Fz8VswFsCUCcMIjBqok`) has been successfully integrated.
+- Remove any placeholder text related to OmniDim account setup.
+
+### Component 3: Git & Deployment Automation
+We will run the following commands sequentially to push your code live:
+1. `git add .` (Stage the environment and documentation changes).
+2. `git commit -m "feat: integrate OmniDim API key and complete Step 2 setup"`
+3. `git push origin main` (This will automatically trigger the build pipeline on Render/Vercel).
+
+---
+
+## Verification Plan
+
+### Automated Tests
+- I will run `git status` to ensure all changes are committed and the working tree is clean.
+
+### Manual Verification
+- Once I complete the execution, you can log in to your Render/Vercel dashboard to verify that the latest commit has been built and deployed successfully.
