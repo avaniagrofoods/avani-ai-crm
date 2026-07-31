@@ -49,8 +49,9 @@ export async function POST(request: Request) {
       }
       return NextResponse.json({ success: true, callId: blandResponse?.call_id || 'unknown' });
     } catch (callError: any) {
-      console.error(`Failed to trigger call for ${name}:`, callError);
-      return NextResponse.json({ error: "Failed to trigger Bland AI call" }, { status: 500 });
+      console.error(`Failed to trigger call for ${name}:`, callError?.response?.data || callError.message);
+      const errorMessage = callError?.response?.data?.message || "Failed to trigger Bland AI call";
+      return NextResponse.json({ error: errorMessage }, { status: 500 });
     }
     
   } catch (error: any) {

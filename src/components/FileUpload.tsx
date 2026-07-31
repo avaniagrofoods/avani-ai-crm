@@ -138,7 +138,12 @@ export default function FileUpload() {
                 if (response.ok) {
                   setResults(prev => prev.map(r => r.id === i ? { ...r, status: "Triggered" } : r));
                 } else {
-                  setResults(prev => prev.map(r => r.id === i ? { ...r, status: "Failed", message: "API Error" } : r));
+                  let errorMsg = "API Error";
+                  try {
+                    const errorData = await response.json();
+                    if (errorData.error) errorMsg = errorData.error;
+                  } catch (e) {}
+                  setResults(prev => prev.map(r => r.id === i ? { ...r, status: "Failed", message: errorMsg } : r));
                 }
               } catch (triggerError) {
                 setResults(prev => prev.map(r => r.id === i ? { ...r, status: "Failed", message: "Network Error" } : r));
