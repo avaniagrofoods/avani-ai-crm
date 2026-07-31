@@ -1,0 +1,65 @@
+# Goal Description
+
+The goal is to synchronize the side panel navigation across three distinct platforms (`frontend-liart-gamma-68`, `avani-ai-crm`, and `avani-loan-agents`) and integrate the system with several powerful third-party services: HubSpot, Google Sheets, Zapier, Google AI Studio, Twilio, Webhooks, OmniDim, and AiSensy. 
+
+Since this requires significant API architecture changes and business logic implementations, I have prepared this implementation plan to ensure everything is built exactly to your specifications.
+
+> [!WARNING]
+> **Extensive Requirements Ahead**
+> Integrating 8 new platforms is a major undertaking. To prevent writing code that does not fit your business flow, I need your guidance on the exact triggers and data mappings for these integrations.
+
+## User Review Required & Open Questions
+
+Please review the following open questions and provide your feedback so I can proceed with the development. 
+
+1. **Sidebar Synchronization:** 
+   - I have found the sidebar code for `frontend-liart-gamma-68` (which points to `3-AVANI AI CRM/frontend/src/components/layout/sidebar.tsx`). It has sections for MAIN, WHATSAPP, MANAGEMENT, TOOLS, and WORKSPACE. 
+   - Should I literally copy this exact sidebar structure and apply it to both `avani-ai-crm` and `avani-loan-agents`? Or are there specific tools that should only appear on specific dashboards?
+
+2. **HubSpot Integration:** 
+   - What data should be sent to HubSpot? (e.g., when a new Lead/Contact is created in the CRM, should it automatically sync to HubSpot?)
+
+3. **Google Sheets & Zapier:**
+   - Should we set up outgoing webhooks (so when a lead comes in, we ping Zapier and append to a Google Sheet)? 
+   - Or do you want a direct Google Sheets API integration (which requires a Google Cloud Service Account JSON key)?
+
+4. **Twilio & AiSensy:**
+   - Are we using Twilio for SMS and AiSensy for WhatsApp? Or Twilio for both?
+   - What triggers a message? (e.g., sending a welcome message to new contacts, or bulk broadcast campaigns?)
+
+5. **Google AI Studio:**
+   - Are we using this to enhance the FAQ Chatbot, summarize transcripts, or draft WhatsApp templates?
+
+## Proposed Changes
+
+### 1. Sidebar Standardization
+#### [MODIFY] `3-AVANI AI CRM/frontend/src/components/layout/sidebar.tsx`
+#### [MODIFY] `4-AVANI LOAN AGENTS/app/components/Sidebar.tsx` (or equivalent layout file)
+- Standardize the CSS, icons, and routing links across all 3 applications so they share a unified look and feel.
+
+### 2. Integration Service Layer (Backend)
+#### [NEW] `3-AVANI AI CRM/backend/src/services/hubspot.ts`
+- Implement HubSpot API client for syncing CRM Contacts to HubSpot.
+#### [NEW] `3-AVANI AI CRM/backend/src/services/twilio.ts`
+- Implement Twilio SMS/WhatsApp sending logic.
+#### [NEW] `3-AVANI AI CRM/backend/src/services/aisensy.ts`
+- Implement AiSensy API client for WhatsApp broadcasts.
+#### [NEW] `3-AVANI AI CRM/backend/src/services/webhook.ts`
+- Implement a generic webhook dispatcher (for Zapier/Make.com integrations).
+#### [NEW] `3-AVANI AI CRM/backend/src/services/google-sheets.ts`
+- Implement Google Sheets App Script / API logic for real-time lead tracking.
+
+### 3. API Routes & Automation Triggers
+#### [NEW] `3-AVANI AI CRM/backend/src/routes/webhooks.ts`
+- Expose endpoints to receive incoming webhooks from OmniDim, Twilio, and AiSensy.
+- Tie the creation of new CRM Contacts to the integration service layer (triggering HubSpot sync, Google Sheets append, and Zapier webhooks simultaneously).
+
+## Verification Plan
+
+### Automated Tests
+- Build and verify the Next.js apps to ensure the sidebar links are correct and don't cause 404s.
+- Test the integration services using mocked API responses.
+
+### Manual Verification
+- Deploy to Vercel and render.com.
+- Perform a test action (like creating a contact) and manually verify that the data appears in HubSpot, Google Sheets, and triggers Zapier/Twilio/AiSensy successfully.
