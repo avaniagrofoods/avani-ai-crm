@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import connectToDatabase from '@/lib/db';
 import { query } from '@/lib/postgres';
-import { triggerBlandCall } from '@/lib/bland';
 
 export async function POST(request: Request) {
   try {

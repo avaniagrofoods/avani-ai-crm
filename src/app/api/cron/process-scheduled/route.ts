@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { query } from '@/lib/postgres';
-import { triggerBlandCall } from '@/lib/bland';
+import { triggerOmnidimCall } from '@/lib/omnidim';
 
 export async function GET() {
   try {
@@ -33,7 +33,7 @@ export async function GET() {
             formattedPhone = formattedPhone.length === 10 ? '+91' + formattedPhone : '+' + formattedPhone;
           }
           try {
-            await triggerBlandCall(formattedPhone, name, loanType);
+            await triggerOmnidimCall(formattedPhone, name, loanType);
           } catch (err: any) {
             console.error(`Scheduled call error for ${name}:`, err.message);
           }

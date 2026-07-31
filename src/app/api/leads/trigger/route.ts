@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import connectToDatabase from '@/lib/db';
 import { Lead } from '@/models/Lead';
-import { triggerBlandCall } from '@/lib/bland';
+import { triggerOmnidimCall } from '@/lib/omnidim';
 
 export async function POST(request: Request) {
   try {
@@ -41,16 +41,16 @@ export async function POST(request: Request) {
     }
     
     try {
-      const blandResponse = await triggerBlandCall(formattedPhone, name, loanType);
+      const omnidimResponse = await triggerOmnidimCall(formattedPhone, name, loanType);
       
-      if (blandResponse && blandResponse.call_id && newLead.save) {
-        newLead.callId = blandResponse.call_id;
+      if (omnidimResponse && omnidimResponse.call_id && newLead.save) {
+        newLead.callId = omnidimResponse.call_id;
         await newLead.save();
       }
-      return NextResponse.json({ success: true, callId: blandResponse?.call_id || 'unknown' });
+      return NextResponse.json({ success: true, callId: omnidimResponse?.call_id || 'unknown' });
     } catch (callError: any) {
       console.error(`Failed to trigger call for ${name}:`, callError?.response?.data || callError.message);
-      const errorMessage = callError?.response?.data?.message || "Failed to trigger Bland AI call";
+      const errorMessage = callError?.response?.data?.message || "Failed to trigger OmniDim AI call";
       return NextResponse.json({ error: errorMessage }, { status: 500 });
     }
     
