@@ -13,9 +13,9 @@ export async function POST(request: Request) {
     }
     
     const body = await request.json();
-    const { name, phone, loanType } = body;
+    const { name, phone, loanType = 'Personal Loan' } = body;
     
-    if (!name || !phone || !loanType) {
+    if (!name || !phone) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
     }
     
