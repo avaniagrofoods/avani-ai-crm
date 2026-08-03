@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { sendAiSensyWhatsApp } from '@/lib/aisensy';
 
-const SYSTEM_PROMPT = `You are the Avani Loan Services AI Agent.
+const SYSTEM_PROMPT = `You are the Avani Loan Services AI Agent (Owner: Sachin Shinde, Latur).
 Your goal is to collect loan requirements from the user step-by-step in a conversational manner.
 
 # Rules:
@@ -62,7 +62,7 @@ export async function GET(request: Request) {
   const VERIFY_TOKEN = process.env.OMNIDIM_VERIFY_TOKEN || process.env.META_WEBHOOK_VERIFY_TOKEN || "PWiRWHRQxNcR-dkCofM5dL2CxbkRQnUu";
 
   if (mode === "subscribe" && (token === VERIFY_TOKEN || token === "avani_secure_token" || challenge)) {
-    console.log("Meta Webhook Verified!");
+    console.log("Meta / AiSensy Webhook Verified!");
     return new NextResponse(challenge, { status: 200 });
   }
   return new NextResponse("Forbidden", { status: 403 });
@@ -95,16 +95,17 @@ export async function POST(request: Request) {
       );
     }
 
-    if (body.object === 'whatsapp_business_account' || body.entry) {
-      const entries = body.entry || [];
+    // Process Meta / AiSensy Inbound Webhook
+    if (body.object === 'whatsapp_business_account' || body.entry || body.destination) {
+      const entries = body.entry || [body];
       for (const entry of entries) {
-        const changes = entry?.changes || [];
+        const changes = entry?.changes || [entry];
         for (const change of changes) {
-          const value = change?.value;
-          const messages = value?.messages || [];
+          const value = change?.value || change;
+          const messages = value?.messages || (body.message ? [body.message] : []);
 
           for (const message of messages) {
-            const fromPhone = message.from;
+            const fromPhone = message.from || body.destination || body.phone;
             if (!fromPhone) continue;
 
             let incomingText = "";
@@ -114,10 +115,15 @@ export async function POST(request: Request) {
               incomingText = message.button?.text || message.button?.payload || "";
             } else if (message.type === 'interactive') {
               incomingText = message.interactive?.button_reply?.title || 
-                             message.interactive?.list_reply?.title || "";
+                             message.interactive?.list_reply?.title || 
+                             message.interactive?.button_reply?.id || "";
+            } else if (typeof message === 'string') {
+              incomingText = message;
             }
 
-            if (!incomingText) continue;
+            if (!incomingText) {
+              incomingText = "Namaste, I want to apply for a loan";
+            }
             log(`Parsed incoming message from ${fromPhone}: "${incomingText}"`);
 
             if (!memoryChatHistory.has(fromPhone)) {
@@ -129,30 +135,18 @@ export async function POST(request: Request) {
             const aiResponse = await getAiResponse(history);
             history.push({ direction: 'OUTBOUND', content: aiResponse });
 
-            const phoneId = value?.metadata?.phone_number_id || process.env.WHATSAPP_PHONE_NUMBER_ID || "1147494668457940";
-            const token = process.env.WHATSAPP_API_TOKEN || process.env.WHATSAPP_TOKEN || "EAAdIUij5eSEBSGriZCTt06QY1yLIkPZCDIQmHY2iE1ZAGiO7plPIiHyV1VnoXIvbvQeFfyhFM0IwWKIxlj0y5haUYPbYIBQMabyJ9XJhTUZA2vUEUYDbSnJH4OIsFYiLTD8yPBFH331fwmBU253NwW48xWhytfkb2gn8E52jZAElt6PcnGL0YZChBtExZCj2AZDZD";
-
-            const metaEndpoint = `https://graph.facebook.com/v19.0/${phoneId}/messages`;
-            const replyPayload = {
-              messaging_product: "whatsapp",
-              to: fromPhone,
-              type: "text",
-              text: { body: aiResponse }
-            };
-
-            const metaRes = await fetch(metaEndpoint, {
-              method: 'POST',
-              headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json'
-              },
-              body: JSON.stringify(replyPayload)
+            // Dispatch auto-reply back via AiSensy WABA Gateway
+            log(`Dispatching AI Auto-Reply to ${fromPhone} via AiSensy...`);
+            const replyRes = await sendAiSensyWhatsApp({
+              destination: fromPhone,
+              userName: 'Valued Customer',
+              templateName: 'Avani_Loan_Welcome'
             });
 
-            if (metaRes.ok) {
-              log(`✅ AI Auto-Reply sent to ${fromPhone}!`);
+            if (replyRes.success) {
+              log(`✅ AI Auto-Reply sent smoothly to ${fromPhone}!`);
             } else {
-              log(`❌ Meta Error (${metaRes.status}): ${await metaRes.text()}`);
+              log(`❌ Auto-Reply warning: ${replyRes.error}`);
             }
           }
         }

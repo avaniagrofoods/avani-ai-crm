@@ -23,7 +23,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    console.log("OmniDim AI Webhook Received:", JSON.stringify(body, null, 2));
+    console.log("OmniDM AI Webhook Event Received:", JSON.stringify(body, null, 2));
 
     try {
       await connectToDatabase();
@@ -31,11 +31,11 @@ export async function POST(req: Request) {
       console.warn("DB Connection warning:", dbErr);
     }
 
-    const callId = body.call_id || body.id;
-    const phone = body.to || body.phone_number || body.request_data?.phone;
+    const callId = body.call_id || body.id || body.requestId;
+    const phone = body.to || body.to_number || body.phone_number || body.request_data?.phone;
     const isCompleted = body.completed || body.status === 'completed' || body.event === 'call_ended';
     const variables = body.variables || body.request_data || {};
-    const name = variables.customerName || variables.name || 'Customer';
+    const name = variables.customerName || variables.name || 'Valued Customer';
     const loanType = variables.loanType || 'Personal Loan';
 
     let lead: any = null;
@@ -47,8 +47,8 @@ export async function POST(req: Request) {
       }
     } catch (e) { console.warn("Lead query warning:", e); }
 
-    const status = isCompleted ? 'Contacted' : 'Failed';
-    const notes = body.summary || body.transcript || 'OmniDM Voice Call completed';
+    const status = isCompleted ? 'Contacted' : 'Follow Up Required';
+    const notes = body.summary || body.transcript || `OmniDM AI Voice Call event: ${body.status || body.event || 'ended'}`;
 
     if (lead) {
       lead.status = status;
@@ -62,7 +62,7 @@ export async function POST(req: Request) {
       loanType,
       status,
       notes,
-      source: 'OmniDim Voice AI'
+      source: 'OmniDM Voice AI'
     };
 
     // 1. HubSpot Integration
@@ -91,21 +91,23 @@ export async function POST(req: Request) {
       } catch (e) { console.error("Zapier/Sheets Sync Error", e); }
     }
 
-    // 3. AiSensy WhatsApp Message
-    if (isCompleted && phone) {
+    // 3. Post-Call WhatsApp Follow-up (Dispatched for ALL call outcomes: completed, missed, ended, or failed)
+    if (phone) {
       try {
+        console.log(`[Post-Call WhatsApp] Triggering WhatsApp follow-up for ${phone}...`);
         await sendAiSensyWhatsApp({
           destination: phone,
           userName: name,
-          templateName: 'Avani_Loan_Welcome',
-          templateParams: [name, loanType]
+          templateName: 'Avani_Loan_Welcome'
         });
-      } catch (e) { console.error("WhatsApp Trigger Error", e); }
+      } catch (waErr: any) {
+        console.error("Post-Call WhatsApp Error:", waErr.message);
+      }
     }
 
-    return NextResponse.json({ success: true, message: "OmniDM Webhook processed" });
+    return NextResponse.json({ success: true, callId, status });
   } catch (error: any) {
-    console.error("Error processing OmniDim AI webhook:", error);
-    return NextResponse.json({ success: false, error: "Webhook processing failed" }, { status: 500 });
+    console.error("OmniDM Webhook Error:", error.message);
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
