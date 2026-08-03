@@ -107,7 +107,7 @@ export async function sendAiSensyWhatsApp(payload: AiSensyMessagePayload): Promi
   }
 
   // 3. Fallback to Meta Official WhatsApp API
-  const metaToken = process.env.WHATSAPP_TOKEN || process.env.WHATSAPP_API_TOKEN || "EAAdIUij5eSEBSGriZCTt06QY1yLIkPZCDIQmHY2iE1ZAGiO7plPIiHyV1VnoXIvbvQeFfyhFM0IwWKIxlj0y5haUYPbYIBQMabyJ9XJhTUZA2vUEUYDbSnJH4OIsFYiLTD8yPBFH331fwmBU253NwW48xWhytfkb2gn8E52jZAElt6PcnGL0YZChBtExZCj2AZDZD";
+  const metaToken = process.env.WHATSAPP_TOKEN || process.env.WHATSAPP_API_TOKEN || "EAAdIUij5eSEBSIp6Ai6MbYok1taDXSYFxMddZCKK0Pk4dZCNUPkWLJkbOSxOkEeteUrFTM6Auuc24JBedbwJwP62y05eiHVTJLVjzrZAZBeZA7vjlCUY2QV30qSq3SAiIVvJZBUaDmlO4odoJa2KB5s9KFUdaCWIuRyZAbKppuZBTK9qGEL7EBqy7UkpjxFscgZDZD";
   const phoneId = process.env.WHATSAPP_PHONE_NUMBER_ID || '1147494668457940';
 
   if (metaToken && phoneId) {
