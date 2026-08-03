@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { sendAiSensyWhatsApp } from '@/lib/aisensy';
 
 const SYSTEM_PROMPT = `You are the Avani Loan Services AI Agent.
 Your goal is to collect loan requirements from the user step-by-step in a conversational manner.
@@ -58,9 +59,9 @@ export async function GET(request: Request) {
   const token = searchParams.get("hub.verify_token");
   const challenge = searchParams.get("hub.challenge");
 
-  const VERIFY_TOKEN = process.env.META_WEBHOOK_VERIFY_TOKEN || "avani_secure_token";
+  const VERIFY_TOKEN = process.env.OMNIDIM_VERIFY_TOKEN || process.env.META_WEBHOOK_VERIFY_TOKEN || "PWiRWHRQxNcR-dkCofM5dL2CxbkRQnUu";
 
-  if (mode === "subscribe" && (token === VERIFY_TOKEN || challenge)) {
+  if (mode === "subscribe" && (token === VERIFY_TOKEN || token === "avani_secure_token" || challenge)) {
     console.log("Meta Webhook Verified!");
     return new NextResponse(challenge, { status: 200 });
   }
@@ -74,6 +75,22 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
     log("Received Webhook Payload: " + JSON.stringify(body).substring(0, 300));
+
+    // Support internal dispatch event from Broadcast UI
+    if (body.event === 'send_template' || body.phone) {
+      const targetPhone = body.phone || body.destination;
+      const targetName = body.name || body.userName || 'Valued Customer';
+      const templateName = body.template || body.templateName || 'Avani_Loan_Welcome';
+
+      log(`[Direct Dispatch] Dispatching WhatsApp to ${targetPhone} (${targetName})`);
+      const res = await sendAiSensyWhatsApp({
+        destination: targetPhone,
+        userName: targetName,
+        templateName: templateName
+      });
+
+      return NextResponse.json({ success: res.success, result: res, debugLogs });
+    }
 
     if (body.object === 'whatsapp_business_account' || body.entry) {
       const entries = body.entry || [];
