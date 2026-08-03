@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Upload, Send, CheckCircle2, AlertCircle, RefreshCw, PhoneCall, FileSpreadsheet, Users, ShieldCheck } from "lucide-react";
+import { Upload, Send, CheckCircle2, AlertCircle, RefreshCw, PhoneCall, FileSpreadsheet, Users, ShieldCheck, HelpCircle } from "lucide-react";
 
 export default function BroadcastsPage() {
   const [csvFileName, setCsvFileName] = useState("");
@@ -95,7 +95,7 @@ export default function BroadcastsPage() {
     let failedCount = 0;
     const sendLogs: any[] = [];
 
-    const API_BASE = typeof window !== 'undefined' ? `${window.location.origin}/api` : 'https://avani-ai-crm.vercel.app/api';
+    const API_BASE = typeof window !== 'undefined' ? `${window.location.origin}/api` : '/api';
 
     for (let i = 0; i < contacts.length; i++) {
       const contact = contacts[i];
@@ -113,12 +113,15 @@ export default function BroadcastsPage() {
             })
           });
 
-          if (res.ok) {
+          const data = await res.json().catch(() => ({ success: false, error: "Invalid API JSON response" }));
+
+          if (res.ok && data.success) {
             successCount++;
-            sendLogs.unshift({ phone: contact.phone, name: contact.name, status: "SUCCESS", message: "WhatsApp message delivered" });
+            sendLogs.unshift({ phone: contact.phone, name: contact.name, status: "SUCCESS", message: "WhatsApp message dispatched successfully" });
           } else {
             failedCount++;
-            sendLogs.unshift({ phone: contact.phone, name: contact.name, status: "FAILED", message: "Delivery failed" });
+            const errMsg = data.error || data.result?.error || "Delivery failed (Check Provider Credentials)";
+            sendLogs.unshift({ phone: contact.phone, name: contact.name, status: "FAILED", message: errMsg });
           }
         } else {
           // Voice Call Broadcast via OmniDM
@@ -132,17 +135,20 @@ export default function BroadcastsPage() {
             })
           });
 
-          if (res.ok) {
+          const data = await res.json().catch(() => ({ success: false, error: "Invalid API JSON response" }));
+
+          if (res.ok && data.success) {
             successCount++;
-            sendLogs.unshift({ phone: contact.phone, name: contact.name, status: "SUCCESS", message: "OmniDM AI Voice Call dispatched" });
+            sendLogs.unshift({ phone: contact.phone, name: contact.name, status: "SUCCESS", message: "OmniDM AI Voice Call dispatched successfully" });
           } else {
             failedCount++;
-            sendLogs.unshift({ phone: contact.phone, name: contact.name, status: "FAILED", message: "OmniDM Dispatch failed" });
+            const errMsg = data.error || data.message || "OmniDM Dispatch failed (Check API Key / Agent ID)";
+            sendLogs.unshift({ phone: contact.phone, name: contact.name, status: "FAILED", message: errMsg });
           }
         }
       } catch (err: any) {
         failedCount++;
-        sendLogs.unshift({ phone: contact.phone, name: contact.name, status: "FAILED", message: err.message });
+        sendLogs.unshift({ phone: contact.phone, name: contact.name, status: "FAILED", message: err.message || "Network Error" });
       }
 
       const pct = Math.round(((i + 1) / contacts.length) * 100);
@@ -186,7 +192,7 @@ export default function BroadcastsPage() {
                   broadcastType === "whatsapp" ? "bg-emerald-600 text-white shadow-lg shadow-emerald-950" : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700"
                 }`}
               >
-                <Send className="w-4 h-4" /> WhatsApp (AiSensy)
+                <Send className="w-4 h-4" /> WhatsApp (AiSensy/Meta)
               </button>
               <button
                 onClick={() => setBroadcastType("voice")}
@@ -285,9 +291,12 @@ export default function BroadcastsPage() {
                 <div className="text-zinc-600 text-center py-20">Upload a CSV file and click "Launch Broadcast" to see real-time dispatch logs.</div>
               ) : (
                 logs.map((log, idx) => (
-                  <div key={idx} className={`p-2 rounded border flex justify-between items-center ${log.status === "SUCCESS" ? "bg-emerald-950/30 border-emerald-900/50 text-emerald-400" : "bg-red-950/30 border-red-900/50 text-red-400"}`}>
-                    <span>[{log.phone}] {log.name}</span>
-                    <span className="font-bold">{log.message}</span>
+                  <div key={idx} className={`p-2.5 rounded border flex flex-col gap-1 ${log.status === "SUCCESS" ? "bg-emerald-950/30 border-emerald-900/50 text-emerald-400" : "bg-red-950/30 border-red-900/50 text-red-400"}`}>
+                    <div className="flex justify-between items-center font-bold">
+                      <span>[{log.phone}] {log.name}</span>
+                      <span className="px-2 py-0.5 rounded text-[10px] bg-black border border-current">{log.status}</span>
+                    </div>
+                    <div className="text-[11px] opacity-90">{log.message}</div>
                   </div>
                 ))
               )}

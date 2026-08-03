@@ -89,7 +89,10 @@ export async function POST(request: Request) {
         templateName: templateName
       });
 
-      return NextResponse.json({ success: res.success, result: res, debugLogs });
+      return NextResponse.json(
+        { success: res.success, error: res.error, result: res, debugLogs },
+        { status: res.success ? 200 : 400 }
+      );
     }
 
     if (body.object === 'whatsapp_business_account' || body.entry) {
@@ -159,6 +162,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: true, debugLogs });
   } catch (err: any) {
     log("Webhook Error: " + err?.message);
-    return NextResponse.json({ success: true, debugLogs });
+    return NextResponse.json({ success: false, error: err?.message, debugLogs }, { status: 500 });
   }
 }
