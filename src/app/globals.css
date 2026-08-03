@@ -1,6 +1,4 @@
 @import "tailwindcss";
-@import "tw-animate-css";
-@import "shadcn/tailwind.css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -84,13 +82,13 @@
 }
 
 .dark {
-  --background: oklch(0.2 0.02 260); /* Navy Blue */
-  --foreground: oklch(0.95 0.01 260); /* Off White */
+  --background: oklch(0.2 0.02 260);
+  --foreground: oklch(0.95 0.01 260);
   --card: oklch(0.25 0.02 260);
   --card-foreground: oklch(0.95 0.01 260);
   --popover: oklch(0.25 0.02 260);
   --popover-foreground: oklch(0.95 0.01 260);
-  --primary: oklch(0.6 0.15 150); /* Green accent */
+  --primary: oklch(0.6 0.15 150);
   --primary-foreground: oklch(0.985 0 0);
   --secondary: oklch(0.3 0.02 260);
   --secondary-foreground: oklch(0.95 0.01 260);
@@ -101,30 +99,18 @@
   --destructive: oklch(0.704 0.191 22.216);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.6 0.15 150); /* Green accent */
+  --ring: oklch(0.6 0.15 150);
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.18 0.02 260); /* Slightly darker Navy for sidebar */
+  --sidebar: oklch(0.18 0.02 260);
   --sidebar-foreground: oklch(0.95 0.01 260);
-  --sidebar-primary: oklch(0.6 0.15 150); /* Green accent */
+  --sidebar-primary: oklch(0.6 0.15 150);
   --sidebar-primary-foreground: oklch(0.985 0 0);
   --sidebar-accent: oklch(0.25 0.02 260);
   --sidebar-accent-foreground: oklch(0.95 0.01 260);
   --sidebar-border: oklch(1 0 0 / 5%);
-  --sidebar-ring: oklch(0.6 0.15 150); /* Green accent */
-}
-
-@layer base {
-  * {
-    @apply border-border outline-ring/50;
-  }
-  body {
-    @apply bg-background text-foreground;
-  }
-  html {
-    @apply font-sans;
-  }
+  --sidebar-ring: oklch(0.6 0.15 150);
 }
