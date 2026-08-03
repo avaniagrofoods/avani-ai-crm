@@ -40,7 +40,7 @@ export async function POST(request: Request) {
     }
     
     try {
-      const omnidimResponse = await triggerOmnidimCall(formattedPhone, name, effectiveLoanType, language || 'hi');
+      const omnidimResponse = await triggerOmnidimCall(formattedPhone, name, effectiveLoanType, language || 'mr');
       
       if (omnidimResponse && omnidimResponse.call_id && newLead.save) {
         newLead.callId = omnidimResponse.call_id;
@@ -48,8 +48,8 @@ export async function POST(request: Request) {
       }
       return NextResponse.json({ success: true, callId: omnidimResponse?.call_id || 'dispatched' });
     } catch (callError: any) {
-      console.error(`Failed to trigger call for ${name}:`, callError?.response?.data || callError.message);
-      return NextResponse.json({ success: true, message: "Call queued", callId: 'queued_' + Date.now() });
+      console.error(`Failed to trigger OmniDM call for ${name}:`, callError?.response?.data || callError.message);
+      return NextResponse.json({ success: false, error: callError.message || "OmniDM Dispatch Failed" }, { status: 400 });
     }
     
   } catch (error: any) {
