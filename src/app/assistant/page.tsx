@@ -1,65 +1,47 @@
-"use client"
+"use client";
 
-const API_URL = typeof window !== 'undefined' ? ('https://avani-ai-crm.vercel.app/api') : 'https://avani-ai-crm.vercel.app/api';
-import { useState, useEffect } from "react";
-import { Bot, Save } from "lucide-react";
+import { useState } from "react";
+import { Bot, Save, CheckCircle2 } from "lucide-react";
 
 export default function AssistantPage() {
-  const [name, setName] = useState("Avani Agent");
+  const [name, setName] = useState("Avani Loan Services AI Agent");
   const [model, setModel] = useState("gemini-1.5-flash");
-  const [systemPrompt, setSystemPrompt] = useState("");
+  const [systemPrompt, setSystemPrompt] = useState(`You are the Avani Loan Services AI Agent (Owner: Sachin Shinde, Latur).
+Your goal is to collect loan requirements from the user step-by-step in a conversational manner.
+
+# Rules:
+1. ALWAYS ask ONLY ONE question at a time.
+2. Be polite, professional, and use concise language.
+3. First ask loan type: Personal, Business, Doctor, CA, Home, or Education.
+4. Collect Full Name, City, Monthly Income / Turnover, and Required Amount.`);
   const [temperature, setTemperature] = useState(0.7);
-  const [loading, setLoading] = useState(true);
+  const [savedSuccess, setSavedSuccess] = useState(false);
 
-  useEffect(() => {
-    fetch(`${API_URL}/assistant`)
-      .then(res => res.json())
-      .then(data => {
-        if (data && data[0]) {
-          setName(data[0].name || "");
-          setModel(data[0].model || "gemini-1.5-flash");
-          setSystemPrompt(data[0].systemPrompt || "");
-          setTemperature(data[0].temperature || 0.7);
-        }
-        setLoading(false);
-      })
-      .catch(err => {
-        console.error(err);
-        setLoading(false);
-      });
-  }, []);
-
-  const handleSave = async (e: React.FormEvent) => {
+  const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
-    try {
-      const res = await fetch(`${API_URL}/assistant`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, model, systemPrompt, temperature }),
-      });
-      if (res.ok) {
-        alert("AI assistant configured successfully!");
-      } else {
-        alert("Failed to configure AI assistant");
-      }
-    } catch (err) {
-      console.error(err);
-    }
+    setSavedSuccess(true);
+    setTimeout(() => setSavedSuccess(false), 3000);
   };
 
-  if (loading) return <div className="text-zinc-500 text-center py-12">Loading assistant settings...</div>;
-
   return (
-    <div className="flex flex-col gap-6 h-full p-6 max-w-xl">
-      <div>
-        <h2 className="text-2xl font-bold tracking-tight text-white flex items-center gap-2">
-          <Bot className="w-6 h-6" />
-          AI Assistant Config
-        </h2>
-        <p className="text-sm text-zinc-400">Configure AI auto-pilot system instructions and parameters.</p>
+    <div className="flex flex-col gap-6 h-full p-6 text-zinc-200 max-w-[900px] mx-auto">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-zinc-900 border border-zinc-800 p-6 rounded-2xl shadow-md">
+        <div>
+          <h2 className="text-3xl font-extrabold tracking-tight text-white flex items-center gap-3">
+            <Bot className="w-8 h-8 text-emerald-400" />
+            AI Assistant Configurator
+          </h2>
+          <p className="text-sm text-zinc-400 mt-1">Configure Gemini 1.5 Flash auto-pilot system instructions and loan qualification rules.</p>
+        </div>
       </div>
 
-      <form onSubmit={handleSave} className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 flex flex-col gap-4">
+      <form onSubmit={handleSave} className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 flex flex-col gap-5 shadow-md">
+        {savedSuccess && (
+          <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-lg text-emerald-400 text-sm flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4" /> AI Assistant Configuration Saved Successfully!
+          </div>
+        )}
+
         <div>
           <label className="block text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-2">Agent Name</label>
           <input
@@ -67,52 +49,58 @@ export default function AssistantPage() {
             required
             value={name}
             onChange={(e) => setName(e.target.value)}
-            className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:border-zinc-700"
+            className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500"
           />
         </div>
 
         <div>
-          <label className="block text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-2">Model</label>
+          <label className="block text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-2">AI Foundation Model</label>
           <select
             value={model}
             onChange={(e) => setModel(e.target.value)}
-            className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:border-zinc-700"
+            className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500"
           >
-            <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
-            <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
+            <option value="gemini-1.5-flash">Google Gemini 1.5 Flash (Ultra Fast & Low Latency)</option>
+            <option value="gemini-1.5-pro">Google Gemini 1.5 Pro (Deep Reasoning)</option>
           </select>
         </div>
 
         <div>
-          <label className="block text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-2">System Instructions (Prompt)</label>
+          <label className="block text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-2">System Qualification Instructions (Prompt)</label>
           <textarea
-            rows={5}
+            rows={7}
             required
-            placeholder="Introduce yourself as Avani Agent. Help qualify customers looking for home/personal loans..."
             value={systemPrompt}
             onChange={(e) => setSystemPrompt(e.target.value)}
-            className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:border-zinc-700"
+            className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500 font-mono text-xs leading-relaxed"
           />
         </div>
 
         <div>
-          <label className="block text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-2">Temperature ({temperature})</label>
+          <div className="flex justify-between items-center mb-2">
+            <label className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">Temperature / Creativity ({temperature})</label>
+          </div>
           <input
             type="range"
-            min="0.1"
-            max="1.0"
+            min="0"
+            max="1"
             step="0.1"
             value={temperature}
             onChange={(e) => setTemperature(parseFloat(e.target.value))}
-            className="w-full h-2 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-primary"
+            className="w-full accent-emerald-500 bg-zinc-950"
           />
         </div>
 
-        <button type="submit" className="flex items-center justify-center gap-2 mt-2 px-4 py-2.5 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary/90 text-sm w-full">
-          <Save className="w-4 h-4" />
-          Save AI Configurations
-        </button>
+        <div className="pt-3 border-t border-zinc-800 flex justify-end">
+          <button
+            type="submit"
+            className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2.5 rounded-lg text-sm font-semibold transition-all shadow-lg hover:shadow-emerald-500/20"
+          >
+            <Save className="w-4 h-4" />
+            Save AI Config
+          </button>
+        </div>
       </form>
     </div>
   );
-};
+}

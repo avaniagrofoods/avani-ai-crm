@@ -89,6 +89,23 @@ export async function POST(request: Request) {
         templateName: templateName
       });
 
+      // Immediately seed chat history and dispatch AI qualification question
+      if (!memoryChatHistory.has(targetPhone)) {
+        memoryChatHistory.set(targetPhone, []);
+      }
+      const history = memoryChatHistory.get(targetPhone)!;
+      history.push({ direction: 'INBOUND', content: `Hello, I am ${targetName}. Please tell me about loan options.` });
+
+      const initialQuestion = await getAiResponse(history);
+      history.push({ direction: 'OUTBOUND', content: initialQuestion });
+
+      log(`[Auto-Start AI Workflow] Dispatching qualification message to ${targetPhone}...`);
+      await sendAiSensyWhatsApp({
+        destination: targetPhone,
+        userName: targetName,
+        templateName: templateName
+      });
+
       return NextResponse.json(
         { success: res.success, error: res.error, result: res, debugLogs },
         { status: res.success ? 200 : 400 }

@@ -1,8 +1,7 @@
 "use client";
-import { useState, useEffect } from "react";
-import { Plus, ClipboardList, Eye, Trash2 } from "lucide-react";
 
-const API_URL = typeof window !== 'undefined' ? ('https://avani-ai-crm.vercel.app/api') : 'https://avani-ai-crm.vercel.app/api';
+import { useState, useEffect } from "react";
+import { Plus, ClipboardList, Eye, Trash2, X, CheckCircle } from "lucide-react";
 
 const preconfiguredForms = [
   {
@@ -71,161 +70,199 @@ const preconfiguredForms = [
 ];
 
 export default function FormsPage() {
-  const [items, setItems] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [items, setItems] = useState<any[]>(preconfiguredForms);
   const [selectedForm, setSelectedForm] = useState<any>(null);
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
 
-  const fetchItems = async () => {
-    try {
-      const response = await fetch(`${API_URL}/forms`);
-      if (response.ok) {
-        const data = await response.json();
-        // Merge DB forms with preconfigured ones
-        setItems([...preconfiguredForms, ...data]);
-      } else {
-        setItems(preconfiguredForms);
-      }
-    } catch (error) {
-      console.error(error);
-      setItems(preconfiguredForms);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const [formName, setFormName] = useState("");
+  const [fields, setFields] = useState("");
+  const [assignment, setAssignment] = useState("Personal Loan Team");
+  const [docs, setDocs] = useState("");
 
-  useEffect(() => {
-    fetchItems();
-  }, []);
-
-  const handleAdd = async () => {
-    const name = prompt("Enter new custom form name:");
-    if (!name) return;
-    try {
-      const response = await fetch(`${API_URL}/forms`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, fields: "name, phone, query" }),
-      });
-      if (response.ok) {
-        fetchItems();
-      }
-    } catch (error) {
-      console.error(error);
-    }
-  };
-
-  const handleDelete = async (id: string) => {
-    if (id.startsWith('f')) {
-      alert("Pre-configured system templates cannot be deleted.");
+  const handleCreateForm = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formName || !fields) {
+      alert("Please fill in form name and fields.");
       return;
     }
-    if (!confirm("Are you sure?")) return;
-    try {
-      await fetch(`${API_URL}/forms/${id}`, { method: 'DELETE' });
-      fetchItems();
-    } catch (e) {
-      console.error(e);
+
+    const newForm = {
+      id: "f_" + Date.now(),
+      name: formName,
+      fields,
+      assignment,
+      docs: docs || "PAN Card, Aadhaar Card, Income Proof"
+    };
+
+    setItems([newForm, ...items]);
+    setFormName("");
+    setFields("");
+    setDocs("");
+    setIsCreateModalOpen(false);
+  };
+
+  const handleDelete = (id: string) => {
+    if (id.startsWith('f') && id.length < 5) {
+      alert("Pre-configured system forms cannot be deleted.");
+      return;
     }
+    setItems(items.filter(item => item.id !== id));
   };
 
   return (
-    <div className="flex flex-col gap-6 h-full p-6">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+    <div className="flex flex-col gap-6 h-full p-6 text-zinc-200 max-w-[1200px] mx-auto">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-zinc-900 border border-zinc-800 p-6 rounded-2xl shadow-md">
         <div>
-          <h2 className="text-3xl font-extrabold tracking-tight text-white flex items-center gap-2">
-            <ClipboardList className="w-8 h-8 text-primary" />
+          <h2 className="text-3xl font-extrabold tracking-tight text-white flex items-center gap-3">
+            <ClipboardList className="w-8 h-8 text-emerald-400" />
             Meta WhatsApp Lead Forms
           </h2>
           <p className="text-sm text-zinc-400 mt-1">Pre-configured forms for Meta Instant Lead Ads and in-chat validation.</p>
         </div>
-        <button onClick={handleAdd} className="px-4 py-2.5 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary/90 text-sm">
-          Create Custom Form
+        <button 
+          onClick={() => setIsCreateModalOpen(true)}
+          className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-lg text-sm font-semibold transition-all shadow-lg hover:shadow-emerald-500/20"
+        >
+          <Plus className="w-4 h-4" />
+          Create Form
         </button>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Forms Table */}
-        <div className="lg:col-span-2 bg-zinc-900 border border-zinc-800 rounded-2xl flex flex-col overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm text-left text-zinc-400">
-              <thead className="text-xs text-zinc-300 uppercase bg-zinc-850/60 border-b border-zinc-800">
-                <tr>
-                  <th className="px-6 py-4 font-semibold">Form Name</th>
-                  <th className="px-6 py-4 font-semibold">Team Route</th>
-                  <th className="px-6 py-4 font-semibold text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((item) => (
-                  <tr key={item.id} className="border-b border-zinc-800 hover:bg-zinc-850/30 transition-colors">
-                    <td className="px-6 py-4 font-bold text-zinc-200">{item.name}</td>
-                    <td className="px-6 py-4 text-xs font-mono text-zinc-400">
-                      {item.assignment || "Round-Robin Router"}
-                    </td>
-                    <td className="px-6 py-4 text-right flex justify-end gap-2">
-                      <a 
-                        href={`/forms/details?id=${item.id}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-primary hover:text-primary/80 p-2 hover:bg-primary/10 rounded transition-colors text-xs font-semibold flex items-center gap-1"
-                      >
-                        <Eye className="w-4 h-4" />
-                        Details
-                      </a>
-                      <button 
-                        onClick={() => handleDelete(item.id)}
-                        className="text-red-400 hover:text-red-300 p-2 hover:bg-red-400/10 rounded transition-colors"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </td>
-                  </tr>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {items.map((form) => (
+          <div key={form.id} className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 flex flex-col justify-between hover:border-zinc-700 transition-colors shadow-md">
+            <div>
+              <div className="flex justify-between items-start mb-3">
+                <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                  {form.assignment}
+                </span>
+              </div>
+              <h3 className="font-bold text-white text-base mb-2">{form.name}</h3>
+              <p className="text-xs text-zinc-400 bg-zinc-950/60 p-3 rounded-lg border border-zinc-800/80 mb-3 font-mono leading-relaxed">
+                {form.fields}
+              </p>
+              <p className="text-xs text-zinc-500">
+                <strong className="text-zinc-400">Required Docs:</strong> {form.docs}
+              </p>
+            </div>
+            <div className="flex justify-between items-center mt-4 pt-3 border-t border-zinc-800/80">
+              <button 
+                onClick={() => setSelectedForm(form)}
+                className="text-xs text-indigo-400 hover:text-indigo-300 font-medium flex items-center gap-1 bg-indigo-500/10 px-3 py-1.5 rounded-lg border border-indigo-500/20 transition-colors"
+              >
+                <Eye className="w-3.5 h-3.5" /> Preview Form
+              </button>
+              <button 
+                onClick={() => handleDelete(form.id)}
+                className="text-red-400 hover:text-red-300 p-1.5 hover:bg-red-400/10 rounded transition-colors"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Form Preview Modal */}
+      {selectedForm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-4">
+            <div className="flex justify-between items-center border-b border-zinc-800 pb-3">
+              <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                <ClipboardList className="w-5 h-5 text-emerald-400" />
+                {selectedForm.name}
+              </h3>
+              <button onClick={() => setSelectedForm(null)} className="text-zinc-400 hover:text-white p-1">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs text-zinc-300">
+              <p><strong className="text-white">Assigned Desk:</strong> {selectedForm.assignment}</p>
+              <p><strong className="text-white">Captured Fields:</strong></p>
+              <ul className="list-disc list-inside bg-zinc-950 p-3 rounded-lg border border-zinc-800 font-mono space-y-1">
+                {selectedForm.fields.split(',').map((f: string, i: number) => (
+                  <li key={i}>{f.trim()}</li>
                 ))}
-              </tbody>
-            </table>
+              </ul>
+              <p><strong className="text-white">Required Verification Documents:</strong> {selectedForm.docs}</p>
+            </div>
+
+            <div className="pt-3 border-t border-zinc-800 flex justify-end">
+              <button onClick={() => setSelectedForm(null)} className="bg-zinc-800 hover:bg-zinc-700 text-white px-4 py-2 rounded-lg text-sm font-medium">
+                Close Preview
+              </button>
+            </div>
           </div>
         </div>
+      )}
 
-        {/* Form Details Preview */}
-        <div>
-          {selectedForm ? (
-            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 flex flex-col gap-4">
-              <div className="border-b border-zinc-850 pb-3">
-                <span className="text-[10px] uppercase font-bold tracking-wider text-primary">Form Configuration</span>
-                <h3 className="text-lg font-bold text-white mt-1 leading-tight">{selectedForm.name}</h3>
+      {/* Create Form Modal */}
+      {isCreateModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-4">
+            <div className="flex justify-between items-center border-b border-zinc-800 pb-3">
+              <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                <Plus className="w-5 h-5 text-emerald-400" />
+                Create New Lead Form
+              </h3>
+              <button onClick={() => setIsCreateModalOpen(false)} className="text-zinc-400 hover:text-white p-1">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateForm} className="space-y-4">
+              <div>
+                <label className="text-xs font-medium text-zinc-400 block mb-1">Form Name</label>
+                <input 
+                  type="text" 
+                  value={formName}
+                  onChange={(e) => setFormName(e.target.value)}
+                  placeholder="e.g. AVANI | Professional Loan Form"
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500"
+                  required
+                />
               </div>
 
               <div>
-                <span className="text-[10px] uppercase font-bold text-zinc-500 tracking-wider">Field Schema Details</span>
-                <p className="text-xs text-zinc-300 leading-relaxed mt-1">{selectedForm.fields}</p>
+                <label className="text-xs font-medium text-zinc-400 block mb-1">Form Fields (comma separated)</label>
+                <textarea 
+                  rows={3}
+                  value={fields}
+                  onChange={(e) => setFields(e.target.value)}
+                  placeholder="Full Name, Mobile, Email, Monthly Income, Loan Amount"
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500 font-mono"
+                  required
+                />
               </div>
 
-              {selectedForm.docs && (
-                <div>
-                  <span className="text-[10px] uppercase font-bold text-zinc-500 tracking-wider">Required Documents (WhatsApp Automation)</span>
-                  <ul className="list-disc list-inside text-xs text-zinc-300 flex flex-col gap-1 mt-1 pl-1">
-                    {selectedForm.docs.split(', ').map((doc: string, idx: number) => (
-                      <li key={idx}>{doc}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              <div className="bg-zinc-950 p-4 rounded-xl border border-zinc-800">
-                <span className="text-[9px] uppercase font-bold text-emerald-400 tracking-wider block mb-1">Integration Endpoint (Meta webhook)</span>
-                <code className="text-[10px] text-zinc-400 font-mono break-all">
-                  https://holder-stylish-performed-expanded.trycloudflare.com/whatsapp/webhook
-                </code>
+              <div>
+                <label className="text-xs font-medium text-zinc-400 block mb-1">Assigned Team Desk</label>
+                <select 
+                  value={assignment}
+                  onChange={(e) => setAssignment(e.target.value)}
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500"
+                >
+                  <option value="Personal Loan Team">Personal Loan Team</option>
+                  <option value="Business Loan Desk">Business Loan Desk</option>
+                  <option value="Professional Loan Team">Professional Loan Team</option>
+                  <option value="Home Loan Specialist">Home Loan Specialist</option>
+                  <option value="Mortgage Team">Mortgage Team</option>
+                </select>
               </div>
-            </div>
-          ) : (
-            <div className="bg-zinc-900/40 border border-zinc-800/80 border-dashed rounded-2xl p-8 text-center text-zinc-500 flex flex-col items-center justify-center min-h-[250px]">
-              <ClipboardList className="w-10 h-10 text-zinc-700 mb-3" />
-              <p className="text-xs max-w-xs">Select any WhatsApp form details to inspect fields, document requirements, and route destinations.</p>
-            </div>
-          )}
+
+              <div className="flex justify-end gap-3 pt-3 border-t border-zinc-800">
+                <button type="button" onClick={() => setIsCreateModalOpen(false)} className="px-4 py-2 text-sm text-zinc-400 hover:bg-zinc-800 rounded-lg">
+                  Cancel
+                </button>
+                <button type="submit" className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium">
+                  Save Form
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

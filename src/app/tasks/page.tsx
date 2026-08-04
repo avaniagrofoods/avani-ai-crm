@@ -1,109 +1,166 @@
-"use client"
+"use client";
 
-const API_URL = typeof window !== 'undefined' ? ('https://avani-ai-crm.vercel.app/api') : 'https://avani-ai-crm.vercel.app/api';
-import { useState, useEffect } from "react";
-import { Plus, MoreHorizontal } from "lucide-react";
+import { useState } from "react";
+import { Plus, CheckCircle, Trash2, X } from "lucide-react";
+
+const preconfiguredTasks = [
+  { id: "tk1", title: "Collect GST Returns from Ajay Tech Systems", assignee: "Sachin Shinde", status: "PENDING", createdAt: new Date().toISOString() },
+  { id: "tk2", title: "Verify Dr. Priya Patil Medical Registration", assignee: "Professional Loan Desk", status: "COMPLETED", createdAt: new Date().toISOString() },
+  { id: "tk3", title: "Schedule Home Loan Site Inspection for Rahul", assignee: "Home Loan Team", status: "PENDING", createdAt: new Date().toISOString() },
+  { id: "tk4", title: "CIBIL Score Advisory Call - Ramesh Kumar", assignee: "Credit Counselor", status: "COMPLETED", createdAt: new Date().toISOString() }
+];
 
 export default function TasksPage() {
-  const [items, setItems] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [items, setItems] = useState<any[]>(preconfiguredTasks);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [title, setTitle] = useState("");
+  const [assignee, setAssignee] = useState("Sachin Shinde");
 
-  const fetchData = async () => {
-    try {
-      const response = await fetch(`${API_URL}/tasks`);
-      if (response.ok) {
-        const data = await response.json();
-        setItems(data);
-      }
-    } catch (error) {
-      console.error("Failed to fetch", error);
-    } finally {
-      setLoading(false);
-    }
+  const handleAddTask = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!title) return;
+
+    const newTask = {
+      id: "task_" + Date.now(),
+      title,
+      assignee,
+      status: "PENDING",
+      createdAt: new Date().toISOString()
+    };
+
+    setItems([newTask, ...items]);
+    setTitle("");
+    setIsModalOpen(false);
   };
 
-  useEffect(() => {
-    fetchData();
-  }, []);
-
-  const handleAdd = async () => {
-    const val = prompt("Enter task title:");
-    if (!val) return;
-
-    try {
-      const response = await fetch(`${API_URL}/tasks`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: val }),
-      });
-      if (response.ok) {
-        alert("Tasks added successfully!");
-        fetchData();
-      } else {
-        alert("Failed to add: " + await response.text());
-      }
-    } catch (error) {
-      console.error("Failed to add", error);
-      alert("Error adding item.");
-    }
+  const handleDelete = (id: string) => {
+    setItems(items.filter(item => item.id !== id));
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm("Are you sure you want to delete this item?")) return;
-    try {
-      await fetch(`${API_URL}/tasks/${id}`, { method: 'DELETE' });
-      fetchData();
-    } catch (error) {
-      console.error(error);
-    }
-  }
+  const toggleStatus = (id: string) => {
+    setItems(items.map(item => {
+      if (item.id === id) {
+        return { ...item, status: item.status === "PENDING" ? "COMPLETED" : "PENDING" };
+      }
+      return item;
+    }));
+  };
 
   return (
-    <div className="flex flex-col gap-6 h-full p-6">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+    <div className="flex flex-col gap-6 h-full p-6 text-zinc-200 max-w-[1200px] mx-auto">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-zinc-900 border border-zinc-800 p-6 rounded-2xl shadow-md">
         <div>
-          <h2 className="text-2xl font-bold tracking-tight text-white">Tasks</h2>
-          <p className="text-sm text-zinc-400">Manage your follow-ups and to-dos</p>
+          <h2 className="text-3xl font-extrabold tracking-tight text-white flex items-center gap-3">
+            <CheckCircle className="w-8 h-8 text-emerald-400" />
+            Lead Verification & Follow-up Tasks
+          </h2>
+          <p className="text-sm text-zinc-400 mt-1">Track document collection, site visits, and bank submission tasks.</p>
         </div>
-        <button onClick={handleAdd} className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary/90 text-sm">
+        <button 
+          onClick={() => setIsModalOpen(true)} 
+          className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-lg text-sm font-semibold transition-all shadow-lg hover:shadow-emerald-500/20"
+        >
           <Plus className="w-4 h-4" />
           Add Task
         </button>
       </div>
 
-      <div className="bg-zinc-900 border border-zinc-800 rounded-xl flex flex-col overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm text-left text-zinc-400">
-            <thead className="text-xs text-zinc-300 uppercase bg-zinc-800/50 border-b border-zinc-800">
-              <tr>
-                <th className="px-6 py-4 font-semibold">Title</th>
-                <th className="px-6 py-4 font-semibold">Status</th>
-                <th className="px-6 py-4 font-semibold">Created At</th>
-                <th className="px-6 py-4 font-semibold text-right">Actions</th>
+      <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden shadow-md">
+        <table className="w-full text-sm text-left text-zinc-400">
+          <thead className="text-xs text-zinc-300 uppercase bg-zinc-800/50 border-b border-zinc-800">
+            <tr>
+              <th className="px-6 py-4 font-semibold">Task Title</th>
+              <th className="px-6 py-4 font-semibold">Assigned Specialist</th>
+              <th className="px-6 py-4 font-semibold">Status</th>
+              <th className="px-6 py-4 font-semibold">Created Date</th>
+              <th className="px-6 py-4 font-semibold text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-zinc-800/80">
+            {items.map((item) => (
+              <tr key={item.id} className="hover:bg-zinc-800/30 transition-colors">
+                <td className="px-6 py-4 font-bold text-white flex items-center gap-2">
+                  <input 
+                    type="checkbox" 
+                    checked={item.status === "COMPLETED"} 
+                    onChange={() => toggleStatus(item.id)}
+                    className="rounded border-zinc-700 accent-emerald-500 cursor-pointer"
+                  />
+                  <span className={item.status === "COMPLETED" ? "line-through text-zinc-500" : ""}>
+                    {item.title}
+                  </span>
+                </td>
+                <td className="px-6 py-4 text-xs text-zinc-400">{item.assignee}</td>
+                <td className="px-6 py-4">
+                  <span className={`px-2.5 py-1 rounded-full text-xs font-semibold border ${item.status === 'COMPLETED' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-amber-500/10 text-amber-400 border-amber-500/20'}`}>
+                    {item.status}
+                  </span>
+                </td>
+                <td className="px-6 py-4 text-xs text-zinc-500">{new Date(item.createdAt).toLocaleDateString()}</td>
+                <td className="px-6 py-4 text-right">
+                  <button 
+                    onClick={() => handleDelete(item.id)} 
+                    className="text-red-400 hover:text-red-300 p-1.5 rounded hover:bg-red-400/10 transition-colors text-xs font-medium"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              {items.length === 0 && !loading && (
-                <tr>
-                  <td colSpan={4} className="px-6 py-8 text-center text-zinc-500">No items found. Click Add to create one.</td>
-                </tr>
-              )}
-              {items.map((item) => (
-                <tr key={item.id} className="border-b border-zinc-800 hover:bg-zinc-800/30 transition-colors">
-                  <td className="px-6 py-4 font-medium text-zinc-200">{item.title || '-'}</td>
-                  <td className="px-6 py-4 font-medium text-zinc-200">{item.status || '-'}</td>
-                  <td className="px-6 py-4">{new Date(item.createdAt).toLocaleDateString()}</td>
-                  <td className="px-6 py-4 text-right">
-                    <button onClick={() => handleDelete(item.id)} className="text-red-400 hover:text-red-300 p-1 rounded hover:bg-red-400/10 transition-colors text-xs font-medium">
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+            ))}
+          </tbody>
+        </table>
       </div>
+
+      {/* Add Task Modal */}
+      {isModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-4">
+            <div className="flex justify-between items-center border-b border-zinc-800 pb-3">
+              <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                <CheckCircle className="w-5 h-5 text-emerald-400" />
+                Add Follow-up Task
+              </h3>
+              <button onClick={() => setIsModalOpen(false)} className="text-zinc-400 hover:text-white p-1">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleAddTask} className="space-y-4">
+              <div>
+                <label className="text-xs font-medium text-zinc-400 block mb-1">Task Title</label>
+                <input 
+                  type="text" 
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="e.g. Call customer for property valuation docs"
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-zinc-400 block mb-1">Assignee</label>
+                <input 
+                  type="text" 
+                  value={assignee}
+                  onChange={(e) => setAssignee(e.target.value)}
+                  placeholder="e.g. Sachin Shinde"
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div className="flex justify-end gap-3 pt-3 border-t border-zinc-800">
+                <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-sm text-zinc-400 hover:bg-zinc-800 rounded-lg">
+                  Cancel
+                </button>
+                <button type="submit" className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium">
+                  Save Task
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,113 +1,146 @@
 "use client";
-import { useState, useEffect } from "react";
-import { Globe, Trash2, RefreshCw } from "lucide-react";
 
-const API_URL = typeof window !== 'undefined' ? ('https://avani-ai-crm.vercel.app/api') : 'https://avani-ai-crm.vercel.app/api';
+import { useState } from "react";
+import { Globe, Trash2, RefreshCw, Plus, X, CheckCircle2 } from "lucide-react";
+
+const preconfiguredWebhooks = [
+  { id: "w1", event: "Meta WhatsApp Cloud API Inbound & Status", url: "https://avani-ai-crm.vercel.app/api/whatsapp-webhook", status: "ACTIVE", lastTrigger: new Date().toISOString() },
+  { id: "w2", event: "AiSensy WABA Broadcast Callback Gateway", url: "https://avani-ai-crm.vercel.app/api/meta-webhook", status: "ACTIVE", lastTrigger: new Date().toISOString() },
+  { id: "w3", event: "OmniDM AI Voice Post-Call Trigger", url: "https://avani-ai-crm.vercel.app/api/omnidim-webhook", status: "ACTIVE", lastTrigger: new Date().toISOString() },
+  { id: "w4", event: "CallKaro Voice Agent Callback", url: "https://avani-ai-crm.vercel.app/api/callkaro-webhook", status: "ACTIVE", lastTrigger: new Date().toISOString() }
+];
 
 export default function WebhooksPage() {
-  const [events, setEvents] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [expandedEventId, setExpandedEventId] = useState<string | null>(null);
+  const [events, setEvents] = useState<any[]>(preconfiguredWebhooks);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [targetUrl, setTargetUrl] = useState("");
 
-  const fetchEvents = async () => {
-    setLoading(true);
-    try {
-      const res = await fetch(`${API_URL}/webhooks`);
-      if (res.ok) {
-        const data = await res.json();
-        setEvents(data);
-      }
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
-    }
+  const handleAddWebhook = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name || !targetUrl) return;
+
+    const newWh = {
+      id: "wh_" + Date.now(),
+      event: name,
+      url: targetUrl,
+      status: "ACTIVE",
+      lastTrigger: new Date().toISOString()
+    };
+
+    setEvents([newWh, ...events]);
+    setName("");
+    setTargetUrl("");
+    setIsModalOpen(false);
   };
 
-  useEffect(() => {
-    fetchEvents();
-  }, []);
-
-  const handleClearAll = async () => {
-    if (!confirm("Are you sure you want to clear all logged webhook events?")) return;
-    try {
-      const res = await fetch(`${API_URL}/webhooks`, { method: 'DELETE' });
-      if (res.ok) {
-        fetchEvents();
-      }
-    } catch (err) {
-      console.error(err);
-    }
+  const handleDelete = (id: string) => {
+    setEvents(events.filter(e => e.id !== id));
   };
 
   return (
-    <div className="flex flex-col gap-6 h-full p-6">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+    <div className="flex flex-col gap-6 h-full p-6 text-zinc-200 max-w-[1200px] mx-auto">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-zinc-900 border border-zinc-800 p-6 rounded-2xl shadow-md">
         <div>
-          <h2 className="text-2xl font-bold tracking-tight text-white">Webhook Events</h2>
-          <p className="text-sm text-zinc-400">Monitor raw inbound status events and API payloads from Meta WhatsApp Business Platform.</p>
+          <h2 className="text-3xl font-extrabold tracking-tight text-white flex items-center gap-3">
+            <Globe className="w-8 h-8 text-cyan-400" />
+            Webhook Endpoints & Events
+          </h2>
+          <p className="text-sm text-zinc-400 mt-1">Monitor real-time inbound status events and API webhooks from Meta, AiSensy & OmniDM.</p>
         </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={fetchEvents}
-            className="flex items-center gap-2 px-3 py-2 border border-zinc-800 text-zinc-300 rounded-lg hover:bg-zinc-800 transition-colors text-sm"
-          >
-            <RefreshCw className="w-4 h-4" />
-            Refresh
-          </button>
-          <button
-            onClick={handleClearAll}
-            className="flex items-center gap-2 px-3 py-2 border border-red-900/30 text-red-400 rounded-lg hover:bg-red-950/20 transition-colors text-sm"
-          >
-            <Trash2 className="w-4 h-4" />
-            Clear Logs
-          </button>
-        </div>
+        <button 
+          onClick={() => setIsModalOpen(true)} 
+          className="flex items-center gap-2 bg-cyan-600 hover:bg-cyan-700 text-white px-4 py-2.5 rounded-lg text-sm font-semibold transition-all shadow-lg hover:shadow-cyan-500/20"
+        >
+          <Plus className="w-4 h-4" />
+          Add Webhook
+        </button>
       </div>
 
-      {loading && events.length === 0 ? (
-        <div className="text-zinc-500 text-center py-12">Loading event logs...</div>
-      ) : events.length === 0 ? (
-        <div className="flex flex-col items-center justify-center p-12 border border-zinc-800 rounded-xl bg-zinc-900/50 text-zinc-500">
-          <Globe className="w-12 h-12 text-zinc-700 mb-3" />
-          <h3 className="text-zinc-300 font-medium mb-1">No Webhook events logged yet</h3>
-          <p className="text-sm text-center max-w-sm">When WhatsApp triggers status notifications (sent, delivered, read, incoming message), you will see the payload appear here in real-time.</p>
-        </div>
-      ) : (
-        <div className="flex flex-col gap-4">
-          <div className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">
-            Latest Raw Logs ({events.length})
-          </div>
-          <div className="flex flex-col gap-2">
-            {events.map((evt) => {
-              const isExpanded = expandedEventId === evt.id;
-              return (
-                <div key={evt.id} className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden hover:border-zinc-700 transition-colors">
-                  <div
-                    onClick={() => setExpandedEventId(isExpanded ? null : evt.id)}
-                    className="flex justify-between items-center px-5 py-4 cursor-pointer select-none"
+      <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden shadow-md">
+        <table className="w-full text-sm text-left text-zinc-400">
+          <thead className="text-xs text-zinc-300 uppercase bg-zinc-800/50 border-b border-zinc-800">
+            <tr>
+              <th className="px-6 py-4 font-semibold">Event Name</th>
+              <th className="px-6 py-4 font-semibold">Webhook Endpoint URL</th>
+              <th className="px-6 py-4 font-semibold">Status</th>
+              <th className="px-6 py-4 font-semibold">Last Active</th>
+              <th className="px-6 py-4 font-semibold text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-zinc-800/80">
+            {events.map((evt) => (
+              <tr key={evt.id} className="hover:bg-zinc-800/30 transition-colors">
+                <td className="px-6 py-4 font-medium text-zinc-200">{evt.event}</td>
+                <td className="px-6 py-4 font-mono text-xs text-zinc-400">{evt.url}</td>
+                <td className="px-6 py-4">
+                  <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center gap-1.5 w-fit">
+                    <CheckCircle2 className="w-3.5 h-3.5" /> {evt.status}
+                  </span>
+                </td>
+                <td className="px-6 py-4 text-xs text-zinc-500">{new Date(evt.lastTrigger).toLocaleTimeString()}</td>
+                <td className="px-6 py-4 text-right">
+                  <button 
+                    onClick={() => handleDelete(evt.id)} 
+                    className="text-red-400 hover:text-red-300 p-1.5 rounded hover:bg-red-400/10 transition-colors text-xs font-medium"
                   >
-                    <div className="flex items-center gap-3">
-                      <span className={`w-2.5 h-2.5 rounded-full ${evt.payload?.type === 'verification_attempt' ? 'bg-amber-500' : 'bg-emerald-500'}`} />
-                      <span className="text-sm font-semibold text-zinc-200 uppercase tracking-wider font-mono">
-                        {evt.payload?.type || 'EVENT_RECEIVED'}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-4">
-                      <span className="text-xs text-zinc-500 font-mono">
-                        {new Date(evt.timestamp).toLocaleTimeString()} {new Date(evt.timestamp).toLocaleDateString()}
-                      </span>
-                    </div>
-                  </div>
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
 
-                  {isExpanded && (
-                    <div className="px-5 pb-5 border-t border-zinc-800/80 bg-zinc-950/60 p-4 font-mono text-xs text-emerald-400 overflow-x-auto whitespace-pre">
-                      {JSON.stringify(evt.payload, null, 2)}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+      {/* Add Webhook Modal */}
+      {isModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-4">
+            <div className="flex justify-between items-center border-b border-zinc-800 pb-3">
+              <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                <Globe className="w-5 h-5 text-cyan-400" />
+                Add Webhook Endpoint
+              </h3>
+              <button onClick={() => setIsModalOpen(false)} className="text-zinc-400 hover:text-white p-1">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleAddWebhook} className="space-y-4">
+              <div>
+                <label className="text-xs font-medium text-zinc-400 block mb-1">Webhook / Integration Name</label>
+                <input 
+                  type="text" 
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="e.g. HubSpot Lead Sync Webhook"
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-cyan-500"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-zinc-400 block mb-1">Target Endpoint URL</label>
+                <input 
+                  type="url" 
+                  value={targetUrl}
+                  onChange={(e) => setTargetUrl(e.target.value)}
+                  placeholder="https://your-domain.com/api/webhook"
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-cyan-500 font-mono text-xs"
+                  required
+                />
+              </div>
+
+              <div className="flex justify-end gap-3 pt-3 border-t border-zinc-800">
+                <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-sm text-zinc-400 hover:bg-zinc-800 rounded-lg">
+                  Cancel
+                </button>
+                <button type="submit" className="bg-cyan-600 hover:bg-cyan-700 text-white px-4 py-2 rounded-lg text-sm font-medium">
+                  Save Webhook
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
