@@ -84,8 +84,8 @@ export async function POST(request: Request) {
     const body = await request.json();
     log("Received Webhook Payload: " + JSON.stringify(body).substring(0, 300));
 
-    // Support internal dispatch event from Broadcast UI
-    if (body.event === 'send_template' || body.phone) {
+    // Support internal dispatch event from Broadcast UI (Ensure we don't accidentally intercept inbound webhooks that happen to have a 'phone' field)
+    if (body.event === 'send_template' || (body.phone && !body.message && !body.text && !body.entry && !body.type && !body.interactive)) {
       const targetPhone = body.phone || body.destination;
       const targetName = body.name || body.userName || 'Valued Customer';
       const templateName = body.template || body.templateName || 'Avani_Loan_Welcome';
