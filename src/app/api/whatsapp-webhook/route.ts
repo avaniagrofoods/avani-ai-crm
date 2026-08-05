@@ -121,13 +121,18 @@ export async function POST(request: Request) {
     }
 
     // Process Meta / AiSensy Inbound Webhook
-    if (body.object === 'whatsapp_business_account' || body.entry || body.destination) {
+    if (body.object === 'whatsapp_business_account' || body.entry || body.destination || body.text || (body.phone && !body.event)) {
       const entries = body.entry || [body];
       for (const entry of entries) {
         const changes = entry?.changes || [entry];
         for (const change of changes) {
           const value = change?.value || change;
-          const messages = value?.messages || (body.message ? [body.message] : []);
+          let messages = value?.messages || (body.message ? [body.message] : []);
+          
+          // Fallback if payload is completely flat (e.g. AiSensy custom forwarding structure)
+          if (messages.length === 0 && (body.text || body.type || body.button || body.interactive || typeof body === 'string')) {
+            messages = [body];
+          }
 
           for (const message of messages) {
             const fromPhone = message.from || body.destination || body.phone;
@@ -144,6 +149,9 @@ export async function POST(request: Request) {
                              message.interactive?.button_reply?.id || "";
             } else if (typeof message === 'string') {
               incomingText = message;
+            } else if (message.text && typeof message.text === 'string') {
+              // Catch-all for flat flat `{ text: "Hello" }` payloads
+              incomingText = message.text;
             }
 
             if (!incomingText) {
