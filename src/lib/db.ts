@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { sendSlackAlert } from "./alerts";
 
 const MONGODB_URI = process.env.MONGODB_URI || "mongodb://localhost:27017/avani_crm";
 
@@ -41,3 +42,29 @@ async function connectToDatabase() {
 }
 
 export default connectToDatabase;
+
+export async function getDatabase(targetClientPhone = "N/A") {
+  try {
+    const conn = await connectToDatabase();
+    if (!conn) {
+      throw new Error("Mongoose connection returned null");
+    }
+    // Quickly check connection health viability
+    if (mongoose.connection.readyState !== 1) {
+      throw new Error("Mongoose connection is not established");
+    }
+    return conn.connection.db; // Return native db instance if needed, or mongoose itself
+  } catch (dbError: any) {
+    const componentStr = "Inbound WhatsApp Button Routing Engine";
+    
+    // Clear dead initialization reference so the next API cycle can retry transparently
+    cached.conn = null;
+    cached.promise = null;
+
+    // Instantly alert operations via Slack webhook pipe
+    await sendSlackAlert(dbError.message, componentStr, targetClientPhone);
+    
+    // Bubble the error up to the root route router to notify the WhatsApp webhook gateway gracefully
+    throw dbError;
+  }
+}

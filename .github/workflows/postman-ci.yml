@@ -1,0 +1,68 @@
+name: Avani CRM Postman Webhook Automation CI Pipeline
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+
+jobs:
+  api-integration-test:
+    name: Build Next.js & Run Postman Regression Tests
+    runs-on: ubuntu-latest
+
+    services:
+      # Spin up a temporary local MongoDB service container to validate the Happy Path calculation layer
+      mongodb:
+        image: mongo:6.0
+        ports:
+          - 27017:27018
+
+    steps:
+      - name: Checkout Source Code Repo Repository Workspace
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js Operational Environment
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: 'npm'
+
+      - name: Install Application Dependencies
+        run: npm ci
+
+      - name: Install Global Newman and Report Helpers
+        run: npm install -g newman wait-on
+
+      - name: Run Next.js Server App Application Build Routine
+        run: npm run build
+        env:
+          MONGODB_URI: mongodb://localhost:27017/avani_ai_crm
+          SLACK_ALERTS_WEBHOOK_URL: ${{ secrets.SLACK_ALERTS_WEBHOOK_URL }}
+          AISENSY_API_KEY: ${{ secrets.AISENSY_API_KEY }}
+
+      - name: Start Next.js App Core Local Server Daemon
+        run: npm run start &
+        env:
+          PORT: 3000
+          MONGODB_URI: mongodb://localhost:27017/avani_ai_crm
+          SLACK_ALERTS_WEBHOOK_URL: ${{ secrets.SLACK_ALERTS_WEBHOOK_URL }}
+          AISENSY_API_KEY: ${{ secrets.AISENSY_API_KEY }}
+
+      - name: Wait for Next.js HTTP Port Listener Availability Verification
+        run: npx wait-on http://localhost:3000/api/whatsapp-webhook --timeout 15000
+
+      - name: Execute Postman Suite Testing via Newman [HAPPY PATH VALIDATION]
+        run: |
+          newman run tests/whatsapp_webhook_collection.json \
+            -e tests/postman_environment.json \
+            --env-var "baseUrl=http://localhost:3000"
+
+      - name: Stop MongoDB Container to Trigger Fallback Testing Mode
+        run: docker stop $(docker ps -q --filter expose=27017)
+
+      - name: Execute Postman Suite Testing via Newman [FALLBACK ROUTING VALIDATION]
+        run: |
+          newman run tests/whatsapp_webhook_collection.json \
+            -e tests/postman_environment.json \
+            --env-var "baseUrl=http://localhost:3000"

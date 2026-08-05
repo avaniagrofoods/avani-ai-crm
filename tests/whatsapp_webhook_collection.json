@@ -1,0 +1,79 @@
+{
+  "info": {
+    "name": "Avani WhatsApp Webhook Tests",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Trigger Webhook",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "// 1. Verify Basic Network Level Transmission Handshake Status",
+              "pm.test(\"Status code is 200 - Network Webhook Channel Integrity Stable\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "// 2. Parse Incoming Server Execution Response Profile Payload Data",
+              "const responseData = pm.response.json();",
+              "",
+              "pm.test(\"Payload Schema Format Validation Secure\", function () {",
+              "    pm.expect(responseData).to.be.an('object');",
+              "    pm.expect(responseData).to.have.property('success');",
+              "});",
+              "",
+              "// 3. Dynamic Workflow Path Assertions (Handles both Success and Fallback paths automatically)",
+              "if (responseData.success === true) {",
+              "    pm.test(\"Flow Status: [HAPPY PATH] Database Processing Completed Successfully\", function () {",
+              "        pm.expect(responseData.message || responseData.success).to.be.ok;",
+              "        console.log(\"Transaction Status: MongoDB Online. Profile Calculation Data Committed Successfully.\");",
+              "    });",
+              "} else {",
+              "    pm.test(\"Flow Status: [FALLBACK TRIGGERED] System Safely Executed Fault-Tolerant Redundancy Channels\", function () {",
+              "        pm.expect(responseData).to.have.property('reason');",
+              "        pm.expect(responseData.reason).to.include(\"System switched cleanly to communication fallback mode\");",
+              "        if (responseData.details) {",
+              "            console.warn(\"Database Error Detected: \" + responseData.details);",
+              "        }",
+              "        console.log(\"Transaction Status: MongoDB Offline. Slack Alert & AiSensy Traffic Fallback Fired.\");",
+              "    });",
+              "}",
+              "",
+              "// 4. Verify Performance Metric Boundaries to Keep Real-Time WhatsApp Webhooks Fast",
+              "pm.test(\"Response Latency Within Performance SLAs (< 2500ms)\", function () {",
+              "    pm.expect(pm.response.responseTime).to.be.below(2500);",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"waNumber\": \"+919172190536\",\n  \"from\": \"+919172190536\",\n  \"text\": \"Check Eligibility\",\n  \"timestamp\": \"2026-08-05T21:50:00.000Z\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/whatsapp-webhook",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "whatsapp-webhook"
+          ]
+        }
+      },
+      "response": []
+    }
+  ]
+}

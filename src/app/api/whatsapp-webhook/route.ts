@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { sendAiSensyWhatsApp } from '@/lib/aisensy';
+import { handleInboundButtonWorkflow } from './workflow-handler';
 
 const SYSTEM_PROMPT = `You are the Avani Loan Services AI Agent (Owner: Sachin Shinde, Latur).
 Your goal is to collect loan requirements from the user step-by-step in a conversational manner.
@@ -9,6 +10,13 @@ Your goal is to collect loan requirements from the user step-by-step in a conver
 2. Be polite, professional, and use concise language. Support English, Hindi, and Marathi based on user language.
 3. First, ask what type of loan they need if they haven't specified: Personal, Business, Doctor, CA, Home, or Education.
 4. Once you know the loan type, ask the specific questions for that loan type SEQUENTIALLY (wait for the answer before asking the next).
+
+# Business Identity Context:
+- Business Name: AVANI LOAN SERVICES
+- Founder: Sachin Shinde
+- Primary Office Location: Rajiv Gandhi Chauk, Opposite Bank of Baroda, Above Monginis Cake Shop, Ausa Road, Latur – 413512, Maharashtra
+- Official WhatsApp Business: +91 91756 35165
+- Official Email Contact: enquiry@avanifinserv.com
 
 # Loan Fields to Collect:
 - **Personal Loan:** Full Name -> Mobile Number -> City -> Employment Type (Salaried/Business/Professional) -> Monthly Income -> Required Loan Amount.
@@ -143,27 +151,67 @@ export async function POST(request: Request) {
             }
             log(`Parsed incoming message from ${fromPhone}: "${incomingText}"`);
 
-            if (!memoryChatHistory.has(fromPhone)) {
-              memoryChatHistory.set(fromPhone, []);
+            let isHandled = false;
+            try {
+              let buttonId = "";
+              if (message.type === 'interactive' && message.interactive?.button_reply?.id) {
+                buttonId = message.interactive.button_reply.id;
+              }
+              isHandled = await handleInboundButtonWorkflow(fromPhone, incomingText, buttonId);
+            } catch (error: any) {
+              log(`Database or execution error intercepted in webhook handler: ${error.message}`);
+              if (incomingText.toLowerCase().includes("check eligibility")) {
+                try {
+                  const trafficFallbackMessage = 
+`Hi there,
+
+Thank you for reaching out to AVANI LOAN SERVICES. 
+
+We are currently experiencing a very high volume of loan eligibility inquiries. Our system is processing requests as quickly as possible. 
+
+An executive from our Latur office or our founder, Sachin Shinde, will personally review your profile inputs and share your customized calculation breakdown shortly. 
+
+If your request is urgent, feel free to call us directly or visit our office at Ausa Road. Thank you for your patience!
+
+*Avani Finserv - Fast & Secure Approvals*`;
+
+                  await sendAiSensyWhatsApp({
+                    destination: fromPhone,
+                    userName: 'Customer',
+                    text: trafficFallbackMessage
+                  });
+                  log(`Successfully dispatched traffic mitigation fallback text to: ${fromPhone}`);
+                } catch (smsError: any) {
+                  log(`Critical Failure: Even the fallback communication channel failed: ${smsError.message}`);
+                }
+              }
+              // Skip the LLM on DB failure for eligibility checks to avoid confusing state
+              isHandled = true; 
             }
-            const history = memoryChatHistory.get(fromPhone)!;
-            history.push({ direction: 'INBOUND', content: incomingText });
 
-            const aiResponse = await getAiResponse(history);
-            history.push({ direction: 'OUTBOUND', content: aiResponse });
+            if (!isHandled) {
+              if (!memoryChatHistory.has(fromPhone)) {
+                memoryChatHistory.set(fromPhone, []);
+              }
+              const history = memoryChatHistory.get(fromPhone)!;
+              history.push({ direction: 'INBOUND', content: incomingText });
 
-            // Dispatch auto-reply back via AiSensy WABA Gateway
-            log(`Dispatching AI Auto-Reply to ${fromPhone} via AiSensy...`);
-            const replyRes = await sendAiSensyWhatsApp({
-              destination: fromPhone,
-              userName: 'Valued Customer',
-              text: aiResponse
-            });
+              const aiResponse = await getAiResponse(history);
+              history.push({ direction: 'OUTBOUND', content: aiResponse });
 
-            if (replyRes.success) {
-              log(`✅ AI Auto-Reply sent smoothly to ${fromPhone}!`);
-            } else {
-              log(`❌ Auto-Reply warning: ${replyRes.error}`);
+              // Dispatch auto-reply back via AiSensy WABA Gateway
+              log(`Dispatching AI Auto-Reply to ${fromPhone} via AiSensy...`);
+              const replyRes = await sendAiSensyWhatsApp({
+                destination: fromPhone,
+                userName: 'Valued Customer',
+                text: aiResponse
+              });
+
+              if (replyRes.success) {
+                log(`✅ AI Auto-Reply sent smoothly to ${fromPhone}!`);
+              } else {
+                log(`❌ Auto-Reply warning: ${replyRes.error}`);
+              }
             }
           }
         }
