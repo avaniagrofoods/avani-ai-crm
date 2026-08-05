@@ -98,7 +98,7 @@ export async function POST(req: Request) {
         await sendAiSensyWhatsApp({
           destination: phone,
           userName: name,
-          templateName: 'Avani_Loan_Welcome'
+          text: `Namaste ${name},\n\nThank you for your time. For any further queries regarding your loan requirement or Avani Loan Services, please contact our business expert directly at +91 9175635165.\n\nBest Regards,\nAvani Loan Services`
         });
       } catch (waErr: any) {
         console.error("Post-Call WhatsApp Error:", waErr.message);

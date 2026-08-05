@@ -6,6 +6,7 @@ export interface AiSensyMessagePayload {
   templateName?: string;
   templateParams?: string[];
   tags?: string[];
+  text?: string;
 }
 
 export interface AiSensyResponse {
@@ -61,7 +62,7 @@ export async function sendAiSensyWhatsApp(payload: AiSensyMessagePayload): Promi
   }
 
   // 1. Primary: AiSensy WABA Campaign API (Since WABA is registered on AiSensy)
-  if (apiKey) {
+  if (apiKey && !payload.text) {
     try {
       const response = await axios.post(
         'https://backend.aisensy.com/campaign/t1/api/v2',
@@ -116,7 +117,7 @@ export async function sendAiSensyWhatsApp(payload: AiSensyMessagePayload): Promi
           to: cleanPhone,
           type: 'text',
           text: {
-            body: `Namaste ${payload.userName}! I can provide you with detailed information about personal, business, home, doctor, and educational loans within 5 minutes. Please share your name, location, profession or nature of employment (e.g., salaried, businessperson, doctor, CA, etc.), and the type of loan you require.`
+            body: payload.text || `Namaste ${payload.userName}! I can provide you with detailed information about personal, business, home, doctor, and educational loans within 5 minutes. Please share your name, location, profession or nature of employment (e.g., salaried, businessperson, doctor, CA, etc.), and the type of loan you require.`
           }
         },
         {

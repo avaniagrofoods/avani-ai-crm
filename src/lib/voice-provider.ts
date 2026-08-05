@@ -6,6 +6,9 @@ export interface DispatchCallOptions {
   loanType?: string;
   language?: 'mr' | 'hi' | 'en';
   customTask?: string;
+  city?: string;
+  profession?: string;
+  loanRequirement?: string;
 }
 
 export interface DispatchCallResult {
@@ -56,11 +59,18 @@ export class OmniDMVoiceProvider implements IVoiceProvider {
         to_number: formattedPhone,
         phone_number: formattedPhone,
         customer_name: options.customerName,
-        language: options.language || "mr"
+        language: options.language || "mr",
+        variables: {
+          name: options.customerName,
+          loan_type: options.loanType || "Personal Loan",
+          city: options.city || "",
+          profession: options.profession || "",
+          Loan_requirement: options.loanRequirement || ""
+        }
       };
 
       const response = await axios.post(
-        'https://omnidim.io/api/v1/calls/dispatch',
+        'https://api.omnidim.io/v1/calls/dispatch',
         payload,
         {
           headers: {

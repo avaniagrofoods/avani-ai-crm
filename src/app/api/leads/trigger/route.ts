@@ -13,7 +13,7 @@ export async function POST(request: Request) {
     }
     
     const body = await request.json();
-    const { name, phone, loanType, language } = body;
+    const { name, phone, loanType, language, city, profession, loanRequirement } = body;
     
     if (!name || !phone) {
       return NextResponse.json({ error: "Missing required fields: name and phone" }, { status: 400 });
@@ -54,7 +54,7 @@ export async function POST(request: Request) {
     
     // 2. Dispatch OmniDM AI Voice Call
     try {
-      const omnidimResponse = await triggerOmnidimCall(formattedPhone, name, effectiveLoanType, language || 'mr');
+      const omnidimResponse = await triggerOmnidimCall(formattedPhone, name, effectiveLoanType, language || 'mr', city, profession, loanRequirement);
       
       if (omnidimResponse && omnidimResponse.call_id && newLead.save) {
         newLead.callId = omnidimResponse.call_id;

@@ -157,7 +157,7 @@ export async function POST(request: Request) {
             const replyRes = await sendAiSensyWhatsApp({
               destination: fromPhone,
               userName: 'Valued Customer',
-              templateName: 'Avani_Loan_Welcome'
+              text: aiResponse
             });
 
             if (replyRes.success) {
