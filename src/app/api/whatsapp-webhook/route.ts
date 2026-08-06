@@ -139,15 +139,10 @@ export async function POST(request: Request) {
       const history = memoryChatHistory.get(targetPhone)!;
       history.push({ direction: 'INBOUND', content: `Hello, I am ${targetName}. Please tell me about loan options.` });
 
-      const initialQuestion = await getAiResponse(history);
-      history.push({ direction: 'OUTBOUND', content: initialQuestion });
-
-      log(`[Auto-Start AI Workflow] Dispatching qualification message to ${targetPhone}...`);
-      await sendAiSensyWhatsApp({
-        destination: targetPhone,
-        userName: targetName,
-        templateName: templateName
-      });
+      // We DO NOT send the initialQuestion right now because it would be a free-form text 
+      // message outside the 24-hour customer service window (which would fail via Meta API).
+      // Instead, we just seeded the chat history. When the customer replies, the AI will 
+      // respond naturally based on the system prompt.
 
       return NextResponse.json(
         { success: res.success, error: res.error, result: res, debugLogs },
