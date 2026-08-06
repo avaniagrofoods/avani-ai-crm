@@ -3,6 +3,7 @@ import connectToDatabase from '@/lib/db';
 import { Lead } from '@/models/Lead';
 import { triggerOmnidimCall } from '@/lib/omnidim';
 import { sendAiSensyWhatsApp } from '@/lib/aisensy';
+import { normalizeIndianPhone } from '@/lib/phone';
 
 export async function POST(request: Request) {
   try {
@@ -21,13 +22,9 @@ export async function POST(request: Request) {
     
     const effectiveLoanType = loanType || 'Personal Loan';
 
-    let formattedPhone = String(phone).trim();
-    if (!formattedPhone.startsWith('+')) {
-      if (formattedPhone.length === 10) {
-        formattedPhone = '+91' + formattedPhone;
-      } else {
-        formattedPhone = '+' + formattedPhone;
-      }
+    const formattedPhone = normalizeIndianPhone(phone);
+    if (!formattedPhone) {
+      return NextResponse.json({ error: "Invalid Indian phone number format" }, { status: 400 });
     }
     
     let newLead: any = { name, phone: formattedPhone, loanType: effectiveLoanType, status: 'New' };

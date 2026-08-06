@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Upload, X, CheckCircle, Loader2, XCircle, Calendar, Clock, MessageSquare, Send } from "lucide-react";
 import Papa from "papaparse";
+import { normalizeIndianPhone } from "@/lib/phone";
 
 type UploadResult = {
   id: number;
@@ -84,9 +85,9 @@ export default function FileUpload() {
 
           const validLeads = leads.map(l => ({
             name: l.Name || l.name || "Customer",
-            phone: l.Phone || l.phone || l.PhoneNumber || "",
+            phone: normalizeIndianPhone(l.Phone || l.phone || l.PhoneNumber || ""),
             loanType: l.LoanType || l['Loan Type'] || l.loanType || "Personal Loan"
-          })).filter(l => l.phone);
+          })).filter(l => l.phone && l.phone.length === 10);
 
           if (executionType === "scheduled") {
             const fullScheduledTime = `${scheduledDate}T${scheduledTime}:00`;

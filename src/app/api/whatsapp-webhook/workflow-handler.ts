@@ -35,6 +35,7 @@ async function logInteraction(phone: string, text: string, buttonId: string, wor
   let lead = await Lead.findOne({ phone: phone });
   
   if (!lead) {
+    console.error(`Webhook Match Failed: No lead document discovered for normalized phone key: ${phone}`);
     lead = new Lead({
       name: "Valued Customer",
       phone: phone,

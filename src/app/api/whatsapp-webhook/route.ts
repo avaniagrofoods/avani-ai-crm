@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { sendAiSensyWhatsApp } from '@/lib/aisensy';
+import { normalizeIndianPhone } from '@/lib/phone';
 import { handleInboundButtonWorkflow } from './workflow-handler';
 
 const SYSTEM_PROMPT = `You are the Avani Loan Services AI Agent (Owner: Sachin Shinde, Latur).
@@ -135,7 +136,9 @@ export async function POST(request: Request) {
           }
 
           for (const message of messages) {
-            const fromPhone = message.from || body.destination || body.phone;
+            const rawFromPhone = message.from || body.destination || body.phone;
+            if (!rawFromPhone) continue;
+            const fromPhone = normalizeIndianPhone(rawFromPhone);
             if (!fromPhone) continue;
 
             let incomingText = "";

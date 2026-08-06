@@ -1,8 +1,12 @@
 import { defaultVoiceService } from './voice-provider';
+import { normalizeIndianPhone } from '@/lib/phone';
 
 export async function triggerOmnidimCall(customerPhone: string, customerName: string, loanType: string, language: 'mr' | 'hi' | 'en' = 'hi', city?: string, profession?: string, loanRequirement?: string) {
+  const cleanPhone = normalizeIndianPhone(customerPhone);
+  if (!cleanPhone) throw new Error('Invalid phone number for OmniDM dispatch');
+
   const result = await defaultVoiceService.dispatchCall({
-    phoneNumber: customerPhone,
+    phoneNumber: cleanPhone,
     customerName,
     loanType,
     language,
