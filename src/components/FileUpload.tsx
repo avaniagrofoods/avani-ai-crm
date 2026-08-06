@@ -5,6 +5,56 @@ import { Upload, X, CheckCircle, Loader2, XCircle, Calendar, Clock, MessageSquar
 import Papa from "papaparse";
 import { normalizeIndianPhone } from "@/lib/phone";
 
+export interface ValidatedCSVRow {
+  rowNumber: number;
+  cleanPhone: string;
+  name: string;
+  city: string;
+  isLineValid: boolean;
+  rejectReason: string | null;
+}
+
+export function validateIncomingCSVData(rawRows: any[]): { approvedLeads: any[], rejectedLeads: ValidatedCSVRow[] } {
+  const approvedLeads: any[] = [];
+  const rejectedLeads: ValidatedCSVRow[] = [];
+
+  rawRows.forEach((row, index) => {
+    const rawPhone = String(row.MobileNumber || row.phone || row.mobile || row.PhoneNumber || "").trim();
+    const customerName = String(row.FullName || row.name || row.Name || "Customer").trim();
+    const cityLocation = String(row.City || row.city || "Unknown").trim();
+
+    const cleanPhone = normalizeIndianPhone(rawPhone);
+    let rejectReason: string | null = null;
+
+    if (cleanPhone.length !== 10) {
+      rejectReason = "Invalid mobile length (Must be standard 10-digit Indian format)";
+    } else if (!customerName || customerName === "Customer") {
+      rejectReason = "Missing Customer Name variable parameter";
+    }
+
+    if (rejectReason) {
+      rejectedLeads.push({
+        rowNumber: index + 2,
+        cleanPhone: cleanPhone || rawPhone,
+        name: customerName,
+        city: cityLocation,
+        isLineValid: false,
+        rejectReason
+      });
+    } else {
+      approvedLeads.push({
+        ...row,
+        phone: cleanPhone,
+        name: customerName,
+        city: cityLocation,
+        loanType: row.LoanType || row['Loan Type'] || row.loanType || "Personal Loan"
+      });
+    }
+  });
+
+  return { approvedLeads, rejectedLeads };
+}
+
 type UploadResult = {
   id: number;
   name: string;
@@ -83,11 +133,15 @@ export default function FileUpload() {
           const leads = parsed.data as any[];
           if (!leads || leads.length === 0) throw new Error("No leads found in CSV file");
 
-          const validLeads = leads.map(l => ({
-            name: l.Name || l.name || "Customer",
-            phone: normalizeIndianPhone(l.Phone || l.phone || l.PhoneNumber || ""),
-            loanType: l.LoanType || l['Loan Type'] || l.loanType || "Personal Loan"
-          })).filter(l => l.phone && l.phone.length === 10);
+          const { approvedLeads, rejectedLeads } = validateIncomingCSVData(leads);
+          if (rejectedLeads.length > 0) {
+            console.error("⚠️ CSV Parsing Pipeline caught incomplete lead profile metrics:", rejectedLeads);
+            alert(`CSV Inspection Complete:\n🚀 Approved Leads: ${approvedLeads.length}\n❌ Blocked Lines: ${rejectedLeads.length}\n\nCheck browser console for details.`);
+          }
+          
+          if (approvedLeads.length === 0) throw new Error("No valid leads found after validation");
+
+          const validLeads = approvedLeads;
 
           if (executionType === "scheduled") {
             const fullScheduledTime = `${scheduledDate}T${scheduledTime}:00`;

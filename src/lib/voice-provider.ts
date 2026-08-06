@@ -65,7 +65,8 @@ export class OmniDMVoiceProvider implements IVoiceProvider {
           loan_type: options.loanType || "Personal Loan",
           city: options.city || "",
           profession: options.profession || "",
-          Loan_requirement: options.loanRequirement || ""
+          Loan_requirement: options.loanRequirement || "",
+          system_prompt: "Once the customer provides affirmative acknowledgment (e.g., 'Yes', 'होय', 'बोलू शकता'), you MUST instantly progress to the data collection sequence instead of repeating the welcome pitch."
         }
       };
 

@@ -3,6 +3,52 @@ import connectToDatabase from '@/lib/db';
 import { Lead } from '@/models/Lead';
 import { sendAiSensyWhatsApp } from '@/lib/aisensy';
 import axios from 'axios';
+import { validateProductPayload } from '@/lib/validators';
+import { sendSlackAlert } from '@/lib/alerts';
+
+export async function processOutgoingZapierPayload(loanType: string, compiledPayload: any, lead: any) {
+  const verification = validateProductPayload(loanType, compiledPayload);
+
+  if (!verification.isValid) {
+    const userPhone = compiledPayload.mobileNumber || compiledPayload.phone;
+    const missingItemsFriendly = verification.missingFields.map(field => {
+      if (field.includes('university')) return 'University / College Name';
+      if (field.includes('propertyTypeDetails')) return 'Property Document Details (7 Bara NA status)';
+      if (field.includes('annualTurnover')) return 'Annual Business Turnover';
+      if (field.includes('monthlySalaryBracket')) return 'Monthly Net Salary';
+      return field;
+    });
+
+    console.warn(`🛑 Zapier Webhook dispatch blocked! Triggering customer fallback request.`);
+
+    await sendSlackAlert(verification.errorMessage || 'Validation Failed', "Outbound Interceptor Guardrail", userPhone);
+
+    if (userPhone && userPhone.length === 10) {
+      if (lead) {
+        lead.currentWorkflowState = "awaiting_correction";
+        lead.pendingCorrectionLog = { targetField: verification.missingFields[0], retryCount: 0 };
+        await lead.save();
+      }
+
+      const correctiveWhatsAppMessage = `Hi ${compiledPayload.fullName || "Customer"},\n\nThank you for choosing AVANI LOAN SERVICES. \n\nTo finalize your dynamic pre-qualification calculations for a *${loanType}*, our automated processing engine needs a bit more clarification.\n\n👉 *Please reply directly by typing your: ${missingItemsFriendly.join(', ')}*\n\nOnce received, our engine will instantly compile your verified EMI projections and doc checklists. Thank you!\n\n*Avani Finserv - Fast & Secure Approvals*`;
+
+      await sendAiSensyWhatsApp({ destination: userPhone, userName: compiledPayload.fullName || 'Customer', text: correctiveWhatsAppMessage });
+    }
+
+    return false;
+  }
+
+  const targetUrl = process.env.ZAPIER_WEBHOOK_URL || process.env.GOOGLE_SHEET_APP_SCRIPT_URL;
+  if (targetUrl) {
+    const response = await fetch(targetUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(compiledPayload)
+    });
+    return response.ok;
+  }
+  return false;
+}
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
@@ -56,13 +102,31 @@ export async function POST(req: Request) {
       try { await lead.save(); } catch (e) {}
     }
 
-    const integrationPayload = {
-      name,
-      phone,
-      loanType,
-      status,
-      notes,
-      source: 'OmniDM Voice AI'
+    const integrationPayload: any = {
+      eventId: `evt_${Date.now()}`,
+      timestamp: new Date().toISOString(),
+      sourceSystem: "Avani AI CRM Pipeline",
+      campaign: {
+        channel: "AI Voice (OmniDM)",
+        metaWhatsAppSenderNumber: "7249108474",
+        whatsappTemplateCompulsory: "loan_consultation_offer"
+      },
+      callMetrics: {
+        callId: callId,
+        callStatus: body.status || "completed",
+        callDisposition: isCompleted ? "answered_interested" : "unanswered",
+      },
+      fullName: name,
+      mobileNumber: phone,
+      city: lead?.city || variables.city || "Unknown",
+      loanAmountRequired: lead?.financialProfile?.requestedLoanAmount || 1000000,
+      leadProfile: {
+        fullName: name,
+        mobileNumber: phone,
+        city: lead?.city || variables.city || "Unknown"
+      },
+      financialRequirements: lead?.financialProfile || { loanType },
+      productSpecificFields: lead?.financialProfile || {}
     };
 
     // 1. HubSpot Integration
@@ -83,22 +147,24 @@ export async function POST(req: Request) {
       } catch (e) { console.error("HubSpot Sync Error", e); }
     }
 
-    // 2. Zapier / Google Sheets Integration
-    const targetUrl = process.env.ZAPIER_WEBHOOK_URL || process.env.GOOGLE_SHEET_APP_SCRIPT_URL;
-    if (targetUrl) {
-      try {
-        await axios.post(targetUrl, integrationPayload);
-      } catch (e) { console.error("Zapier/Sheets Sync Error", e); }
-    }
+    // 2. Zapier / Google Sheets Integration via processor
+    await processOutgoingZapierPayload(loanType, integrationPayload, lead);
 
     // 3. Post-Call WhatsApp Follow-up (Dispatched for ALL call outcomes: completed, missed, ended, or failed)
     if (phone) {
       try {
         console.log(`[Post-Call WhatsApp] Triggering WhatsApp follow-up for ${phone}...`);
+        
+        // Update state to loan_consultation_offer_sent
+        if (lead && lead.currentWorkflowState !== "awaiting_correction") {
+          lead.currentWorkflowState = "loan_consultation_offer_sent";
+          await lead.save();
+        }
+        
         await sendAiSensyWhatsApp({
           destination: phone,
           userName: name,
-          text: `Namaste ${name},\n\nThank you for your time. For any further queries regarding your loan requirement or Avani Loan Services, please contact our business expert directly at +91 9175635165.\n\nBest Regards,\nAvani Loan Services`
+          templateName: "loan_consultation_offer"
         });
       } catch (waErr: any) {
         console.error("Post-Call WhatsApp Error:", waErr.message);

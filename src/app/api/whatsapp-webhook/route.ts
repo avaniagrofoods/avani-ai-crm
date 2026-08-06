@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { sendAiSensyWhatsApp } from '@/lib/aisensy';
 import { normalizeIndianPhone } from '@/lib/phone';
 import { handleInboundButtonWorkflow } from './workflow-handler';
+import { handleInboundCorrectionWorkflow } from '@/lib/chatbot-router';
 
 const SYSTEM_PROMPT = `You are the Avani Loan Services AI Agent (Owner: Sachin Shinde, Latur).
 Your goal is to collect loan requirements from the user step-by-step in a conversational manner.
@@ -164,11 +165,15 @@ export async function POST(request: Request) {
 
             let isHandled = false;
             try {
-              let buttonId = "";
-              if (message.type === 'interactive' && message.interactive?.button_reply?.id) {
-                buttonId = message.interactive.button_reply.id;
+              isHandled = await handleInboundCorrectionWorkflow(fromPhone, incomingText);
+              
+              if (!isHandled) {
+                let buttonId = "";
+                if (message.type === 'interactive' && message.interactive?.button_reply?.id) {
+                  buttonId = message.interactive.button_reply.id;
+                }
+                isHandled = await handleInboundButtonWorkflow(fromPhone, incomingText, buttonId);
               }
-              isHandled = await handleInboundButtonWorkflow(fromPhone, incomingText, buttonId);
             } catch (error: any) {
               log(`Database or execution error intercepted in webhook handler: ${error.message}`);
               if (incomingText.toLowerCase().includes("check eligibility")) {
