@@ -104,22 +104,57 @@ export async function sendAiSensyWhatsApp(payload: AiSensyMessagePayload): Promi
   }
 
   // 3. Fallback: Meta Cloud API v25.0
-  const metaToken = (process.env.WHATSAPP_TOKEN || process.env.WHATSAPP_API_TOKEN || "EAAdIUij5eSEBSPNXXeehEPuB6hf7UvNfezzV0Lh5kSZC17tdQG6gxLeWGKTFuh7cbZCjH80wZBFKfSsLpvaTbdp0J4x8aXoxDqxm17R3Vcv9ZBqyCU1yZBe7ADVHEhokTn11sI6nYU2WfEymwW4jW447n2AvH4bCwZCfBWVj9ATM9Seq2OczKZABY6eKTI6wgZDZD").trim();
-  const phoneId = (process.env.WHATSAPP_PHONE_NUMBER_ID || '1147494668457940').trim();
+  let metaToken = (process.env.WHATSAPP_TOKEN || process.env.WHATSAPP_API_TOKEN || "EAAdIUij5eSEBSPNXXeehEPuB6hf7UvNfezzV0Lh5kSZC17tdQG6gxLeWGKTFuh7cbZCjH80wZBFKfSsLpvaTbdp0J4x8aXoxDqxm17R3Vcv9ZBqyCU1yZBe7ADVHEhokTn11sI6nYU2WfEymwW4jW447n2AvH4bCwZCfBWVj9ATM9Seq2OczKZABY6eKTI6wgZDZD").trim();
+  let phoneId = (process.env.WHATSAPP_PHONE_NUMBER_ID || '1147494668457940').trim();
+
+  try {
+    const { query } = require('./postgres');
+    if (query) {
+      const result = await query('SELECT "whatsappToken", "whatsappPhoneNumberId" FROM "Workspace" LIMIT 1');
+      if (result && result.rows && result.rows.length > 0) {
+        if (result.rows[0].whatsappToken) metaToken = result.rows[0].whatsappToken;
+        if (result.rows[0].whatsappPhoneNumberId) phoneId = result.rows[0].whatsappPhoneNumberId;
+      }
+    }
+  } catch (e) {
+    console.warn("Could not fetch DB credentials for Meta fallback", e);
+  }
 
   if (metaToken && phoneId) {
     try {
       const cleanPhone = phone.replace(/[^0-9]/g, '');
+      let dataPayload: any = {
+        messaging_product: 'whatsapp',
+        to: cleanPhone
+      };
+
+      if (payload.templateName) {
+        dataPayload.type = 'template';
+        dataPayload.template = {
+          name: payload.templateName,
+          language: { code: 'en' }
+        };
+        if (payload.templateParams && payload.templateParams.length > 0) {
+          dataPayload.template.components = [
+            {
+              type: "body",
+              parameters: payload.templateParams.map(param => ({
+                type: "text",
+                text: String(param)
+              }))
+            }
+          ];
+        }
+      } else {
+        dataPayload.type = 'text';
+        dataPayload.text = {
+          body: payload.text || `Namaste ${payload.userName}! I can provide you with detailed information about personal, business, home, doctor, and educational loans within 5 minutes. Please share your name, location, profession or nature of employment (e.g., salaried, businessperson, doctor, CA, etc.), and the type of loan you require.`
+        };
+      }
+
       const metaRes = await axios.post(
         `https://graph.facebook.com/v25.0/${phoneId}/messages`,
-        {
-          messaging_product: 'whatsapp',
-          to: cleanPhone,
-          type: 'text',
-          text: {
-            body: payload.text || `Namaste ${payload.userName}! I can provide you with detailed information about personal, business, home, doctor, and educational loans within 5 minutes. Please share your name, location, profession or nature of employment (e.g., salaried, businessperson, doctor, CA, etc.), and the type of loan you require.`
-          }
-        },
+        dataPayload,
         {
           headers: {
             'Authorization': `Bearer ${metaToken}`,

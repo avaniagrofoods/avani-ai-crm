@@ -5,28 +5,61 @@ import { handleInboundButtonWorkflow } from './workflow-handler';
 import { handleInboundCorrectionWorkflow } from '@/lib/chatbot-router';
 
 const SYSTEM_PROMPT = `You are the Avani Loan Services AI Agent (Owner: Sachin Shinde, Latur).
-Your goal is to collect loan requirements from the user step-by-step in a conversational manner.
+Your goal is to collect loan requirements and documents from the user step-by-step in a conversational manner.
 
 # Rules:
 1. ALWAYS ask ONLY ONE question at a time. Never dump multiple questions at once.
 2. Be polite, professional, and use concise language. Support English, Hindi, and Marathi based on user language.
-3. First, ask what type of loan they need if they haven't specified: Personal, Business, Doctor, CA, Home, or Education.
-4. Once you know the loan type, ask the specific questions for that loan type SEQUENTIALLY (wait for the answer before asking the next).
+3. First, ask for Basic Information: Full Name, Mobile Number, Email Address, City.
+4. Next, ask for their Employment Type: Salaried, Self Employed, Business Owner, or Professional.
+5. Next, ask for their Monthly Income (Options: ₹25K–₹50K, ₹50K–₹1L, ₹1L–₹2L, Above ₹2L).
+6. Next, ask for Required Loan Amount and Loan Type (Personal, Business, Doctor, CA, Home, Education).
+7. Finally, depending on the Loan Type AND Employment Type, ask them to provide the specific documents as per the checklist below.
 
-# Business Identity Context:
-- Business Name: AVANI LOAN SERVICES
-- Founder: Sachin Shinde
-- Primary Office Location: Rajiv Gandhi Chauk, Opposite Bank of Baroda, Above Monginis Cake Shop, Ausa Road, Latur – 413512, Maharashtra
-- Official WhatsApp Business: +91 91756 35165
-- Official Email Contact: enquiry@avanifinserv.com
+# Checklists:
+If Salaried (Personal/Home Loan):
+- IDENTITY PROOF: Aadhaar Card, PAN Card, Passport, or Voter's ID
+- ADDRESS PROOF: Aadhaar Card, Utility Bill (last 3 months), or Driving License
+- INCOME DOCUMENTS: Last 3 months salary slips, Last 6 months bank statements, Form 16 (last 2 years)
+- EMPLOYMENT PROOF: Employee ID Card, Appointment Letter, or Offer Letter (for new joinees)
+- (If Home Loan) PROPERTY DOCUMENTS: Sale agreement / allotment letter, Property title deed, NOC from builder/society, Approved building plan, Property tax receipts, Original title deed, Encumbrance certificate, Valuation report
 
-# Loan Fields to Collect:
-- **Personal Loan:** Full Name -> Mobile Number -> City -> Employment Type (Salaried/Business/Professional) -> Monthly Income -> Required Loan Amount.
-- **Business Loan:** Business Name -> City -> Owner Name -> Mobile Number -> Turnover -> Loan Amount.
-- **Doctor Loan:** Doctor Name -> Specialization -> Clinic/Hospital Name -> Loan Requirement.
-- **CA Loan:** CA Name -> Firm Name -> Mobile Number -> Loan Requirement.
-- **Home Loan:** Property Location -> Property Value -> Loan Amount Needed.
-- **Education Loan:** Student Name -> Course -> Country -> University -> Loan Amount.
+If Business owner or self-employed (Business/Home Loan):
+- IDENTITY & ADDRESS PROOF: PAN Card (Individual + Business), Aadhaar Card, GST Registration Certificate
+- BUSINESS DOCUMENTS: Business Registration / Udyam Certificate, Shop & Establishment Certificate, Partnership Deed / MOA (if applicable)
+- FINANCIAL DOCUMENTS: Last 2 years ITR with CA stamp, Last 12 months bank statements, Last 2 years audited balance sheet
+
+If Professional (Doctor):
+- DOCTOR PROFESSIONAL DOCUMENTS: Degree Certificate, Registration Certificate (Old & New), Clinic/Hospital Registration
+- IDENTITY & ADDRESS PROOF: PAN Card, Aadhaar Card, Passport size photo
+- FINANCIAL DOCUMENTS: Last 2 years ITR, Last 6-12 months bank statements (Current & Savings), Existing loan details (if any)
+
+If Professional (Chartered Accountant):
+- CA PROFESSIONAL DOCUMENTS: Certificate of Practice (COP), ICAI Membership Certificate
+- IDENTITY & ADDRESS PROOF: PAN Card, Aadhaar Card, Passport size photo
+- FINANCIAL DOCUMENTS: Last 2 years ITR, Last 6-12 months bank statements, Existing loan details (if any)
+
+If Education Loan:
+- STUDENT DOCUMENT: Admission Letter, Passport (Both sides), Score Card (GRE/TOFEL/DUOLINGO/PTE/IELTS), Academic Certificates (10th, Inter/Diploma, Degree/B.Tech, CMM, PC), Work Experience (Offer/Relieving letter & Resume), Aadhaar, PAN, Email and Number
+- CO-APPLICANT:
+  - If Salaried: Aadhaar, PAN, Latest 3 months payslips, 6 months bank statement, 2 yrs Form-16.
+  - If Self Employed: Aadhaar, PAN, Latest 2 yrs ITR with Balance Sheet/P&L, Business Proof (Labour License/GST), 6 months bank statement.
+  - If Farmer: Aadhaar, PAN, Patta Pass Book, Agriculture Income Certificate, 6 months bank statement.
+
+# Completion:
+When the user has provided all basic info and agreed to share the checklist documents, you MUST output a special JSON block at the very end of your message in this exact format:
+[COMPLETE_LEAD]
+{
+  "name": "User Name",
+  "phone": "User Phone",
+  "email": "User Email",
+  "city": "User City",
+  "employmentType": "Salaried/Self Employed/etc",
+  "monthlyIncome": "Income Range",
+  "loanType": "Loan Type",
+  "requestedAmount": "Amount",
+  "callSummary": "Brief summary of the conversation"
+}
 `;
 
 const memoryChatHistory = new Map<string, any[]>();
@@ -212,7 +245,43 @@ If your request is urgent, feel free to call us directly or visit our office at 
               const history = memoryChatHistory.get(fromPhone)!;
               history.push({ direction: 'INBOUND', content: incomingText });
 
-              const aiResponse = await getAiResponse(history);
+              let aiResponse = await getAiResponse(history);
+              
+              if (aiResponse.includes('[COMPLETE_LEAD]')) {
+                log(`[AI-CHATBOT] Detected COMPLETE_LEAD trigger`);
+                const parts = aiResponse.split('[COMPLETE_LEAD]');
+                let userMessage = parts[0].trim();
+                const jsonPart = parts[1].trim();
+                
+                try {
+                  const leadData = JSON.parse(jsonPart);
+                  log(`[AI-CHATBOT] Parsed lead data: ${JSON.stringify(leadData)}`);
+                  
+                  // Integrations
+                  const { syncToHubSpot, syncToZapier, logToGoogleSheets } = require('@/lib/integrations');
+                  syncToHubSpot(leadData).catch(e => log(`HubSpot error: ${e}`));
+                  syncToZapier(leadData).catch(e => log(`Zapier error: ${e}`));
+                  logToGoogleSheets(leadData).catch(e => log(`Sheets error: ${e}`));
+                  
+                  // AI Calling Agent Integration
+                  const { triggerOmnidimCall } = require('@/lib/omnidim');
+                  triggerOmnidimCall(
+                    leadData.phone || fromPhone, 
+                    leadData.name || 'Customer', 
+                    leadData.loanType || 'Personal Loan', 
+                    'hi', 
+                    leadData.city, 
+                    leadData.employmentType, 
+                    leadData.requestedAmount
+                  ).catch((e: any) => log(`OmniDM Trigger Error: ${e.message}`));
+                  
+                  aiResponse = userMessage || "Thank you! I have saved all your details. Our AI calling agent will contact you shortly to confirm everything. Avani Finserv - Fast & Secure Approvals!";
+                } catch (e: any) {
+                  log(`[AI-CHATBOT] Failed to parse COMPLETE_LEAD JSON: ${e.message}`);
+                  aiResponse = userMessage || "Thank you! We've received your details.";
+                }
+              }
+
               history.push({ direction: 'OUTBOUND', content: aiResponse });
 
               // Dispatch auto-reply back via AiSensy WABA Gateway
