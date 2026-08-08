@@ -254,9 +254,9 @@ If your request is urgent, feel free to call us directly or visit our office at 
                   
                   // Integrations
                   const { syncToHubSpot, syncToZapier, logToGoogleSheets } = require('@/lib/integrations');
-                  syncToHubSpot(leadData).catch(e => log(`HubSpot error: ${e}`));
-                  syncToZapier(leadData).catch(e => log(`Zapier error: ${e}`));
-                  logToGoogleSheets(leadData).catch(e => log(`Sheets error: ${e}`));
+                  syncToHubSpot(leadData).catch((e: any) => log(`HubSpot error: ${e}`));
+                  syncToZapier(leadData).catch((e: any) => log(`Zapier error: ${e}`));
+                  logToGoogleSheets(leadData).catch((e: any) => log(`Sheets error: ${e}`));
                   
                   // AI Calling Agent Integration
                   const { triggerOmnidimCall } = require('@/lib/omnidim');
