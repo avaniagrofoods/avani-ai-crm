@@ -27,6 +27,7 @@ export async function POST(request: Request) {
           id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           "name" TEXT,
           "templateName" TEXT,
+          "campaignType" TEXT DEFAULT 'voice',
           "scheduledAt" TIMESTAMPTZ NOT NULL,
           "leads" JSONB NOT NULL,
           "status" TEXT DEFAULT 'PENDING',
@@ -34,15 +35,23 @@ export async function POST(request: Request) {
         );
       `;
       await query(sql);
+      
+      // Ensure campaignType exists if the table was already created
+      try {
+        await query(`ALTER TABLE "ScheduledCampaign" ADD COLUMN IF NOT EXISTS "campaignType" TEXT DEFAULT 'voice';`);
+      } catch (e) {
+        // Ignore alter table errors
+      }
 
       const insertSql = `
-        INSERT INTO "ScheduledCampaign" ("name", "templateName", "scheduledAt", "leads", "status")
-        VALUES ($1, $2, $3, $4, 'PENDING')
+        INSERT INTO "ScheduledCampaign" ("name", "templateName", "campaignType", "scheduledAt", "leads", "status")
+        VALUES ($1, $2, $3, $4, $5, 'PENDING')
         RETURNING *;
       `;
       const res = await query(insertSql, [
-        campaignName || `Campaign ${new Date().toISOString().substring(0, 10)}`,
-        templateName || 'avani_loan_intro',
+        body.name || campaignName || `Campaign ${new Date().toISOString().substring(0, 10)}`,
+        templateName || 'Avani_Loan_Welcome',
+        body.campaignType || 'voice',
         scheduledDateObj.toISOString(),
         JSON.stringify(leads)
       ]);

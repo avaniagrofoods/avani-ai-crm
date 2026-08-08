@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { query } from '@/lib/postgres';
 import { triggerOmnidimCall } from '@/lib/omnidim';
+import { sendAiSensyWhatsApp } from '@/lib/aisensy';
 
 export async function GET() {
   try {
@@ -20,7 +21,9 @@ export async function GET() {
 
     for (const campaign of res.rows) {
       const leads = campaign.leads || [];
-      console.log(`Processing scheduled campaign: ${campaign.name} with ${leads.length} leads`);
+      const campaignType = campaign.campaignType || 'voice';
+      const templateName = campaign.templateName || 'Avani_Loan_Welcome';
+      console.log(`Processing scheduled campaign: ${campaign.name} [${campaignType}] with ${leads.length} leads`);
 
       for (const lead of leads) {
         const name = lead.name || lead.Name;
@@ -33,9 +36,17 @@ export async function GET() {
             formattedPhone = formattedPhone.length === 10 ? '+91' + formattedPhone : '+' + formattedPhone;
           }
           try {
-            await triggerOmnidimCall(formattedPhone, name, loanType);
+            if (campaignType === 'whatsapp') {
+              await sendAiSensyWhatsApp({
+                destination: formattedPhone,
+                userName: name,
+                templateName: templateName
+              });
+            } else {
+              await triggerOmnidimCall(formattedPhone, name, loanType);
+            }
           } catch (err: any) {
-            console.error(`Scheduled call error for ${name}:`, err.message);
+            console.error(`Scheduled ${campaignType} error for ${name}:`, err.message);
           }
         }
       }

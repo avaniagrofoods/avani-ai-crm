@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Upload, Send, CheckCircle2, AlertCircle, RefreshCw, PhoneCall, FileSpreadsheet, Users, ShieldCheck, HelpCircle } from "lucide-react";
+import { Upload, Send, CheckCircle2, AlertCircle, RefreshCw, PhoneCall, FileSpreadsheet, Users, ShieldCheck, HelpCircle, CalendarClock } from "lucide-react";
 
 export default function BroadcastsPage() {
   const [csvFileName, setCsvFileName] = useState("");
@@ -11,6 +11,7 @@ export default function BroadcastsPage() {
   const [nameColumn, setNameColumn] = useState("");
   const [templateName, setTemplateName] = useState("Avani_Loan_Welcome");
   const [broadcastType, setBroadcastType] = useState<"whatsapp" | "voice">("whatsapp");
+  const [scheduleDate, setScheduleDate] = useState("");
 
   // Progress States
   const [isSending, setIsSending] = useState(false);
@@ -163,6 +164,50 @@ export default function BroadcastsPage() {
     setIsSending(false);
   };
 
+  const scheduleBroadcast = async () => {
+    if (contacts.length === 0) {
+      alert("Please upload a CSV or Excel file containing contacts first.");
+      return;
+    }
+    if (!scheduleDate) {
+      alert("Please select a date and time to schedule the broadcast.");
+      return;
+    }
+
+    setIsSending(true);
+    setProgress(50);
+    const API_BASE = typeof window !== 'undefined' ? `${window.location.origin}/api` : '/api';
+
+    try {
+      const res = await fetch(`${API_BASE}/campaigns/schedule`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: `Scheduled ${broadcastType} Campaign - ${new Date().toLocaleDateString()}`,
+          scheduledAt: new Date(scheduleDate).toISOString(),
+          campaignType: broadcastType,
+          templateName,
+          leads: contacts
+        })
+      });
+
+      const data = await res.json().catch(() => ({ success: false, error: "Invalid API JSON response" }));
+
+      if (res.ok && data.success) {
+        setProgress(100);
+        setLogs((prev) => [{ phone: "System", name: "Scheduler", status: "SUCCESS", message: `Campaign scheduled successfully for ${new Date(scheduleDate).toLocaleString()}` }, ...prev]);
+        setScheduleDate("");
+      } else {
+        setLogs((prev) => [{ phone: "System", name: "Scheduler", status: "FAILED", message: data.error || "Failed to schedule campaign" }, ...prev]);
+      }
+    } catch (err: any) {
+      setLogs((prev) => [{ phone: "System", name: "Scheduler", status: "FAILED", message: err.message || "Network Error" }, ...prev]);
+    }
+
+    setIsSending(false);
+    setTimeout(() => setProgress(0), 1000);
+  };
+
   return (
     <div className="p-6 space-y-6 max-w-7xl mx-auto text-zinc-100">
       <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-zinc-800 pb-5">
@@ -231,14 +276,47 @@ export default function BroadcastsPage() {
           </div>
 
           {contacts.length > 0 && (
-            <button
-              onClick={startBroadcast}
-              disabled={isSending}
-              className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-extrabold text-sm flex items-center justify-center gap-2 shadow-lg shadow-emerald-950 disabled:opacity-50 transition-all"
-            >
-              {isSending ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
-              {isSending ? "Dispatching Broadcast..." : `Launch Broadcast (${contacts.length} Contacts)`}
-            </button>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-bold text-zinc-300 uppercase tracking-wider mb-2">Schedule Time (Optional)</label>
+                <div className="flex gap-2 items-center bg-zinc-950 border border-zinc-800 rounded-lg p-1 pr-2">
+                  <input
+                    type="datetime-local"
+                    value={scheduleDate}
+                    onChange={(e) => setScheduleDate(e.target.value)}
+                    className="w-full bg-transparent text-sm text-zinc-200 p-2 focus:outline-none [color-scheme:dark]"
+                  />
+                  {scheduleDate && (
+                    <button
+                      onClick={() => setScheduleDate("")}
+                      className="text-zinc-500 hover:text-red-400 p-1 rounded-full transition-colors"
+                      title="Clear schedule"
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+              </div>
+              
+              <div className="flex gap-3">
+                <button
+                  onClick={startBroadcast}
+                  disabled={isSending || !!scheduleDate}
+                  className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-extrabold text-sm flex items-center justify-center gap-2 shadow-lg shadow-emerald-950 disabled:opacity-50 transition-all"
+                >
+                  {isSending && !scheduleDate ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
+                  {isSending && !scheduleDate ? "Dispatching..." : "Launch Now"}
+                </button>
+                <button
+                  onClick={scheduleBroadcast}
+                  disabled={isSending || !scheduleDate}
+                  className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-extrabold text-sm flex items-center justify-center gap-2 shadow-lg shadow-indigo-950 disabled:opacity-50 transition-all"
+                >
+                  {isSending && scheduleDate ? <RefreshCw className="w-5 h-5 animate-spin" /> : <CalendarClock className="w-5 h-5" />}
+                  {isSending && scheduleDate ? "Scheduling..." : "Schedule"}
+                </button>
+              </div>
+            </div>
           )}
         </div>
 
