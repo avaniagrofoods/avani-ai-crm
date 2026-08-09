@@ -1,6 +1,41 @@
 import { PhoneCall, Users, FileText, IndianRupee } from "lucide-react";
+import connectToDatabase from '@/lib/db';
+import { Lead } from '@/models/Lead';
+import { Document } from '@/models/Document';
 
-export default function Dashboard() {
+export const dynamic = 'force-dynamic';
+
+export default async function Dashboard() {
+  await connectToDatabase();
+
+  const totalCalls = await Lead.countDocuments({ callId: { $exists: true, $ne: "" } });
+  
+  const qualifiedLeads = await Lead.countDocuments({
+    status: { $in: ['Contacted', 'Documents Requested', 'Documents Complete', 'Processing', 'Approved', 'Disbursed'] }
+  });
+  
+  const documentsCollected = await Document.countDocuments({
+    status: { $in: ['UPLOADED', 'VERIFIED', 'VALID'] }
+  });
+
+  // Calculate potential revenue (rough estimate by parsing amounts if possible)
+  const leadsWithAmount = await Lead.find({ requestedAmount: { $exists: true, $ne: null } }, 'requestedAmount');
+  let totalRevenue = 0;
+  for (const l of leadsWithAmount) {
+    if (l.requestedAmount) {
+      const parsed = parseInt(String(l.requestedAmount).replace(/[^0-9]/g, ''));
+      if (!isNaN(parsed)) totalRevenue += parsed;
+    }
+  }
+
+  const recentLeads = await Lead.find().sort({ createdAt: -1 }).limit(5);
+
+  const formatCurrency = (amount: number) => {
+    if (amount >= 10000000) return `₹${(amount / 10000000).toFixed(2)} Cr`;
+    if (amount >= 100000) return `₹${(amount / 100000).toFixed(2)} L`;
+    return `₹${amount.toLocaleString('en-IN')}`;
+  };
+
   return (
     <div className="space-y-6">
       <header className="mb-8">
@@ -10,15 +45,15 @@ export default function Dashboard() {
 
       {/* KPI Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <MetricCard title="Total Calls Made" value="1,248" icon={<PhoneCall size={22} />} trend="+12% this week" />
-        <MetricCard title="Qualified Leads" value="342" icon={<Users size={22} />} trend="+5% this week" />
-        <MetricCard title="Documents Collected" value="89" icon={<FileText size={22} />} trend="+18% this week" />
-        <MetricCard title="Potential Revenue" value="₹4.2 Cr" icon={<IndianRupee size={22} />} trend="Based on requested amounts" />
+        <MetricCard title="Total Calls Made" value={totalCalls.toLocaleString()} icon={<PhoneCall size={22} />} trend="Lifetime calls via AI" />
+        <MetricCard title="Qualified Leads" value={qualifiedLeads.toLocaleString()} icon={<Users size={22} />} trend="Active in funnel" />
+        <MetricCard title="Documents Collected" value={documentsCollected.toLocaleString()} icon={<FileText size={22} />} trend="Total files submitted" />
+        <MetricCard title="Potential Revenue" value={formatCurrency(totalRevenue)} icon={<IndianRupee size={22} />} trend="Based on requested amounts" />
       </div>
 
       {/* Recent Activity */}
       <div className="mt-8">
-        <h2 className="text-xl font-semibold mb-4">Recent AI Calls</h2>
+        <h2 className="text-xl font-semibold mb-4">Recent Inbound Leads</h2>
         <div className="glass rounded-xl overflow-hidden">
           <table className="w-full text-sm text-left">
             <thead className="bg-white/5 border-b border-white/10 text-muted-foreground">
@@ -26,34 +61,29 @@ export default function Dashboard() {
                 <th className="px-6 py-4 font-medium">Customer Name</th>
                 <th className="px-6 py-4 font-medium">Loan Type</th>
                 <th className="px-6 py-4 font-medium">Status</th>
-                <th className="px-6 py-4 font-medium">Call Duration</th>
+                <th className="px-6 py-4 font-medium">Last Interaction</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-white/10">
-              <tr className="hover:bg-white/5 transition-colors">
-                <td className="px-6 py-4 font-medium text-foreground">Rahul Sharma</td>
-                <td className="px-6 py-4">Personal Loan</td>
-                <td className="px-6 py-4">
-                  <span className="px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-400 text-xs font-medium">Documents Requested</span>
-                </td>
-                <td className="px-6 py-4 text-muted-foreground">03:42</td>
-              </tr>
-              <tr className="hover:bg-white/5 transition-colors">
-                <td className="px-6 py-4 font-medium text-foreground">Dr. Priya Patil</td>
-                <td className="px-6 py-4">Doctor Loan</td>
-                <td className="px-6 py-4">
-                  <span className="px-3 py-1 rounded-full bg-blue-500/20 text-blue-400 text-xs font-medium">Interested - Follow Up</span>
-                </td>
-                <td className="px-6 py-4 text-muted-foreground">05:15</td>
-              </tr>
-              <tr className="hover:bg-white/5 transition-colors">
-                <td className="px-6 py-4 font-medium text-foreground">Ajay Tech Systems</td>
-                <td className="px-6 py-4">Business Loan</td>
-                <td className="px-6 py-4">
-                  <span className="px-3 py-1 rounded-full bg-orange-500/20 text-orange-400 text-xs font-medium">Not Interested</span>
-                </td>
-                <td className="px-6 py-4 text-muted-foreground">01:10</td>
-              </tr>
+              {recentLeads.length === 0 && (
+                <tr>
+                  <td colSpan={4} className="px-6 py-4 text-center text-muted-foreground">No recent leads found.</td>
+                </tr>
+              )}
+              {recentLeads.map((lead: any) => (
+                <tr key={lead._id.toString()} className="hover:bg-white/5 transition-colors">
+                  <td className="px-6 py-4 font-medium text-foreground">{lead.name || 'Unknown'}</td>
+                  <td className="px-6 py-4">{lead.loanType || lead.financialProfile?.loanType || 'N/A'}</td>
+                  <td className="px-6 py-4">
+                    <span className="px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-400 text-xs font-medium">
+                      {lead.status || 'New'}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 text-muted-foreground">
+                    {lead.lastInteractionAt ? new Date(lead.lastInteractionAt).toLocaleString() : 'N/A'}
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>

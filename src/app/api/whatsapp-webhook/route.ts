@@ -3,18 +3,27 @@ import { sendAiSensyWhatsApp } from '@/lib/aisensy';
 import { normalizeIndianPhone } from '@/lib/phone';
 import { handleInboundButtonWorkflow } from './workflow-handler';
 import { handleInboundCorrectionWorkflow } from '@/lib/chatbot-router';
+import connectToDatabase from '@/lib/db';
+import { Message } from '@/models/Message';
+import { Lead } from '@/models/Lead';
+import { Document } from '@/models/Document';
+import mongoose from 'mongoose';
 
 const SYSTEM_PROMPT = `You are the Avani Loan Services AI Agent (Owner: Sachin Shinde, Latur).
 Your goal is to collect loan requirements and documents from the user step-by-step in a conversational manner.
 
 # Rules:
-1. ALWAYS ask ONLY ONE question at a time. Never dump multiple questions at once.
-2. Be polite, professional, and use concise language. Support English, Hindi, and Marathi based on user language.
-3. First, ask for Basic Information: Full Name, Mobile Number, Email Address, City.
-4. Next, ask for their Employment Type: Salaried, Self Employed, Business Owner, or Professional.
-5. Next, ask for their Monthly Income (Options: ₹25K–₹50K, ₹50K–₹1L, ₹1L–₹2L, Above ₹2L).
-6. Next, ask for Required Loan Amount and Loan Type (Personal, Business, Doctor, CA, Home, Education).
-7. Finally, depending on the Loan Type AND Employment Type, ask them to provide the specific documents as per the checklist below.
+# Rules:
+1. STATE MACHINE PROGRESSION: You must act as a strict state machine. Do not skip steps.
+2. ONE AT A TIME: ALWAYS ask ONLY ONE question at a time. Never dump multiple questions at once. Wait for the user to answer the current question before asking the next.
+3. VALIDATION: Validate the user's response. If they give an invalid or non-sensical answer, ask the same question again politely.
+4. LANGUAGE: Be polite, professional, and use concise language. Support English, Hindi, Marathi, and Hinglish based on the user's language.
+5. INTENT: Detect Loan Product intent across languages (e.g., "karj", "vyapar karj", "gharkul", "paisa chahiye", "home loan").
+6. STEP 1 (Basic Info): Ask for Full Name, Mobile Number, Email Address, and City (ask these one by one or naturally).
+7. STEP 2 (Employment): Ask for their Employment Type: Salaried, Self Employed, Business Owner, or Professional.
+8. STEP 3 (Income): Ask for their Monthly Income (Options: ₹25K–₹50K, ₹50K–₹1L, ₹1L–₹2L, Above ₹2L).
+9. STEP 4 (Loan Details): Ask for Required Loan Amount and Loan Type (Personal, Business, Doctor, CA, Home, Education).
+10. STEP 5 (Documents): Finally, depending on the Loan Type AND Employment Type, ask them to provide the specific documents as per the checklist below.
 
 # Checklists:
 If Salaried (Personal/Home Loan):
@@ -157,6 +166,67 @@ export async function POST(request: Request) {
         const changes = entry?.changes || [entry];
         for (const change of changes) {
           const value = change?.value || change;
+
+          // 1. Handle Status Updates (Delivery Receipts)
+          const statuses = value?.statuses || (body.status ? [body] : []);
+          if (statuses.length > 0) {
+            await connectToDatabase();
+            for (const statusObj of statuses) {
+              const msgId = statusObj.id || statusObj.messageId;
+              const statusStr = statusObj.status || statusObj.deliveryStatus;
+              
+              if (msgId && statusStr) {
+                log(`[Webhook Status] msgId: ${msgId} is now ${statusStr}`);
+                
+                const formattedStatus = statusStr.charAt(0).toUpperCase() + statusStr.slice(1).toLowerCase();
+                const updateData: any = { status: formattedStatus };
+                if (statusStr.toLowerCase() === 'delivered') updateData.deliveredAt = new Date();
+                else if (statusStr.toLowerCase() === 'read') updateData.readAt = new Date();
+                else if (statusStr.toLowerCase() === 'failed') {
+                  updateData.failedAt = new Date();
+                  updateData.failureReason = statusObj.errors?.[0]?.title || 'Unknown Meta Error';
+                }
+
+                try {
+                  if (mongoose.connection.readyState === 1) {
+                    // Update Message using providerMessageId
+                    const updatedMsg = await Message.findOneAndUpdate(
+                      { providerMessageId: msgId },
+                      { $set: updateData },
+                      { new: true }
+                    );
+
+                    // If Message is tied to a Lead, update Lead lastInteractionAt
+                    if (updatedMsg && updatedMsg.leadId) {
+                       await Lead.findByIdAndUpdate(updatedMsg.leadId, {
+                         $set: { lastInteractionAt: new Date() }
+                       });
+                    }
+
+                    // Increment Broadcast stats if tied to a Broadcast
+                    if (updatedMsg && updatedMsg.broadcastId) {
+                       const incData: any = {};
+                       if (statusStr.toLowerCase() === 'delivered') incData.deliveredCount = 1;
+                       else if (statusStr.toLowerCase() === 'read') incData.readCount = 1;
+                       else if (statusStr.toLowerCase() === 'failed') incData.failedCount = 1;
+                       
+                       if (Object.keys(incData).length > 0) {
+                         await mongoose.model('Broadcast').findByIdAndUpdate(updatedMsg.broadcastId, {
+                           $inc: incData
+                         });
+                       }
+                    }
+                  } else {
+                    log(`[Webhook DB Bypass] DB not connected, skipping status update for msgId: ${msgId}`);
+                  }
+                } catch (e: any) {
+                  log(`[Webhook DB Error] Failed to update status for msgId: ${msgId} | Error: ${e.message}`);
+                }
+              }
+            }
+            continue; // Skip message parsing if this was just a status update
+          }
+
           let messages = value?.messages || (body.message ? [body.message] : []);
           
           // Fallback if payload is completely flat (e.g. AiSensy custom forwarding structure)
@@ -170,7 +240,20 @@ export async function POST(request: Request) {
             const fromPhone = normalizeIndianPhone(rawFromPhone);
             if (!fromPhone) continue;
 
+            const msgId = message.id || 'inbound_' + Date.now() + '_' + Math.random().toString(36).substring(7);
+
+            // Deduplication Check
+            await connectToDatabase();
+            const existingMsg = await Message.findOne({ $or: [{ messageId: msgId }, { providerMessageId: msgId }] });
+            if (existingMsg) {
+              log(`[Webhook Idempotency] Skipping duplicate message: ${msgId}`);
+              continue;
+            }
+
             let incomingText = "";
+            let mediaId = "";
+            let mediaType = "";
+            
             if (message.type === 'text') {
               incomingText = message.text?.body || "";
             } else if (message.type === 'button') {
@@ -179,10 +262,13 @@ export async function POST(request: Request) {
               incomingText = message.interactive?.button_reply?.title || 
                              message.interactive?.list_reply?.title || 
                              message.interactive?.button_reply?.id || "";
+            } else if (message.type === 'document' || message.type === 'image') {
+              mediaId = message[message.type]?.id || "";
+              mediaType = message.type;
+              incomingText = `[User uploaded ${message.type}]`;
             } else if (typeof message === 'string') {
               incomingText = message;
             } else if (message.text && typeof message.text === 'string') {
-              // Catch-all for flat flat `{ text: "Hello" }` payloads
               incomingText = message.text;
             }
 
@@ -190,6 +276,60 @@ export async function POST(request: Request) {
               incomingText = "Namaste, I want to apply for a loan";
             }
             log(`Parsed incoming message from ${fromPhone}: "${incomingText}"`);
+
+            // Upsert Lead
+            const profileName = message.profile?.name || 'Customer';
+            const lead = await Lead.findOneAndUpdate(
+              { phone: fromPhone },
+              { 
+                $set: { 
+                  phone: fromPhone, 
+                  lastInteractionAt: new Date()
+                },
+                $setOnInsert: { 
+                  name: profileName,
+                  leadSource: 'WhatsApp Inbound',
+                  status: 'New'
+                }
+              },
+              { new: true, upsert: true }
+            );
+
+            // Create Inbound Message Log
+            await Message.create({
+              messageId: msgId,
+              leadId: lead._id,
+              phone: fromPhone,
+              direction: 'inbound',
+              provider: 'WhatsApp',
+              text: incomingText,
+              status: 'Received',
+              sentAt: new Date(),
+              deliveredAt: new Date()
+            });
+
+            if (mediaId) {
+               await Document.create({
+                 leadId: lead._id,
+                 documentType: 'Unknown',
+                 fileUrl: mediaId, // Just store the Meta Media ID for now
+                 status: 'UPLOADED',
+                 uploadedAt: new Date()
+               });
+               
+               // Let Gemini know a document was received
+               if (!memoryChatHistory.has(fromPhone)) {
+                 memoryChatHistory.set(fromPhone, []);
+               }
+               const history = memoryChatHistory.get(fromPhone)!;
+               history.push({ direction: 'INBOUND', content: `[SYSTEM: User has uploaded a document/image with ID ${mediaId}. Acknowledge receipt.]` });
+               
+               let aiResponse = await getAiResponse(history);
+               history.push({ direction: 'OUTBOUND', content: aiResponse });
+
+               await sendAiSensyWhatsApp({ destination: fromPhone, userName: profileName, text: aiResponse });
+               continue; // Handled document upload
+            }
 
             let isHandled = false;
             try {

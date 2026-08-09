@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import connectToDatabase from '@/lib/db';
+import mongoose from 'mongoose';
 import { Lead } from '@/models/Lead';
+import { Call } from '@/models/Call';
 import { sendAiSensyWhatsApp } from '@/lib/aisensy';
 import axios from 'axios';
 import { validateProductPayload } from '@/lib/validators';
@@ -83,23 +85,50 @@ export async function POST(req: Request) {
     const variables = body.variables || body.request_data || {};
     const name = variables.customerName || variables.name || 'Valued Customer';
     const loanType = variables.loanType || 'Personal Loan';
-
-    let lead: any = null;
-    try {
-      if (callId) lead = await Lead.findOne({ callId });
-      if (!lead && phone) {
-        const cleanPhone = phone.replace(/[^0-9]/g, '');
-        lead = await Lead.findOne({ phone: { $regex: cleanPhone, $options: 'i' } });
-      }
-    } catch (e) { console.warn("Lead query warning:", e); }
-
-    const status = isCompleted ? 'Contacted' : 'Follow Up Required';
     const notes = body.summary || body.transcript || `OmniDM AI Voice Call event: ${body.status || body.event || 'ended'}`;
+    let lead: any = null;
 
-    if (lead) {
-      lead.status = status;
-      lead.notes = notes;
-      try { await lead.save(); } catch (e) {}
+    if (mongoose.connection.readyState === 1) {
+      try {
+        if (callId) lead = await Lead.findOne({ callId });
+        if (!lead && phone) {
+          const cleanPhone = phone.replace(/[^0-9]/g, '');
+          lead = await Lead.findOne({ phone: { $regex: cleanPhone, $options: 'i' } });
+        }
+      } catch (e) { console.warn("Lead query warning:", e); }
+
+      const status = isCompleted ? 'Contacted' : 'Follow Up Required';
+      if (lead) {
+        lead.status = status;
+        lead.notes = notes;
+        try { await lead.save(); } catch (e) {}
+      }
+    }
+
+    let mappedStatus = isCompleted ? 'Completed' : 'Failed';
+    if (body.status === 'no-answer') mappedStatus = 'No Answer';
+    else if (body.status === 'answered') mappedStatus = 'Answered';
+    else if (body.status === 'calling') mappedStatus = 'Calling';
+
+    const updateData: any = { status: mappedStatus };
+    if (body.duration) updateData.duration = body.duration;
+    if (body.recording_url) updateData.recordingUrl = body.recording_url;
+    if (body.transcript || notes) updateData.transcript = body.transcript || notes;
+    
+    if (mappedStatus === 'Completed' || mappedStatus === 'No Answer' || mappedStatus === 'Failed') {
+      updateData.completedAt = new Date();
+    }
+
+    if (callId) {
+      if (mongoose.connection.readyState === 1) {
+        await Call.findOneAndUpdate(
+          { callId },
+          { $set: updateData },
+          { new: true }
+        );
+      } else {
+        console.warn(`[Webhook DB Bypass] DB not connected, skipping status update for callId: ${callId}`);
+      }
     }
 
     const integrationPayload: any = {
@@ -156,9 +185,12 @@ export async function POST(req: Request) {
         console.log(`[Post-Call WhatsApp] Triggering WhatsApp follow-up for ${phone}...`);
         
         // Update state to loan_consultation_offer_sent
-        if (lead && lead.currentWorkflowState !== "awaiting_correction") {
-          lead.currentWorkflowState = "loan_consultation_offer_sent";
-          await lead.save();
+        if (mongoose.connection.readyState === 1) {
+          let lead = await Lead.findOne({ phone: phone });
+          if (lead && lead.currentWorkflowState !== "awaiting_correction") {
+            lead.currentWorkflowState = "loan_consultation_offer_sent";
+            await lead.save();
+          }
         }
         
         await sendAiSensyWhatsApp({

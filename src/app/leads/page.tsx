@@ -131,6 +131,27 @@ export default function LeadsPage() {
                   ))}
                 </div>
               </div>
+
+              <div className="pt-2 border-t border-zinc-850">
+                <button 
+                  onClick={async () => {
+                    const res = await fetch('/api/leads/trigger', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        phone: selectedLead.phone,
+                        name: selectedLead.name,
+                        loanType: selectedLead.product
+                      })
+                    });
+                    if (res.ok) alert('OmniDM AI Voice Call triggered successfully!');
+                    else alert('Failed to trigger AI call');
+                  }}
+                  className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-bold text-xs shadow-lg shadow-indigo-900/50 transition-colors"
+                >
+                  <PhoneCall className="w-4 h-4" /> Trigger OmniDM AI Call
+                </button>
+              </div>
             </div>
           ) : (
             <div className="bg-zinc-900/40 border border-zinc-850/80 border-dashed rounded-2xl p-6 text-center text-zinc-500 flex flex-col items-center justify-center min-h-[150px]">

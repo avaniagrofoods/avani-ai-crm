@@ -12,12 +12,17 @@ export default function BroadcastsPage() {
   const [templateName, setTemplateName] = useState("Avani_Loan_Welcome");
   const [broadcastType, setBroadcastType] = useState<"whatsapp" | "voice">("whatsapp");
   const [scheduleDate, setScheduleDate] = useState("");
+  const [isTestMode, setIsTestMode] = useState(true);
+  const [activeBroadcastId, setActiveBroadcastId] = useState<string | null>(null);
 
   // Progress States
   const [isSending, setIsSending] = useState(false);
+  const [showConfirmation, setShowConfirmation] = useState(false);
   const [progress, setProgress] = useState(0);
-  const [stats, setStats] = useState({ success: 0, failed: 0, duplicatesRemoved: 0, total: 0 });
+  const [stats, setStats] = useState({ queued: 0, sent: 0, delivered: 0, read: 0, failed: 0, duplicatesRemoved: 0, total: 0 });
   const [logs, setLogs] = useState<any[]>([]);
+  const [dbMode, setDbMode] = useState<"production" | "test" | null>(null);
+  const [isOfflineMode, setIsOfflineMode] = useState(false);
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -78,83 +83,111 @@ export default function BroadcastsPage() {
       }
 
       setContacts(cleanContacts);
-      setStats({ success: 0, failed: 0, duplicatesRemoved: dupes, total: cleanContacts.length });
+      setStats({ queued: 0, sent: 0, delivered: 0, read: 0, failed: 0, duplicatesRemoved: dupes, total: cleanContacts.length });
     };
 
     reader.readAsText(file);
   };
 
-  const startBroadcast = async () => {
+  const handleBroadcastClick = () => {
     if (contacts.length === 0) {
       alert("Please upload a CSV or Excel file containing contacts first.");
       return;
     }
+    setShowConfirmation(true);
+  };
+
+  const startBroadcast = async () => {
+    setShowConfirmation(false);
 
     setIsSending(true);
     setProgress(0);
-    let successCount = 0;
-    let failedCount = 0;
     const sendLogs: any[] = [];
 
     const API_BASE = typeof window !== 'undefined' ? `${window.location.origin}/api` : '/api';
 
+    // 1. Create Broadcast Session
+    let bId = null;
+    try {
+      const createRes = await fetch(`${API_BASE}/broadcasts/create`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: `${isTestMode ? '[TEST] ' : ''}${templateName} - ${new Date().toLocaleDateString()}`,
+          templateName,
+          broadcastType,
+          totalContacts: contacts.length,
+          testMode: isTestMode
+        })
+      });
+      const createData = await createRes.json();
+      if (createData.success) {
+        bId = createData.broadcastId;
+        setActiveBroadcastId(bId);
+        if (createData.mode) {
+          setDbMode(createData.mode);
+        }
+      }
+    } catch (e) {
+      console.error("Failed to create broadcast session", e);
+    }
+
+    // 2. Start Polling for Live Stats
+    const pollInterval = bId ? setInterval(async () => {
+      try {
+        const statsRes = await fetch(`${API_BASE}/broadcasts/${bId}/stats`);
+        const statsData = await statsRes.json();
+        if (statsData.success) {
+          setStats(prev => ({
+            ...prev,
+            queued: statsData.stats.queued,
+            sent: statsData.stats.sent,
+            delivered: statsData.stats.delivered,
+            read: statsData.stats.read,
+            failed: statsData.stats.failed
+          }));
+        }
+      } catch (e) {}
+    }, 3000) : null;
+
+    // 3. Dispatch Loop
     for (let i = 0; i < contacts.length; i++) {
       const contact = contacts[i];
 
       try {
-        if (broadcastType === "whatsapp") {
-          const res = await fetch(`${API_BASE}/whatsapp-webhook`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              event: "send_template",
-              phone: contact.phone,
-              name: contact.name,
-              template: templateName
-            })
-          });
+        const res = await fetch(`${API_BASE}/broadcasts/send`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            phone: contact.phone,
+            name: contact.name,
+            templateName: templateName,
+            loanType: contact.loanType,
+            broadcastId: bId,
+            broadcastType: broadcastType,
+            testMode: isTestMode
+          })
+        });
 
-          const data = await res.json().catch(() => ({ success: false, error: "Invalid API JSON response" }));
+        const data = await res.json().catch(() => ({ success: false, error: "Invalid API JSON response" }));
 
-          if (res.ok && data.success) {
-            successCount++;
-            sendLogs.unshift({ phone: contact.phone, name: contact.name, status: "SUCCESS", message: "WhatsApp message dispatched successfully" });
-          } else {
-            failedCount++;
-            const errMsg = data.error || data.result?.error || "Delivery failed (Check Provider Credentials)";
-            sendLogs.unshift({ phone: contact.phone, name: contact.name, status: "FAILED", message: errMsg });
-          }
+        if (data.mode) {
+           setDbMode(data.mode);
+        }
+
+        if (res.ok && data.success) {
+          const successStatus = data.mode === "test" ? "SIMULATED SUCCESS" : "QUEUED";
+          sendLogs.unshift({ phone: contact.phone, name: contact.name, status: successStatus, message: `Dispatched to ${broadcastType === 'voice' ? 'OmniDM' : 'AiSensy'}` });
         } else {
-          // Voice Call Broadcast via OmniDM
-          const res = await fetch(`${API_BASE}/leads/trigger`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              phone: contact.phone,
-              name: contact.name,
-              loanType: contact.loanType
-            })
-          });
-
-          const data = await res.json().catch(() => ({ success: false, error: "Invalid API JSON response" }));
-
-          if (res.ok && data.success) {
-            successCount++;
-            sendLogs.unshift({ phone: contact.phone, name: contact.name, status: "SUCCESS", message: "OmniDM AI Voice Call dispatched successfully" });
-          } else {
-            failedCount++;
-            const errMsg = data.error || data.message || "OmniDM Dispatch failed (Check API Key / Agent ID)";
-            sendLogs.unshift({ phone: contact.phone, name: contact.name, status: "FAILED", message: errMsg });
-          }
+          const errMsg = data.error || data.result?.error || "Delivery failed (Check Provider Credentials)";
+          sendLogs.unshift({ phone: contact.phone, name: contact.name, status: "FAILED", message: errMsg });
         }
       } catch (err: any) {
-        failedCount++;
         sendLogs.unshift({ phone: contact.phone, name: contact.name, status: "FAILED", message: err.message || "Network Error" });
       }
 
       const pct = Math.round(((i + 1) / contacts.length) * 100);
       setProgress(pct);
-      setStats((prev) => ({ ...prev, success: successCount, failed: failedCount }));
       setLogs([...sendLogs]);
 
       // Throttle delay to respect API rate limits
@@ -162,6 +195,11 @@ export default function BroadcastsPage() {
     }
 
     setIsSending(false);
+    
+    // Stop polling after 2 minutes to save resources (or when user leaves)
+    if (pollInterval) {
+      setTimeout(() => clearInterval(pollInterval), 120000);
+    }
   };
 
   const scheduleBroadcast = async () => {
@@ -218,7 +256,21 @@ export default function BroadcastsPage() {
           <p className="text-sm text-zinc-400 mt-1">
             Dispatch high-converting WhatsApp & AI Voice campaigns to verified leads via AiSensy, Meta, and OmniDM.
           </p>
+          {dbMode === "test" && (
+            <div className="mt-4 inline-flex items-center gap-2 bg-red-950/50 border border-red-900 text-red-400 px-3 py-1.5 rounded-lg text-xs font-bold">
+              <AlertCircle className="w-4 h-4" /> TEST MODE — DATABASE OFFLINE (Mocking Transactions)
+            </div>
+          )}
         </div>
+        {isOfflineMode && (
+          <div className="bg-amber-900/40 border border-amber-700 text-amber-200 px-4 py-2 rounded-lg flex items-center gap-2">
+            <AlertCircle className="w-5 h-5" />
+            <div>
+              <span className="block text-xs font-black">TEST MODE — DATABASE OFFLINE</span>
+              <span className="block text-[10px]">CRM persistence is disabled. Showing simulated UI metrics.</span>
+            </div>
+          </div>
+        )}
       </header>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -275,6 +327,18 @@ export default function BroadcastsPage() {
             </div>
           </div>
 
+          <div>
+            <label className="flex items-center gap-2 cursor-pointer p-3 bg-zinc-950 border border-zinc-800 rounded-lg">
+              <input 
+                type="checkbox" 
+                checked={isTestMode} 
+                onChange={(e) => setIsTestMode(e.target.checked)} 
+                className="w-4 h-4 text-emerald-500 bg-zinc-900 border-zinc-700 rounded focus:ring-emerald-500 focus:ring-2"
+              />
+              <span className="text-sm font-bold text-zinc-300">Run in TEST MODE (Dry Run)</span>
+            </label>
+          </div>
+
           {contacts.length > 0 && (
             <div className="space-y-3">
               <div>
@@ -300,7 +364,7 @@ export default function BroadcastsPage() {
               
               <div className="flex gap-3">
                 <button
-                  onClick={startBroadcast}
+                  onClick={handleBroadcastClick}
                   disabled={isSending || !!scheduleDate}
                   className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-extrabold text-sm flex items-center justify-center gap-2 shadow-lg shadow-emerald-950 disabled:opacity-50 transition-all"
                 >
@@ -318,25 +382,47 @@ export default function BroadcastsPage() {
               </div>
             </div>
           )}
+
+          {/* Confirmation Modal */}
+          {showConfirmation && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80">
+              <div className="bg-zinc-900 border border-zinc-700 p-6 rounded-xl shadow-2xl max-w-md w-full">
+                <h3 className="text-xl font-bold text-white mb-2">Confirm Broadcast</h3>
+                <p className="text-sm text-zinc-300 mb-4">
+                  You are about to send the <strong>{templateName}</strong> message to <strong>{stats.total}</strong> contacts.
+                  This action cannot be undone. Are you sure you want to proceed?
+                </p>
+                <div className="flex justify-end gap-3">
+                  <button onClick={() => setShowConfirmation(false)} className="px-4 py-2 bg-zinc-800 text-zinc-300 rounded hover:bg-zinc-700">Cancel</button>
+                  <button onClick={startBroadcast} className="px-4 py-2 bg-emerald-600 text-white font-bold rounded hover:bg-emerald-500">SUBMIT BROADCAST</button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Step 2: Stats & Preview */}
         <div className="lg:col-span-2 space-y-6">
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
             <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 text-center shadow-md">
               <Users className="w-5 h-5 mx-auto text-indigo-400 mb-1" />
               <div className="text-2xl font-black text-white">{stats.total}</div>
               <div className="text-xs font-semibold text-zinc-500 uppercase">Total Leads</div>
             </div>
             <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 text-center shadow-md">
-              <ShieldCheck className="w-5 h-5 mx-auto text-yellow-400 mb-1" />
-              <div className="text-2xl font-black text-yellow-400">{stats.duplicatesRemoved}</div>
-              <div className="text-xs font-semibold text-zinc-500 uppercase">Dupes Removed</div>
+              <RefreshCw className="w-5 h-5 mx-auto text-blue-400 mb-1" />
+              <div className="text-2xl font-black text-blue-400">{stats.queued + stats.sent}</div>
+              <div className="text-xs font-semibold text-zinc-500 uppercase">Sent</div>
             </div>
             <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 text-center shadow-md">
               <CheckCircle2 className="w-5 h-5 mx-auto text-emerald-400 mb-1" />
-              <div className="text-2xl font-black text-emerald-400">{stats.success}</div>
+              <div className="text-2xl font-black text-emerald-400">{stats.delivered}</div>
               <div className="text-xs font-semibold text-zinc-500 uppercase">Delivered</div>
+            </div>
+            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 text-center shadow-md">
+              <CheckCircle2 className="w-5 h-5 mx-auto text-cyan-400 mb-1" />
+              <div className="text-2xl font-black text-cyan-400">{stats.read}</div>
+              <div className="text-xs font-semibold text-zinc-500 uppercase">Read</div>
             </div>
             <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 text-center shadow-md">
               <AlertCircle className="w-5 h-5 mx-auto text-red-400 mb-1" />
@@ -369,7 +455,7 @@ export default function BroadcastsPage() {
                 <div className="text-zinc-600 text-center py-20">Upload a CSV file and click "Launch Broadcast" to see real-time dispatch logs.</div>
               ) : (
                 logs.map((log, idx) => (
-                  <div key={idx} className={`p-2.5 rounded border flex flex-col gap-1 ${log.status === "SUCCESS" ? "bg-emerald-950/30 border-emerald-900/50 text-emerald-400" : "bg-red-950/30 border-red-900/50 text-red-400"}`}>
+                  <div key={idx} className={`p-2.5 rounded border flex flex-col gap-1 ${log.status.includes("SUCCESS") || log.status === "QUEUED" ? (log.status === "SIMULATED SUCCESS" ? "bg-amber-950/30 border-amber-900/50 text-amber-400" : "bg-emerald-950/30 border-emerald-900/50 text-emerald-400") : "bg-red-950/30 border-red-900/50 text-red-400"}`}>
                     <div className="flex justify-between items-center font-bold">
                       <span>[{log.phone}] {log.name}</span>
                       <span className="px-2 py-0.5 rounded text-[10px] bg-black border border-current">{log.status}</span>
