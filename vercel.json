@@ -1,9 +1,8 @@
 {
-  "name": "avani-ai-crm",
   "crons": [
     {
       "path": "/api/cron/process-scheduled",
-      "schedule": "*/5 * * * *"
+      "schedule": "0 0 * * *"
     }
   ]
 }

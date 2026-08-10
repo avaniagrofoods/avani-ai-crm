@@ -46,3 +46,4 @@ temp-app/
 
 *.ps1
 *.js
+.env*

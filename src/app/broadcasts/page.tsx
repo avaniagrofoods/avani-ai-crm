@@ -165,7 +165,8 @@ export default function BroadcastsPage() {
             loanType: contact.loanType,
             broadcastId: bId,
             broadcastType: broadcastType,
-            testMode: isTestMode
+            testMode: isTestMode,
+            idempotencyKey: `${bId || 'local-sess-' + Date.now()}:${contact.phone}:${templateName}`
           })
         });
 

@@ -15,11 +15,20 @@ const LeadSchema = new mongoose.Schema({
   
   // Qualification Details
   loanType: { type: String, required: true },
-  employmentType: { type: String },
-  income: { type: String },
+  employmentType: { 
+    type: String,
+    enum: ['Salaried', 'Self Employed', 'Business Owner', 'Doctor / Medical Professional', 'Chartered Accountant', 'Other Professional', 'Student', 'Farmer', 'Pensioner', 'Other']
+  },
+  profession: { type: String }, // For dynamic capture
+  monthlyIncomeRange: { 
+    type: String,
+    enum: ['₹25K–₹50K', '₹50K–₹1L', '₹1L–₹2L', 'Above ₹2L']
+  },
+  income: { type: String }, // Legacy
   monthlyIncome: { type: Number },
   annualIncome: { type: Number },
   requestedAmount: { type: String },
+  requiredLoanAmount: { type: Number }, // Standardized field
   
   // Lead State & Status
   status: { 
@@ -31,15 +40,49 @@ const LeadSchema = new mongoose.Schema({
     ],
     default: 'New'
   },
-  aiAgentStatus: { type: String },
+  aiAgentStatus: { 
+    type: String,
+    enum: [
+      'NEW_LEAD',
+      'OUTBOUND_SENT',
+      'DELIVERED',
+      'READ',
+      'WAITING_FOR_REPLY',
+      'QUALIFICATION_STARTED',
+      'COLLECT_FULL_NAME',
+      'COLLECT_MOBILE',
+      'COLLECT_EMAIL',
+      'COLLECT_CITY',
+      'COLLECT_EMPLOYMENT',
+      'COLLECT_MONTHLY_INCOME',
+      'COLLECT_LOAN_PRODUCT',
+      'COLLECT_LOAN_AMOUNT',
+      'DOCUMENT_GUIDANCE',
+      'LEAD_QUALIFIED',
+      'DOCUMENTS_PENDING',
+      'HUMAN_HANDOFF',
+      'COMPLETED',
+      'NO_RESPONSE',
+      'INVALID_INPUT',
+      'CUSTOMER_DECLINED',
+      'CALLBACK_REQUESTED'
+    ]
+  },
   questionProgress: { type: Number, default: 0 },
   documentStatus: { type: String },
   callStatus: { type: String },
   followUpStatus: { type: String },
   currentWorkflowState: { type: String },
 
-  // Attribution
-  leadSource: { type: String },
+  // Attribution & Zero-Duplicate Tracking
+  leadSource: { type: String }, // General source category (e.g. Meta Ads, CSV, Website)
+  source: { type: String },     // Deterministic exact source name
+  channel: { type: String },    // Deterministic channel (e.g. WhatsApp, Voice)
+  correlationId: { type: String, index: true }, // AVL-WA-YYYYMMDD-XXXX
+  provider: { type: String },   // AiSensy, OmniDM, etc.
+  providerMessageId: { type: String, index: true }, // The latest/canonical external message ID
+  providerCallId: { type: String, index: true },    // The latest/canonical external call ID
+  
   sourcePlatform: { type: String },
   campaign: { type: String },
   campaignId: { type: String },

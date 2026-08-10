@@ -13,6 +13,8 @@ export interface AiSensyMessagePayload {
   leadId?: mongoose.Types.ObjectId | string;
   contactId?: mongoose.Types.ObjectId | string;
   broadcastId?: mongoose.Types.ObjectId | string;
+  idempotencyKey?: string;
+  correlationId?: string;
 }
 
 export interface AiSensyResponse {
@@ -20,6 +22,7 @@ export interface AiSensyResponse {
   messageId?: string;
   rawResponse?: any;
   error?: string;
+  status?: string; // 'Sent', 'Unknown', 'Failed'
 }
 
 
@@ -60,8 +63,9 @@ export async function sendOmniDMWhatsApp(phone: string, name: string): Promise<a
 /**
  * Primary WABA Dispatcher using AiSensy Official API + OmniDM & Meta Cloud Fallbacks
  */
-export async function sendAiSensyWhatsApp(payload: AiSensyMessagePayload): Promise<AiSensyResponse> {
-  const apiKey = (process.env.AISENCY_WABA_API_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjZhNjcwZjk0ZDBjMzlmNTdlYWE2Nzk5ZiIsIm5hbWUiOiJBVkFOSSBMT0FOIFNFUlZJQ0UiLCJhcHBOYW1lIjoiQWlTZW5zeSIsImNsaWVudElkIjoiNmE2NzBmOTRkMGMzOWY1N2VhYTY3OTlhIiwiYWN0aXZlUGxhbiI6IkZSRUVfRk9SRVZFUiIsImlhdCI6MTc4NTEzOTA5Mn0.m0yF5dd541YlK4J0UcTa5WEIPCrnW-qQaQ7mX1MOO7w').trim();
+export async function sendAiSensyWhatsApp(payload: AiSensyMessagePayload, existingMessageId: string): Promise<AiSensyResponse> {
+  const omnidmKey = (process.env.OMNIDIM_API_KEY || 'w-uV11bJBZ3g5icPI-uw97k2Fz8VswFsCUCcMIjBqok.').trim();
+  const apiKey = (process.env.AISENCY_WABA_API_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjZhNjcwZjk0ZDBjMzlmNTdlYWE2Nzk5ZiIsIm5hbWUiOiJBVkFOSSBMT0FOIFNFUlZJQ0UiLCJhcHBOYW1lIjoiQWlTZW5zeSIsImNsaWVudElkIjoiNmE2NzBmOTRkMGMzOWY1N2VhYTY3OTlhIiwiYWN0aXZlUGxhbiI6IkJBU0lDX1FVQVJURVJMWSIsImlhdCI6MTc4NjM2MTY5Nn0.zUbuZSCFRH5ZZo_pqBVMfqaHXLKbGEFC5mPOse1bW5M.').trim();
   const automationNumber = process.env.WABA_AUTOMATION_NUMBER || '+917249108474';
 
   let phone = payload.destination.trim();
@@ -71,6 +75,33 @@ export async function sendAiSensyWhatsApp(payload: AiSensyMessagePayload): Promi
 
   console.log(`[WhatsApp Dispatch] Sending to ${phone} from Automation WABA: ${automationNumber}`);
 
+  // MOCK PROVIDER SAFETY GATE
+  if (process.env.PROVIDER_MODE === 'mock') {
+    const mockMsgId = 'mock_wamid_' + Date.now() + '_' + Math.random().toString(36).substring(7);
+    try {
+      await connectToDatabase();
+      const { ProviderLedger } = require('@/models/ProviderLedger');
+      await ProviderLedger.create({
+        correlationId: payload.correlationId || 'none',
+        idempotencyKey: payload.idempotencyKey || 'none',
+        provider: 'MockProvider',
+        operation: 'send_whatsapp',
+        requestHash: payload.templateName || payload.text?.substring(0, 50) || 'unknown',
+        providerMessageId: mockMsgId,
+        httpStatus: 200,
+        result: 'MOCK_SUCCESS',
+        completedAt: new Date()
+      });
+      console.log(`[Provider MOCK] Safety gate triggered. Logged to ledger: ${mockMsgId}`);
+      if (existingMessageId) {
+        await updateMessage(existingMessageId, mockMsgId, 'MockProvider', 'Sent');
+      }
+    } catch (e: any) {
+      console.error("[Provider MOCK Error] Ledger failure:", e.message);
+    }
+    return { success: true, messageId: mockMsgId, status: 'Sent' };
+  }
+
   // 1. Primary: AiSensy WABA Campaign API (Since WABA is registered on AiSensy)
   if (apiKey && !payload.text) {
     try {
@@ -78,7 +109,7 @@ export async function sendAiSensyWhatsApp(payload: AiSensyMessagePayload): Promi
         'https://backend.aisensy.com/campaign/t1/api/v2',
         {
           apiKey: apiKey,
-          campaignName: payload.templateName || 'Avani_Loan_Welcome',
+          campaignName: payload.templateName || 'avani_loan_intro_v2',
           destination: phone,
           userName: payload.userName,
           templateParams: payload.templateParams && payload.templateParams.length === 1 ? payload.templateParams : [payload.userName],
@@ -93,16 +124,22 @@ export async function sendAiSensyWhatsApp(payload: AiSensyMessagePayload): Promi
 
       if (response.data && (response.data.success === "true" || response.data.success === true || response.data.submitted_message_id)) {
         const msgId = response.data.submitted_message_id || 'aisensy_' + Date.now();
-        await logMessage(payload, msgId, 'AiSensy', 'Sent');
+        await updateMessage(existingMessageId, msgId, 'AiSensy', 'Sent');
         return {
           success: true,
           messageId: msgId,
-          rawResponse: response.data
+          rawResponse: response.data,
+          status: 'Sent'
         };
       }
     } catch (error: any) {
-      await logMessage(payload, 'aisensy_err_' + Date.now(), 'AiSensy', 'Failed', error?.response?.data || error.message);
-      console.warn('[AiSensy API Warning]:', error?.response?.data || error.message);
+      const isTimeout = error.code === 'ECONNABORTED' || error.message?.toLowerCase().includes('timeout');
+      const status = isTimeout ? 'Unknown' : 'Failed';
+      const rawErr = error?.response?.data || error.message;
+      const errStr = typeof rawErr === 'object' ? JSON.stringify(rawErr) : String(rawErr);
+      await updateMessage(existingMessageId, 'aisensy_err_' + Date.now(), 'AiSensy', status, errStr);
+      console.warn(`[AiSensy API Warning]: ${status}`, rawErr);
+      if (isTimeout) return { success: false, error: 'Network timeout', status: 'Unknown' };
     }
   }
 
@@ -110,16 +147,17 @@ export async function sendAiSensyWhatsApp(payload: AiSensyMessagePayload): Promi
   const omnidmRes = await sendOmniDMWhatsApp(phone, payload.userName);
   if (omnidmRes.success) {
     const msgId = omnidmRes.data?.id || 'omnidim_wa_' + Date.now();
-    await logMessage(payload, msgId, 'OmniDM', 'Sent');
+    await updateMessage(existingMessageId, msgId, 'OmniDM', 'Sent');
     return {
       success: true,
       messageId: msgId,
-      rawResponse: omnidmRes.data
+      rawResponse: omnidmRes.data,
+      status: 'Sent'
     };
   }
 
   // 3. Fallback: Meta Cloud API v25.0
-  let metaToken = (process.env.WHATSAPP_TOKEN || process.env.WHATSAPP_API_TOKEN || "EAAdIUij5eSEBSPNXXeehEPuB6hf7UvNfezzV0Lh5kSZC17tdQG6gxLeWGKTFuh7cbZCjH80wZBFKfSsLpvaTbdp0J4x8aXoxDqxm17R3Vcv9ZBqyCU1yZBe7ADVHEhokTn11sI6nYU2WfEymwW4jW447n2AvH4bCwZCfBWVj9ATM9Seq2OczKZABY6eKTI6wgZDZD").trim();
+  let metaToken = (process.env.WHATSAPP_TOKEN || process.env.WHATSAPP_API_TOKEN || "EAAdIUij5eSEBSNfoyNAcIPxkPjzbha5MGRon34ydzNaZALXi5UViIJgLsOEQ9qScR0s8cT7gyQGvbsrfQiiJM9cmiS46rFj7zJ6qig77AQi06zaK2XudDekrYhfB5395nVFfljYVZCl2eiZCm5TUQFeOEq8kRsCu3gtlzINBO9QGdzUZBUVHJ8ZBdwswgygZDZD").trim();
   let phoneId = (process.env.WHATSAPP_PHONE_NUMBER_ID || '1147494668457940').trim();
 
   try {
@@ -180,18 +218,23 @@ export async function sendAiSensyWhatsApp(payload: AiSensyMessagePayload): Promi
       );
 
       const msgId = metaRes.data?.messages?.[0]?.id || 'meta_' + Date.now();
-      await logMessage(payload, msgId, 'Meta', 'Sent');
+      await updateMessage(existingMessageId, msgId, 'Meta', 'Sent');
       return {
         success: true,
         messageId: msgId,
-        rawResponse: metaRes.data
+        rawResponse: metaRes.data,
+        status: 'Sent'
       };
     } catch (metaErr: any) {
-      const errStr = metaErr?.response?.data?.error?.message || metaErr.message;
-      await logMessage(payload, 'meta_err_' + Date.now(), 'Meta', 'Failed', errStr);
+      const isTimeout = metaErr.code === 'ECONNABORTED' || metaErr.message?.toLowerCase().includes('timeout');
+      const status = isTimeout ? 'Unknown' : 'Failed';
+      const rawErr = metaErr?.response?.data?.error?.message || metaErr.message;
+      const errStr = typeof rawErr === 'object' ? JSON.stringify(rawErr) : String(rawErr);
+      await updateMessage(existingMessageId, 'meta_err_' + Date.now(), 'Meta', status, errStr);
       return {
         success: false,
-        error: errStr
+        error: errStr,
+        status: status
       };
     }
   }
@@ -202,28 +245,20 @@ export async function sendAiSensyWhatsApp(payload: AiSensyMessagePayload): Promi
   };
 }
 
-async function logMessage(payload: AiSensyMessagePayload, messageId: string, provider: string, status: string, error?: string) {
-  try {
-    await connectToDatabase();
-    if (mongoose.connection.readyState === 1) {
-      await Message.create({
-        messageId: messageId,
-        providerMessageId: messageId,
-        leadId: payload.leadId,
-        contactId: payload.contactId,
-        phone: payload.destination,
-        broadcastId: payload.broadcastId,
-        direction: 'outbound',
-        provider: provider,
-        templateName: payload.templateName,
-        text: payload.text,
-        status: status,
-        failureReason: error,
-        sentAt: status === 'Sent' ? new Date() : undefined,
-        failedAt: status === 'Failed' ? new Date() : undefined
-      });
-    }
-  } catch (err) {
-    console.warn('[AiSensy DB Logging Error]', err);
+async function updateMessage(dbMessageId: string, providerMessageId: string, provider: string, status: string, error?: string) {
+  await connectToDatabase();
+  if (mongoose.connection.readyState !== 1) {
+    throw new Error('Database unavailable during message logging. System halting to prevent degraded state inconsistencies.');
   }
+
+  await Message.findByIdAndUpdate(dbMessageId, {
+    $set: {
+      providerMessageId: providerMessageId,
+      provider: provider,
+      status: status,
+      failureReason: error,
+      sentAt: status === 'Sent' ? new Date() : undefined,
+      failedAt: status === 'Failed' ? new Date() : undefined
+    }
+  });
 }

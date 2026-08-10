@@ -75,7 +75,7 @@ async function processApplyNow(phone: string, text: string, buttonId: string) {
   const applyLink = `https://avani-ai-crm.vercel.app/apply?type=${encodeURIComponent(loanType)}&phone=${encodeURIComponent(phone)}`;
 
   const responseText = `Hi ${lead.name || "Customer"},\n\nGreat choice! You can begin your application for a ${loanType} immediately by clicking the link below:\n\n${applyLink}\n\nOur agents will receive your application instantly.`;
-  await sendAiSensyWhatsApp({ destination: phone, userName: lead.name || 'Customer', text: responseText });
+  await sendAiSensyWhatsApp({ destination: phone, userName: lead.name || 'Customer', text: responseText }, `WORKFLOW_APPLY_${Date.now()}_${phone}`);
 }
 
 async function processTalkToExpert(phone: string, text: string, buttonId: string) {
@@ -88,7 +88,7 @@ async function processTalkToExpert(phone: string, text: string, buttonId: string
   });
 
   const responseText = `Hi ${lead.name || "Customer"},\n\nI have notified our business experts. Sachin Shinde or a representative from our Latur office will reach out to you at ${phone} very shortly.\n\nThank you for choosing Avani Loan Services.`;
-  await sendAiSensyWhatsApp({ destination: phone, userName: lead.name || 'Customer', text: responseText });
+  await sendAiSensyWhatsApp({ destination: phone, userName: lead.name || 'Customer', text: responseText }, `WORKFLOW_EXPERT_${Date.now()}_${phone}`);
 }
 
 async function processEligibility(phone: string, text: string, buttonId: string) {
@@ -162,5 +162,5 @@ To finalize your documentation verification at our Ausa Road, Latur office, plea
 *Avani Finserv - Fast & Secure Approvals*`;
 
   // 8. Call AiSensy Dynamic text composition function pipeline
-  await sendAiSensyWhatsApp({ destination: phone, userName: lead.name || 'Customer', text: personalizedText });
+  await sendAiSensyWhatsApp({ destination: phone, userName: lead.name || 'Customer', text: personalizedText }, `WORKFLOW_ELIGIBILITY_${Date.now()}_${phone}`);
 }

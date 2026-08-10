@@ -44,7 +44,7 @@ export async function POST(request: Request) {
         destination: formattedPhone,
         userName: name || 'Valued Customer',
         templateName: 'Avani_Loan_Welcome'
-      });
+      }, `AUTO_TRIGGER_${Date.now()}_${formattedPhone}`);
     } catch (waErr: any) {
       console.warn("Auto WhatsApp dispatch warning:", waErr.message);
     }

@@ -34,7 +34,7 @@ export async function processOutgoingZapierPayload(loanType: string, compiledPay
 
       const correctiveWhatsAppMessage = `Hi ${compiledPayload.fullName || "Customer"},\n\nThank you for choosing AVANI LOAN SERVICES. \n\nTo finalize your dynamic pre-qualification calculations for a *${loanType}*, our automated processing engine needs a bit more clarification.\n\n👉 *Please reply directly by typing your: ${missingItemsFriendly.join(', ')}*\n\nOnce received, our engine will instantly compile your verified EMI projections and doc checklists. Thank you!\n\n*Avani Finserv - Fast & Secure Approvals*`;
 
-      await sendAiSensyWhatsApp({ destination: userPhone, userName: compiledPayload.fullName || 'Customer', text: correctiveWhatsAppMessage });
+      await sendAiSensyWhatsApp({ destination: userPhone, userName: compiledPayload.fullName || 'Customer', text: correctiveWhatsAppMessage }, `OMNIDM_CORRECTIVE_${Date.now()}_${userPhone}`);
     }
 
     return false;
@@ -105,56 +105,90 @@ export async function POST(req: Request) {
       }
     }
 
-    let mappedStatus = isCompleted ? 'Completed' : 'Failed';
-    if (body.status === 'no-answer') mappedStatus = 'No Answer';
-    else if (body.status === 'answered') mappedStatus = 'Answered';
-    else if (body.status === 'calling') mappedStatus = 'Calling';
+    let mappedStatus = isCompleted ? 'CONVERSATION_COMPLETED' : 'FAILED';
+    if (body.status === 'no-answer') mappedStatus = 'NO_ANSWER';
+    else if (body.status === 'answered') mappedStatus = 'ANSWERED';
+    else if (body.status === 'calling') mappedStatus = 'RINGING';
+    else if (body.status === 'busy') mappedStatus = 'BUSY';
 
     const updateData: any = { status: mappedStatus };
     if (body.duration) updateData.duration = body.duration;
     if (body.recording_url) updateData.recordingUrl = body.recording_url;
     if (body.transcript || notes) updateData.transcript = body.transcript || notes;
     
-    if (mappedStatus === 'Completed' || mappedStatus === 'No Answer' || mappedStatus === 'Failed') {
+    if (mappedStatus === 'CONVERSATION_COMPLETED' || mappedStatus === 'NO_ANSWER' || mappedStatus === 'FAILED' || mappedStatus === 'BUSY') {
       updateData.completedAt = new Date();
     }
 
     if (callId) {
       if (mongoose.connection.readyState === 1) {
+        // Idempotency: Check if already processed
+        const existingCall = await Call.findOne({ callId });
+        if (existingCall && existingCall.status === mappedStatus) {
+           console.log(`[OmniDM Webhook] Call ${callId} already processed with status ${mappedStatus}. Skipping duplicate action.`);
+           return NextResponse.json({ success: true, message: "Duplicate webhook ignored" });
+        }
+        
+        // Fix duplicate key error by providing a default providerCallId if it exists
+        updateData.providerCallId = callId;
+
         await Call.findOneAndUpdate(
           { callId },
           { $set: updateData },
-          { new: true }
+          { new: true, upsert: true } // Upsert just in case it wasn't saved in dispatch
         );
       } else {
         console.warn(`[Webhook DB Bypass] DB not connected, skipping status update for callId: ${callId}`);
       }
     }
 
+    // Capture dynamic variables returned by agent
+    const agentCapturedCity = variables.city || variables.City || lead?.city;
+    const agentCapturedProfession = variables.profession || variables.Employment || variables.Profession || lead?.profession || lead?.employmentType;
+    const agentCapturedIncome = variables.monthlyIncomeRange || variables.Income || lead?.monthlyIncomeRange;
+    const agentCapturedAmount = variables.Loan_requirement || variables.loanRequirement || variables.Amount || lead?.requiredLoanAmount;
+
+    // Update Lead with Agent captured data if changed
+    if (lead && mongoose.connection.readyState === 1) {
+       let leadUpdated = false;
+       if (agentCapturedCity && lead.city !== agentCapturedCity) { lead.city = agentCapturedCity; leadUpdated = true; }
+       if (agentCapturedProfession && lead.profession !== agentCapturedProfession) { lead.profession = agentCapturedProfession; leadUpdated = true; }
+       if (agentCapturedIncome && lead.monthlyIncomeRange !== agentCapturedIncome) { lead.monthlyIncomeRange = agentCapturedIncome; leadUpdated = true; }
+       if (agentCapturedAmount && lead.requiredLoanAmount !== agentCapturedAmount) { lead.requiredLoanAmount = agentCapturedAmount; leadUpdated = true; }
+       if (leadUpdated) await lead.save();
+    }
+
     const integrationPayload: any = {
-      eventId: `evt_${Date.now()}`,
+      eventId: `evt_${callId}_${mappedStatus}`, // Deterministic event ID for idempotency in downstream
+      leadId: lead?.leadId || `LID-${phone.replace(/[^0-9]/g, '')}`,
       timestamp: new Date().toISOString(),
       sourceSystem: "Avani AI CRM Pipeline",
       campaign: {
         channel: "AI Voice (OmniDM)",
-        metaWhatsAppSenderNumber: "7249108474",
-        whatsappTemplateCompulsory: "loan_consultation_offer"
+        metaWhatsAppSenderNumber: "7249108474"
       },
       callMetrics: {
         callId: callId,
-        callStatus: body.status || "completed",
+        callStatus: mappedStatus,
         callDisposition: isCompleted ? "answered_interested" : "unanswered",
       },
       fullName: name,
       mobileNumber: phone,
-      city: lead?.city || variables.city || "Unknown",
-      loanAmountRequired: lead?.financialProfile?.requestedLoanAmount || 1000000,
+      city: agentCapturedCity || "Unknown",
+      profession: agentCapturedProfession || "Unknown",
+      incomeRange: agentCapturedIncome || "Unknown",
+      loanAmountRequired: agentCapturedAmount || 1000000,
       leadProfile: {
         fullName: name,
         mobileNumber: phone,
-        city: lead?.city || variables.city || "Unknown"
+        city: agentCapturedCity || "Unknown",
+        profession: agentCapturedProfession || "Unknown",
+        incomeRange: agentCapturedIncome || "Unknown"
       },
-      financialRequirements: lead?.financialProfile || { loanType },
+      financialRequirements: {
+         loanType: loanType,
+         requiredLoanAmount: agentCapturedAmount || 1000000
+      },
       productSpecificFields: lead?.financialProfile || {}
     };
 
@@ -182,28 +216,42 @@ export async function POST(req: Request) {
     // 3. Post-Call WhatsApp Follow-up (Dispatched for ALL call outcomes: completed, missed, ended, or failed)
     if (phone) {
       try {
-        console.log(`[Post-Call WhatsApp] Triggering WhatsApp follow-up for ${phone}...`);
+        console.log(`[Post-Call WhatsApp] Triggering WhatsApp follow-up for ${phone}... Status: ${mappedStatus}`);
         
-        // Update state to loan_consultation_offer_sent
+        // Define templates based on call outcome
+        // Fallback to "avani_loan_intro_v2" for missed calls, "loan_consultation_offer" for answered
+        let targetTemplate = "loan_consultation_offer";
+        let targetWorkflowState = "loan_consultation_offer_sent";
+        let templateParams: string[] = [];
+
+        if (mappedStatus === 'NO_ANSWER' || mappedStatus === 'FAILED' || mappedStatus === 'BUSY') {
+             targetTemplate = "avani_loan_intro_v2"; 
+             targetWorkflowState = "missed_call_intro_sent";
+             templateParams = [name]; // avani_loan_intro_v2 needs a param based on earlier logs
+        }
+
+        // Update state
         if (mongoose.connection.readyState === 1) {
-          let lead = await Lead.findOne({ phone: phone });
-          if (lead && lead.currentWorkflowState !== "awaiting_correction") {
-            lead.currentWorkflowState = "loan_consultation_offer_sent";
-            await lead.save();
+          let leadDoc = await Lead.findOne({ phone: phone });
+          if (leadDoc && leadDoc.currentWorkflowState !== "awaiting_correction") {
+            leadDoc.currentWorkflowState = targetWorkflowState;
+            await leadDoc.save();
           }
         }
         
         await sendAiSensyWhatsApp({
           destination: phone,
           userName: name,
-          templateName: "loan_consultation_offer"
-        });
+          templateName: targetTemplate,
+          templateParams: templateParams,
+          correlationId: `OMNIDM_POSTCALL_${mappedStatus.toUpperCase()}_${Date.now()}_${phone}`
+        }, undefined as any);
       } catch (waErr: any) {
         console.error("Post-Call WhatsApp Error:", waErr.message);
       }
     }
 
-    return NextResponse.json({ success: true, callId, status });
+    return NextResponse.json({ success: true, callId, status: mappedStatus });
   } catch (error: any) {
     console.error("OmniDM Webhook Error:", error.message);
     return NextResponse.json({ error: error.message }, { status: 500 });

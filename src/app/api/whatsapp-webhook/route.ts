@@ -1,109 +1,12 @@
+import { waitUntil } from '@vercel/functions';
 import { NextResponse } from 'next/server';
 import { sendAiSensyWhatsApp } from '@/lib/aisensy';
 import { normalizeIndianPhone } from '@/lib/phone';
-import { handleInboundButtonWorkflow } from './workflow-handler';
-import { handleInboundCorrectionWorkflow } from '@/lib/chatbot-router';
 import connectToDatabase from '@/lib/db';
-import { Message } from '@/models/Message';
-import { Lead } from '@/models/Lead';
-import { Document } from '@/models/Document';
+import { WebhookInbox } from '@/models/WebhookInbox';
 import mongoose from 'mongoose';
 
-const SYSTEM_PROMPT = `You are the Avani Loan Services AI Agent (Owner: Sachin Shinde, Latur).
-Your goal is to collect loan requirements and documents from the user step-by-step in a conversational manner.
-
-# Rules:
-# Rules:
-1. STATE MACHINE PROGRESSION: You must act as a strict state machine. Do not skip steps.
-2. ONE AT A TIME: ALWAYS ask ONLY ONE question at a time. Never dump multiple questions at once. Wait for the user to answer the current question before asking the next.
-3. VALIDATION: Validate the user's response. If they give an invalid or non-sensical answer, ask the same question again politely.
-4. LANGUAGE: Be polite, professional, and use concise language. Support English, Hindi, Marathi, and Hinglish based on the user's language.
-5. INTENT: Detect Loan Product intent across languages (e.g., "karj", "vyapar karj", "gharkul", "paisa chahiye", "home loan").
-6. STEP 1 (Basic Info): Ask for Full Name, Mobile Number, Email Address, and City (ask these one by one or naturally).
-7. STEP 2 (Employment): Ask for their Employment Type: Salaried, Self Employed, Business Owner, or Professional.
-8. STEP 3 (Income): Ask for their Monthly Income (Options: ₹25K–₹50K, ₹50K–₹1L, ₹1L–₹2L, Above ₹2L).
-9. STEP 4 (Loan Details): Ask for Required Loan Amount and Loan Type (Personal, Business, Doctor, CA, Home, Education).
-10. STEP 5 (Documents): Finally, depending on the Loan Type AND Employment Type, ask them to provide the specific documents as per the checklist below.
-
-# Checklists:
-If Salaried (Personal/Home Loan):
-- IDENTITY PROOF: Aadhaar Card, PAN Card, Passport, or Voter's ID
-- ADDRESS PROOF: Aadhaar Card, Utility Bill (last 3 months), or Driving License
-- INCOME DOCUMENTS: Last 3 months salary slips, Last 6 months bank statements, Form 16 (last 2 years)
-- EMPLOYMENT PROOF: Employee ID Card, Appointment Letter, or Offer Letter (for new joinees)
-- (If Home Loan) PROPERTY DOCUMENTS: Sale agreement / allotment letter, Property title deed, NOC from builder/society, Approved building plan, Property tax receipts, Original title deed, Encumbrance certificate, Valuation report
-
-If Business owner or self-employed (Business/Home Loan):
-- IDENTITY & ADDRESS PROOF: PAN Card (Individual + Business), Aadhaar Card, GST Registration Certificate
-- BUSINESS DOCUMENTS: Business Registration / Udyam Certificate, Shop & Establishment Certificate, Partnership Deed / MOA (if applicable)
-- FINANCIAL DOCUMENTS: Last 2 years ITR with CA stamp, Last 12 months bank statements, Last 2 years audited balance sheet
-
-If Professional (Doctor):
-- DOCTOR PROFESSIONAL DOCUMENTS: Degree Certificate, Registration Certificate (Old & New), Clinic/Hospital Registration
-- IDENTITY & ADDRESS PROOF: PAN Card, Aadhaar Card, Passport size photo
-- FINANCIAL DOCUMENTS: Last 2 years ITR, Last 6-12 months bank statements (Current & Savings), Existing loan details (if any)
-
-If Professional (Chartered Accountant):
-- CA PROFESSIONAL DOCUMENTS: Certificate of Practice (COP), ICAI Membership Certificate
-- IDENTITY & ADDRESS PROOF: PAN Card, Aadhaar Card, Passport size photo
-- FINANCIAL DOCUMENTS: Last 2 years ITR, Last 6-12 months bank statements, Existing loan details (if any)
-
-If Education Loan:
-- STUDENT DOCUMENT: Admission Letter, Passport (Both sides), Score Card (GRE/TOFEL/DUOLINGO/PTE/IELTS), Academic Certificates (10th, Inter/Diploma, Degree/B.Tech, CMM, PC), Work Experience (Offer/Relieving letter & Resume), Aadhaar, PAN, Email and Number
-- CO-APPLICANT:
-  - If Salaried: Aadhaar, PAN, Latest 3 months payslips, 6 months bank statement, 2 yrs Form-16.
-  - If Self Employed: Aadhaar, PAN, Latest 2 yrs ITR with Balance Sheet/P&L, Business Proof (Labour License/GST), 6 months bank statement.
-  - If Farmer: Aadhaar, PAN, Patta Pass Book, Agriculture Income Certificate, 6 months bank statement.
-
-# Completion:
-When the user has provided all basic info and agreed to share the checklist documents, you MUST output a special JSON block at the very end of your message in this exact format:
-[COMPLETE_LEAD]
-{
-  "name": "User Name",
-  "phone": "User Phone",
-  "email": "User Email",
-  "city": "User City",
-  "employmentType": "Salaried/Self Employed/etc",
-  "monthlyIncome": "Income Range",
-  "loanType": "Loan Type",
-  "requestedAmount": "Amount",
-  "callSummary": "Brief summary of the conversation"
-}
-`;
-
-const memoryChatHistory = new Map<string, any[]>();
-
-async function getAiResponse(history: any[]): Promise<string> {
-  const apiKey = (process.env.GOOGLE_GENERATIVE_AI_API_KEY || process.env.GEMINI_API_KEY || 'AIzaSyAzz0LUgUt9DxicUZQmkoZv3zRh_EdWMlU').trim();
-  
-  try {
-    const contents = history.map(m => ({
-      role: m.direction === 'INBOUND' ? 'user' : 'model',
-      parts: [{ text: m.content || '' }]
-    }));
-    
-    contents.unshift({
-      role: 'user',
-      parts: [{ text: `System Instruction: ${SYSTEM_PROMPT}` }]
-    });
-
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contents })
-    });
-
-    if (res.ok) {
-      const data = await res.json();
-      const reply = data.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (reply) return reply;
-    }
-  } catch (e) {
-    console.error("Direct Gemini REST call failed:", e);
-  }
-
-  return "Namaste! Welcome to AVANI LOAN SERVICES 🏦\n\nWe offer Personal, Business, Home, Doctor, CA, and Education Loans up to ₹50 Lakhs with fast 48-hour approval.\n\nWhich type of loan are you interested in today?";
-}
+// AI Logic moved to whatsapp-webhook-worker/route.ts
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -134,29 +37,27 @@ export async function POST(request: Request) {
       const targetName = body.name || body.userName || 'Valued Customer';
       const templateName = body.template || body.templateName || 'Avani_Loan_Welcome';
 
-      log(`[Direct Dispatch] Dispatching WhatsApp to ${targetPhone} (${targetName})`);
-      const res = await sendAiSensyWhatsApp({
-        destination: targetPhone,
-        userName: targetName,
-        templateName: templateName
-      });
+      const correlationId = `CRM-BRD-${Date.now()}-${Math.random().toString(36).substring(7)}`;
+      const workerUrl = new URL(request.url.replace('whatsapp-webhook', 'whatsapp-webhook-worker'));
+      const workerSecret = process.env.INTERNAL_WORKER_SECRET || 'dev_secret_only';
 
-      // Immediately seed chat history and dispatch AI qualification question
-      if (!memoryChatHistory.has(targetPhone)) {
-        memoryChatHistory.set(targetPhone, []);
-      }
-      const history = memoryChatHistory.get(targetPhone)!;
-      history.push({ direction: 'INBOUND', content: `Hello, I am ${targetName}. Please tell me about loan options.` });
-
-      // We DO NOT send the initialQuestion right now because it would be a free-form text 
-      // message outside the 24-hour customer service window (which would fail via Meta API).
-      // Instead, we just seeded the chat history. When the customer replies, the AI will 
-      // respond naturally based on the system prompt.
-
-      return NextResponse.json(
-        { success: res.success, error: res.error, result: res, debugLogs },
-        { status: res.success ? 200 : 400 }
+      // Trigger background worker securely via waitUntil
+      waitUntil(
+        fetch(workerUrl.toString(), {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json',
+            'x-worker-auth': workerSecret
+          },
+          body: JSON.stringify({
+            eventId: `DIRECT_${correlationId}`,
+            eventType: 'DIRECT_DISPATCH',
+            data: { targetPhone, targetName, templateName, correlationId }
+          })
+        }).catch(e => log(`Worker dispatch err: ${e.message}`))
       );
+
+      return NextResponse.json({ success: true, debugLogs, correlationId }, { status: 200 });
     }
 
     // Process Meta / AiSensy Inbound Webhook
@@ -171,65 +72,59 @@ export async function POST(request: Request) {
           const statuses = value?.statuses || (body.status ? [body] : []);
           if (statuses.length > 0) {
             await connectToDatabase();
+            if (mongoose.connection.readyState !== 1) {
+              log(`[Webhook Fatal Error] DB unreachable. Returning 500 so Meta retries the delivery receipt.`);
+              return NextResponse.json({ success: false, error: 'Database unavailable' }, { status: 500 });
+            }
+
             for (const statusObj of statuses) {
               const msgId = statusObj.id || statusObj.messageId;
               const statusStr = statusObj.status || statusObj.deliveryStatus;
               
               if (msgId && statusStr) {
-                log(`[Webhook Status] msgId: ${msgId} is now ${statusStr}`);
-                
-                const formattedStatus = statusStr.charAt(0).toUpperCase() + statusStr.slice(1).toLowerCase();
-                const updateData: any = { status: formattedStatus };
-                if (statusStr.toLowerCase() === 'delivered') updateData.deliveredAt = new Date();
-                else if (statusStr.toLowerCase() === 'read') updateData.readAt = new Date();
-                else if (statusStr.toLowerCase() === 'failed') {
-                  updateData.failedAt = new Date();
-                  updateData.failureReason = statusObj.errors?.[0]?.title || 'Unknown Meta Error';
-                }
+                // Event Identity: Message ID + specific status transition
+                const eventId = `META_STATUS_${msgId}_${statusStr.toUpperCase()}`;
+                const correlationId = `META-${Date.now()}-${Math.random().toString(36).substring(7)}`;
 
                 try {
-                  if (mongoose.connection.readyState === 1) {
-                    // Update Message using providerMessageId
-                    const updatedMsg = await Message.findOneAndUpdate(
-                      { providerMessageId: msgId },
-                      { $set: updateData },
-                      { new: true }
-                    );
+                  await WebhookInbox.create({
+                    eventId: eventId,
+                    provider: 'Meta',
+                    eventType: 'STATUS_UPDATE',
+                    payload: statusObj,
+                    correlationId: correlationId,
+                    status: 'RECEIVED'
+                  });
+                  log(`[Webhook Inbox] Recorded STATUS_UPDATE: ${eventId}`);
+                  
+                  const workerUrl = new URL(request.url.replace('whatsapp-webhook', 'whatsapp-webhook-worker'));
+                  const workerSecret = process.env.INTERNAL_WORKER_SECRET || 'dev_secret_only';
 
-                    // If Message is tied to a Lead, update Lead lastInteractionAt
-                    if (updatedMsg && updatedMsg.leadId) {
-                       await Lead.findByIdAndUpdate(updatedMsg.leadId, {
-                         $set: { lastInteractionAt: new Date() }
-                       });
-                    }
-
-                    // Increment Broadcast stats if tied to a Broadcast
-                    if (updatedMsg && updatedMsg.broadcastId) {
-                       const incData: any = {};
-                       if (statusStr.toLowerCase() === 'delivered') incData.deliveredCount = 1;
-                       else if (statusStr.toLowerCase() === 'read') incData.readCount = 1;
-                       else if (statusStr.toLowerCase() === 'failed') incData.failedCount = 1;
-                       
-                       if (Object.keys(incData).length > 0) {
-                         await mongoose.model('Broadcast').findByIdAndUpdate(updatedMsg.broadcastId, {
-                           $inc: incData
-                         });
-                       }
-                    }
-                  } else {
-                    log(`[Webhook DB Bypass] DB not connected, skipping status update for msgId: ${msgId}`);
-                  }
+                  waitUntil(
+                    fetch(workerUrl.toString(), {
+                      method: 'POST',
+                      headers: { 
+                        'Content-Type': 'application/json',
+                        'x-worker-auth': workerSecret 
+                      },
+                      body: JSON.stringify({ eventId, eventType: 'STATUS_UPDATE', data: { msgId, statusStr, statusObj }, correlationId })
+                    }).catch(e => log(`Worker dispatch err: ${e.message}`))
+                  );
+                  
                 } catch (e: any) {
-                  log(`[Webhook DB Error] Failed to update status for msgId: ${msgId} | Error: ${e.message}`);
+                  if (e.code === 11000) {
+                    log(`[Webhook Deduplication] Duplicate event swallowed: ${eventId}`);
+                  } else {
+                    log(`[Webhook Inbox Error] Failed to persist event ${eventId}: ${e.message}`);
+                    return NextResponse.json({ success: false, error: 'Event persistence failed' }, { status: 500 });
+                  }
                 }
               }
             }
-            continue; // Skip message parsing if this was just a status update
+            continue;
           }
 
           let messages = value?.messages || (body.message ? [body.message] : []);
-          
-          // Fallback if payload is completely flat (e.g. AiSensy custom forwarding structure)
           if (messages.length === 0 && (body.text || body.type || body.button || body.interactive || typeof body === 'string')) {
             messages = [body];
           }
@@ -241,196 +136,49 @@ export async function POST(request: Request) {
             if (!fromPhone) continue;
 
             const msgId = message.id || 'inbound_' + Date.now() + '_' + Math.random().toString(36).substring(7);
-
-            // Deduplication Check
-            await connectToDatabase();
-            const existingMsg = await Message.findOne({ $or: [{ messageId: msgId }, { providerMessageId: msgId }] });
-            if (existingMsg) {
-              log(`[Webhook Idempotency] Skipping duplicate message: ${msgId}`);
-              continue;
-            }
-
-            let incomingText = "";
-            let mediaId = "";
-            let mediaType = "";
-            
-            if (message.type === 'text') {
-              incomingText = message.text?.body || "";
-            } else if (message.type === 'button') {
-              incomingText = message.button?.text || message.button?.payload || "";
-            } else if (message.type === 'interactive') {
-              incomingText = message.interactive?.button_reply?.title || 
-                             message.interactive?.list_reply?.title || 
-                             message.interactive?.button_reply?.id || "";
-            } else if (message.type === 'document' || message.type === 'image') {
-              mediaId = message[message.type]?.id || "";
-              mediaType = message.type;
-              incomingText = `[User uploaded ${message.type}]`;
-            } else if (typeof message === 'string') {
-              incomingText = message;
-            } else if (message.text && typeof message.text === 'string') {
-              incomingText = message.text;
-            }
-
-            if (!incomingText) {
-              incomingText = "Namaste, I want to apply for a loan";
-            }
-            log(`Parsed incoming message from ${fromPhone}: "${incomingText}"`);
-
-            // Upsert Lead
             const profileName = message.profile?.name || 'Customer';
-            const lead = await Lead.findOneAndUpdate(
-              { phone: fromPhone },
-              { 
-                $set: { 
-                  phone: fromPhone, 
-                  lastInteractionAt: new Date()
-                },
-                $setOnInsert: { 
-                  name: profileName,
-                  leadSource: 'WhatsApp Inbound',
-                  status: 'New'
-                }
-              },
-              { new: true, upsert: true }
-            );
 
-            // Create Inbound Message Log
-            await Message.create({
-              messageId: msgId,
-              leadId: lead._id,
-              phone: fromPhone,
-              direction: 'inbound',
-              provider: 'WhatsApp',
-              text: incomingText,
-              status: 'Received',
-              sentAt: new Date(),
-              deliveredAt: new Date()
-            });
+            // Event Identity: Unique to the inbound message ID
+            const eventId = `META_INBOUND_${msgId}`;
+            const correlationId = `META-${Date.now()}-${Math.random().toString(36).substring(7)}`;
 
-            if (mediaId) {
-               await Document.create({
-                 leadId: lead._id,
-                 documentType: 'Unknown',
-                 fileUrl: mediaId, // Just store the Meta Media ID for now
-                 status: 'UPLOADED',
-                 uploadedAt: new Date()
-               });
-               
-               // Let Gemini know a document was received
-               if (!memoryChatHistory.has(fromPhone)) {
-                 memoryChatHistory.set(fromPhone, []);
-               }
-               const history = memoryChatHistory.get(fromPhone)!;
-               history.push({ direction: 'INBOUND', content: `[SYSTEM: User has uploaded a document/image with ID ${mediaId}. Acknowledge receipt.]` });
-               
-               let aiResponse = await getAiResponse(history);
-               history.push({ direction: 'OUTBOUND', content: aiResponse });
-
-               await sendAiSensyWhatsApp({ destination: fromPhone, userName: profileName, text: aiResponse });
-               continue; // Handled document upload
+            await connectToDatabase();
+            if (mongoose.connection.readyState !== 1) {
+              log(`[Webhook Fatal Error] DB unreachable. Returning 500 so Meta retries the inbound message.`);
+              return NextResponse.json({ success: false, error: 'Database unavailable' }, { status: 500 });
             }
 
-            let isHandled = false;
             try {
-              isHandled = await handleInboundCorrectionWorkflow(fromPhone, incomingText);
-              
-              if (!isHandled) {
-                let buttonId = "";
-                if (message.type === 'interactive' && message.interactive?.button_reply?.id) {
-                  buttonId = message.interactive.button_reply.id;
-                }
-                isHandled = await handleInboundButtonWorkflow(fromPhone, incomingText, buttonId);
-              }
-            } catch (error: any) {
-              log(`Database or execution error intercepted in webhook handler: ${error.message}`);
-              if (incomingText.toLowerCase().includes("check eligibility")) {
-                try {
-                  const trafficFallbackMessage = 
-`Hi there,
-
-Thank you for reaching out to AVANI LOAN SERVICES. 
-
-We are currently experiencing a very high volume of loan eligibility inquiries. Our system is processing requests as quickly as possible. 
-
-An executive from our Latur office or our founder, Sachin Shinde, will personally review your profile inputs and share your customized calculation breakdown shortly. 
-
-If your request is urgent, feel free to call us directly or visit our office at Ausa Road. Thank you for your patience!
-
-*Avani Finserv - Fast & Secure Approvals*`;
-
-                  await sendAiSensyWhatsApp({
-                    destination: fromPhone,
-                    userName: 'Customer',
-                    text: trafficFallbackMessage
-                  });
-                  log(`Successfully dispatched traffic mitigation fallback text to: ${fromPhone}`);
-                } catch (smsError: any) {
-                  log(`Critical Failure: Even the fallback communication channel failed: ${smsError.message}`);
-                }
-              }
-              // Skip the LLM on DB failure for eligibility checks to avoid confusing state
-              isHandled = true; 
-            }
-
-            if (!isHandled) {
-              if (!memoryChatHistory.has(fromPhone)) {
-                memoryChatHistory.set(fromPhone, []);
-              }
-              const history = memoryChatHistory.get(fromPhone)!;
-              history.push({ direction: 'INBOUND', content: incomingText });
-
-              let aiResponse = await getAiResponse(history);
-              
-              if (aiResponse.includes('[COMPLETE_LEAD]')) {
-                log(`[AI-CHATBOT] Detected COMPLETE_LEAD trigger`);
-                const parts = aiResponse.split('[COMPLETE_LEAD]');
-                let userMessage = parts[0].trim();
-                const jsonPart = parts[1].trim();
-                
-                try {
-                  const leadData = JSON.parse(jsonPart);
-                  log(`[AI-CHATBOT] Parsed lead data: ${JSON.stringify(leadData)}`);
-                  
-                  // Integrations
-                  const { syncToHubSpot, syncToZapier, logToGoogleSheets } = require('@/lib/integrations');
-                  syncToHubSpot(leadData).catch((e: any) => log(`HubSpot error: ${e}`));
-                  syncToZapier(leadData).catch((e: any) => log(`Zapier error: ${e}`));
-                  logToGoogleSheets(leadData).catch((e: any) => log(`Sheets error: ${e}`));
-                  
-                  // AI Calling Agent Integration
-                  const { triggerOmnidimCall } = require('@/lib/omnidim');
-                  triggerOmnidimCall(
-                    leadData.phone || fromPhone, 
-                    leadData.name || 'Customer', 
-                    leadData.loanType || 'Personal Loan', 
-                    'hi', 
-                    leadData.city, 
-                    leadData.employmentType, 
-                    leadData.requestedAmount
-                  ).catch((e: any) => log(`OmniDM Trigger Error: ${e.message}`));
-                  
-                  aiResponse = userMessage || "Thank you! I have saved all your details. Our AI calling agent will contact you shortly to confirm everything. Avani Finserv - Fast & Secure Approvals!";
-                } catch (e: any) {
-                  log(`[AI-CHATBOT] Failed to parse COMPLETE_LEAD JSON: ${e.message}`);
-                  aiResponse = userMessage || "Thank you! We've received your details.";
-                }
-              }
-
-              history.push({ direction: 'OUTBOUND', content: aiResponse });
-
-              // Dispatch auto-reply back via AiSensy WABA Gateway
-              log(`Dispatching AI Auto-Reply to ${fromPhone} via AiSensy...`);
-              const replyRes = await sendAiSensyWhatsApp({
-                destination: fromPhone,
-                userName: 'Valued Customer',
-                text: aiResponse
+              await WebhookInbox.create({
+                eventId: eventId,
+                provider: 'Meta',
+                eventType: 'INBOUND_MESSAGE',
+                payload: message,
+                correlationId: correlationId,
+                status: 'RECEIVED'
               });
+              log(`[Webhook Inbox] Recorded INBOUND_MESSAGE: ${eventId}`);
+              
+              const workerUrl = new URL(request.url.replace('whatsapp-webhook', 'whatsapp-webhook-worker'));
+              const workerSecret = process.env.INTERNAL_WORKER_SECRET || 'dev_secret_only';
 
-              if (replyRes.success) {
-                log(`✅ AI Auto-Reply sent smoothly to ${fromPhone}!`);
+              waitUntil(
+                fetch(workerUrl.toString(), {
+                  method: 'POST',
+                  headers: { 
+                    'Content-Type': 'application/json',
+                    'x-worker-auth': workerSecret
+                  },
+                  body: JSON.stringify({ eventId, eventType: 'INBOUND_MESSAGE', data: { message, fromPhone, msgId, profileName }, correlationId })
+                }).catch(e => log(`Worker dispatch err: ${e.message}`))
+              );
+              
+            } catch (e: any) {
+              if (e.code === 11000) {
+                log(`[Webhook Deduplication] Duplicate event swallowed: ${eventId}`);
               } else {
-                log(`❌ Auto-Reply warning: ${replyRes.error}`);
+                log(`[Webhook Inbox Error] Failed to persist event ${eventId}: ${e.message}`);
+                return NextResponse.json({ success: false, error: 'Event persistence failed' }, { status: 500 });
               }
             }
           }

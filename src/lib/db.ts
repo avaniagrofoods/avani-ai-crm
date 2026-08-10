@@ -7,6 +7,21 @@ if (!MONGODB_URI) {
   throw new Error("Please define the MONGODB_URI environment variable inside .env.local");
 }
 
+const APP_MODE = process.env.APP_MODE || 'production';
+const PROVIDER_MODE = process.env.PROVIDER_MODE || 'mock';
+
+// FORENSIC SAFETY GUARD
+if (APP_MODE === 'test' || APP_MODE === 'staging') {
+  if (!MONGODB_URI.includes('avani_ai_crm_test')) {
+    console.error("PRODUCTION DATABASE DETECTED — TEST ABORTED");
+    process.exit(1);
+  }
+  if (PROVIDER_MODE === 'live' && process.env.LIVE_TEST_AUTHORIZATION !== 'true') {
+     console.error("LIVE PROVIDER DETECTED IN TEST MODE WITHOUT AUTHORIZATION — TEST ABORTED");
+     process.exit(1);
+  }
+}
+
 let cached = (global as any).mongoose;
 
 if (!cached) {

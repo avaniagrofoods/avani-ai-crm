@@ -75,12 +75,12 @@ export default function FileUpload() {
   const [executionType, setExecutionType] = useState<"immediate" | "scheduled">("immediate");
   const [scheduledDate, setScheduledDate] = useState("");
   const [scheduledTime, setScheduledTime] = useState("");
-  const [selectedTemplate, setSelectedTemplate] = useState("avani_loan_intro");
+  const [selectedTemplate, setSelectedTemplate] = useState("avani_loan_intro_v2");
   const [customTemplateName, setCustomTemplateName] = useState("");
   const [scheduleNotice, setScheduleNotice] = useState("");
 
   const META_TEMPLATES = [
-    { id: "avani_loan_intro", name: "avani_loan_intro", label: "Avani Loan Services Welcome & Loan Inquiry" },
+    { id: "avani_loan_intro_v2", name: "avani_loan_intro_v2", label: "Avani Loan Intro (V2)" },
     { id: "loan_consultation_offer", name: "loan_consultation_offer", label: "Free Consultation & Interest Rate Reduction" },
     { id: "documents_checklist", name: "documents_checklist", label: "Required Loan Documents Checklist" },
     { id: "missed_call_followup", name: "missed_call_followup", label: "Missed Call Callback Notification" },

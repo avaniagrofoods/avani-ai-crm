@@ -5,6 +5,7 @@ export async function logToGoogleSheets(lead: any) {
   if (!url) return;
   try {
     await axios.post(url, {
+      leadId: lead.leadId,
       name: lead.name,
       phone: lead.phone,
       loanType: lead.loanType,
@@ -29,7 +30,8 @@ export async function syncToHubSpot(lead: any) {
       fields: [
         { name: "firstname", value: lead.name },
         { name: "phone", value: lead.phone },
-        { name: "message", value: `Loan Type: ${lead.loanType} | Status: ${lead.status} | Amount: ${lead.requestedAmount || 'N/A'}` }
+        { name: "hs_lead_status", value: lead.status },
+        { name: "message", value: `LeadID: ${lead.leadId} | Loan Type: ${lead.loanType} | Amount: ${lead.requestedAmount || 'N/A'}` }
       ]
     });
   } catch (error: any) {
@@ -87,6 +89,7 @@ export async function syncToZapier(lead: any) {
   const url = process.env.ZAPIER_WEBHOOK_URL || "https://hooks.zapier.com/hooks/catch/26860693/44xndib/";
   try {
     await axios.post(url, {
+      leadId: lead.leadId,
       name: lead.name,
       phone: lead.phone,
       loanType: lead.loanType,

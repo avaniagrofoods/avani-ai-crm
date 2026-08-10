@@ -1,31 +1,41 @@
 import mongoose from 'mongoose';
 
 const MessageSchema = new mongoose.Schema({
-  messageId: { type: String, required: true, unique: true },
-  leadId: { type: mongoose.Schema.Types.ObjectId, ref: 'Lead' },
-  contactId: { type: mongoose.Schema.Types.ObjectId, ref: 'Contact' },
-  broadcastId: { type: mongoose.Schema.Types.ObjectId, ref: 'Broadcast' },
-  phone: { type: String, required: true },
-  direction: { type: String, enum: ['inbound', 'outbound'], required: true },
-  provider: { type: String, enum: ['AiSensy', 'Meta'], default: 'AiSensy' },
-  providerMessageId: { type: String }, // For idempotency
-  webhookEventId: { type: String }, // For deduplication
-  channel: { type: String, default: 'whatsapp' },
-  templateName: { type: String },
-  text: { type: String },
+  leadId: { type: String, required: true, index: true },
+  correlationId: { type: String, index: true },
+  providerMessageId: { type: String, index: true },
+  
+  direction: { type: String, enum: ['INBOUND', 'OUTBOUND'], required: true },
+  channel: { type: String, default: 'WhatsApp' },
+  provider: { type: String, default: 'AiSensy' },
+  
+  recipientPhone: { type: String },
+  senderPhone: { type: String },
+  
+  // The actual state machine
   status: { 
     type: String, 
-    enum: ['Queued', 'Sent', 'Delivered', 'Read', 'Failed', 'Received'],
-    default: 'Queued'
+    enum: [
+      'QUEUED', 'DISPATCHED', 'PROVIDER_ACCEPTED', 'PROVIDER_MESSAGE_ID_CREATED', 
+      'SENT', 'DELIVERED', 'READ', 'CUSTOMER_REPLIED', 'FAILED'
+    ],
+    default: 'QUEUED'
   },
+  
+  // Content details
+  templateName: { type: String },
+  templateParams: { type: mongoose.Schema.Types.Mixed },
+  text: { type: String },
+  media: { type: mongoose.Schema.Types.Mixed },
+  
+  // Forensic/Audit
   failureReason: { type: String },
-  queuedAt: { type: Date },
-  sentAt: { type: Date },
-  deliveredAt: { type: Date },
-  readAt: { type: Date },
-  failedAt: { type: Date },
+  providerResponse: { type: mongoose.Schema.Types.Mixed },
+  
   createdAt: { type: Date, default: Date.now },
-  updatedAt: { type: Date, default: Date.now }
+  updatedAt: { type: Date, default: Date.now },
+  deliveredAt: { type: Date },
+  readAt: { type: Date }
 });
 
 export const Message = mongoose.models.Message || mongoose.model('Message', MessageSchema);

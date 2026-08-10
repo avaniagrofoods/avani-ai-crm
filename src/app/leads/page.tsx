@@ -2,25 +2,22 @@
 import { useState, useEffect } from "react";
 import { 
   Users, Layers, ArrowRight, ShieldCheck, CheckCircle2, 
-  Bot, Clock, PhoneCall, Check, Tag
+  Bot, Clock, PhoneCall, Check, Tag, Hash, FileText
 } from "lucide-react";
 
+// Requested exactly by the user
 const pipelineStages = [
-  "NEW_LEAD", "CONTACTED", "QUALIFIED", "DOCUMENTS_PENDING", "DOCUMENTS_RECEIVED", 
-  "ELIGIBILITY_CHECK", "BANK_DISCUSSION", "APPLICATION_SUBMITTED", 
-  "SANCTION_RECEIVED", "DISBURSED", "CLOSED"
-];
-
-const initialLeads = [
-  { id: "L1", name: "Rajesh Kumar", phone: "+919876543210", product: "Personal / Salary", stage: "NEW_LEAD", tag: "PL-HOT", amount: "5,00,000" },
-  { id: "L2", name: "Amit Patel", phone: "+919876543211", product: "Business loan", stage: "CONTACTED", tag: "BL-WARM", amount: "25,00,000" },
-  { id: "L3", name: "Dr. Sunita Rao", phone: "+919876543212", product: "CA / Professional", stage: "QUALIFIED", tag: "DOC-HOT", amount: "15,00,000" },
-  { id: "L4", name: "Meera Nair", phone: "+919876543214", product: "Home / Mortgage", stage: "DOCUMENTS_PENDING", tag: "HL-HOT", amount: "45,00,000" },
-  { id: "L5", name: "Vijay Sharma", phone: "+919876543213", product: "CA / Professional", stage: "DOCUMENTS_RECEIVED", tag: "DOC-HOT", amount: "20,00,000" },
-  { id: "L6", name: "Ananya Sen", phone: "+919876543215", product: "Education (India)", stage: "ELIGIBILITY_CHECK", tag: "EDU-INDIA-HOT", amount: "8,00,000" },
-  { id: "L7", name: "Vikramaditya Rao", phone: "+919876543216", product: "Education (Global)", stage: "APPLICATION_SUBMITTED", tag: "EDU-GLOBAL-WARM", amount: "35,00,000" },
-  { id: "L8", name: "St. Xavier Academy", phone: "+919876543217", product: "School funding", stage: "BANK_DISCUSSION", tag: "SCHOOL-FUNDING-HOT", amount: "50,00,000" },
-  { id: "L9", name: "Vikas Commerce College", phone: "+919876543218", product: "college funding", stage: "SANCTION_RECEIVED", tag: "COLLEGE-FUNDING-HOT", amount: "1,00,00,000" }
+  "NEW", // Catch-all for new leads
+  "API Accepted",
+  "SENT",
+  "DELIVERED",
+  "READ",
+  "REPLIED",
+  "AI PROCESSING",
+  "AI RESPONDED",
+  "QUALIFIED",
+  "DOCUMENTS PENDING",
+  "COMPLETED"
 ];
 
 const automations = [
@@ -35,14 +32,32 @@ const automations = [
 ];
 
 export default function LeadsPage() {
-  const [leads, setLeads] = useState<any[]>(initialLeads);
+  const [leads, setLeads] = useState<any[]>([]);
   const [selectedLead, setSelectedLead] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch('/api/leads')
+      .then(res => res.json())
+      .then(data => {
+        if (data.success) {
+          setLeads(data.leads.map((l: any) => ({
+            ...l,
+            id: l.leadId || l._id,
+            // Map aiAgentStatus or status to the exact requested ones, defaulting to NEW
+            stage: l.aiAgentStatus || l.status || "NEW"
+          })));
+        }
+        setLoading(false);
+      });
+  }, []);
 
   const moveStage = (leadId: string, nextStage: string) => {
     setLeads(prev => prev.map(l => l.id === leadId ? { ...l, stage: nextStage } : l));
     if (selectedLead && selectedLead.id === leadId) {
       setSelectedLead((prev: any) => ({ ...prev, stage: nextStage }));
     }
+    // In a real scenario, we'd also call an API to update the status in the DB
   };
 
   return (
@@ -53,45 +68,52 @@ export default function LeadsPage() {
             <Layers className="w-8 h-8 text-primary" />
             AVANI AI CRM Pipeline
           </h2>
-          <p className="text-sm text-zinc-400 mt-1">Track and transition loans across the 11 system pipeline stages.</p>
+          <p className="text-sm text-zinc-400 mt-1">Track and transition loans across the exact forensic pipeline stages.</p>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         {/* Pipeline Stages Vertical Columns */}
         <div className="lg:col-span-3 bg-zinc-900 border border-zinc-800 rounded-2xl p-6 flex flex-col gap-4 overflow-x-auto">
-          <div className="flex gap-4 min-w-[1200px] h-full pb-4">
-            {pipelineStages.map((stage) => {
-              const stageLeads = leads.filter(l => l.stage === stage);
-              return (
-                <div key={stage} className="flex flex-col gap-3 w-72 shrink-0 bg-zinc-950 p-4 rounded-xl border border-zinc-800/80">
-                  <div className="flex justify-between items-center pb-2 border-b border-zinc-900">
-                    <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">{stage}</span>
-                    <span className="text-xs px-2 py-0.5 rounded bg-zinc-800 text-zinc-300 font-semibold">{stageLeads.length}</span>
-                  </div>
+          {loading ? (
+            <div className="text-center text-zinc-500 py-10">Loading forensic pipeline...</div>
+          ) : (
+            <div className="flex gap-4 min-w-[1200px] h-full pb-4">
+              {pipelineStages.map((stage) => {
+                // Match exact strings, or roughly map known statuses to the pipeline column
+                const stageLeads = leads.filter(l => l.stage.toUpperCase() === stage.toUpperCase() || 
+                  (stage === "NEW" && !pipelineStages.slice(1).map(s => s.toUpperCase()).includes(l.stage.toUpperCase()))
+                );
+                return (
+                  <div key={stage} className="flex flex-col gap-3 w-72 shrink-0 bg-zinc-950 p-4 rounded-xl border border-zinc-800/80">
+                    <div className="flex justify-between items-center pb-2 border-b border-zinc-900">
+                      <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">{stage}</span>
+                      <span className="text-xs px-2 py-0.5 rounded bg-zinc-800 text-zinc-300 font-semibold">{stageLeads.length}</span>
+                    </div>
 
-                  <div className="flex flex-col gap-2 overflow-y-auto max-h-[450px]">
-                    {stageLeads.length === 0 && (
-                      <div className="text-[10px] text-zinc-600 text-center py-6">Empty stage</div>
-                    )}
-                    {stageLeads.map((lead) => (
-                      <div 
-                        key={lead.id} 
-                        onClick={() => setSelectedLead(lead)}
-                        className="bg-zinc-900 border border-zinc-800/60 p-3 rounded-lg hover:border-zinc-700 transition-colors cursor-pointer flex flex-col gap-2 group"
-                      >
-                        <div className="flex justify-between items-start">
-                          <h4 className="text-xs font-bold text-zinc-100 group-hover:text-primary transition-colors">{lead.name}</h4>
-                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-primary/10 border border-primary/20 text-primary font-mono">{lead.tag}</span>
+                    <div className="flex flex-col gap-2 overflow-y-auto max-h-[450px]">
+                      {stageLeads.length === 0 && (
+                        <div className="text-[10px] text-zinc-600 text-center py-6">Empty stage</div>
+                      )}
+                      {stageLeads.map((lead) => (
+                        <div 
+                          key={lead.id} 
+                          onClick={() => setSelectedLead(lead)}
+                          className="bg-zinc-900 border border-zinc-800/60 p-3 rounded-lg hover:border-zinc-700 transition-colors cursor-pointer flex flex-col gap-2 group"
+                        >
+                          <div className="flex justify-between items-start">
+                            <h4 className="text-xs font-bold text-zinc-100 group-hover:text-primary transition-colors">{lead.name || lead.phone}</h4>
+                            <span className="text-[9px] px-1.5 py-0.5 rounded bg-primary/10 border border-primary/20 text-primary font-mono truncate max-w-[80px]">{lead.providerMessageId || lead.aiAgentStatus || "NEW"}</span>
+                          </div>
+                          <p className="text-[10px] text-zinc-400 font-medium">{lead.loanType || 'Unknown'} • ₹{lead.requiredLoanAmount || lead.requestedAmount || '0'}</p>
                         </div>
-                        <p className="text-[10px] text-zinc-400 font-medium">{lead.product} • ₹{lead.amount}</p>
-                      </div>
-                    ))}
+                      ))}
+                    </div>
                   </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* Info & Essential Automations Tracker Panel */}
@@ -101,34 +123,37 @@ export default function LeadsPage() {
             <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 flex flex-col gap-4">
               <div className="border-b border-zinc-850 pb-3">
                 <span className="text-[10px] uppercase font-bold text-primary font-mono">{selectedLead.id}</span>
-                <h3 className="text-base font-bold text-white mt-1 leading-tight">{selectedLead.name}</h3>
+                <h3 className="text-base font-bold text-white mt-1 leading-tight">{selectedLead.name || selectedLead.phone}</h3>
                 <p className="text-[11px] text-zinc-400 mt-0.5">{selectedLead.phone}</p>
               </div>
 
               <div className="grid grid-cols-2 gap-2 text-xs">
                 <div>
                   <span className="text-zinc-500 block">Product</span>
-                  <span className="text-zinc-300 font-medium">{selectedLead.product}</span>
+                  <span className="text-zinc-300 font-medium">{selectedLead.loanType || selectedLead.product || "Unknown"}</span>
                 </div>
                 <div>
                   <span className="text-zinc-500 block">Loan Amount</span>
-                  <span className="text-zinc-300 font-medium font-mono">₹{selectedLead.amount}</span>
+                  <span className="text-zinc-300 font-medium font-mono">₹{selectedLead.requiredLoanAmount || selectedLead.requestedAmount || "0"}</span>
                 </div>
               </div>
 
-              <div>
-                <span className="text-[10px] uppercase font-bold text-zinc-500 tracking-wider">Quick Transition Stage</span>
-                <div className="grid grid-cols-2 gap-1.5 mt-2">
-                  {pipelineStages.filter(s => s !== selectedLead.stage).slice(0, 4).map((stage) => (
-                    <button 
-                      key={stage}
-                      onClick={() => moveStage(selectedLead.id, stage)}
-                      className="px-2 py-1 bg-zinc-950 border border-zinc-850 rounded text-[9px] font-semibold text-zinc-400 hover:text-white hover:border-zinc-700 transition-colors truncate"
-                      title={stage}
-                    >
-                      {stage}
-                    </button>
-                  ))}
+              {/* Forensic Details View */}
+              <div className="pt-2 border-t border-zinc-850">
+                <span className="text-[10px] uppercase font-bold text-emerald-500 tracking-wider flex items-center gap-1"><ShieldCheck size={12}/> Forensic Details</span>
+                <div className="mt-2 space-y-2">
+                  <div className="bg-black/30 p-2 rounded border border-white/5 overflow-hidden">
+                    <span className="text-[9px] text-zinc-500 block">Correlation ID</span>
+                    <span className="text-[10px] text-zinc-300 font-mono truncate block">{selectedLead.correlationId || "None"}</span>
+                  </div>
+                  <div className="bg-black/30 p-2 rounded border border-white/5 overflow-hidden">
+                    <span className="text-[9px] text-zinc-500 block">Provider Message ID</span>
+                    <span className="text-[10px] text-zinc-300 font-mono truncate block">{selectedLead.providerMessageId || selectedLead.aiSensyMessageId || "None"}</span>
+                  </div>
+                  <div className="bg-black/30 p-2 rounded border border-white/5 overflow-hidden">
+                    <span className="text-[9px] text-zinc-500 block">Internal Agent State</span>
+                    <span className="text-[10px] text-zinc-300 font-mono truncate block">{selectedLead.aiAgentStatus || selectedLead.status || "NEW"}</span>
+                  </div>
                 </div>
               </div>
 
@@ -141,7 +166,7 @@ export default function LeadsPage() {
                       body: JSON.stringify({
                         phone: selectedLead.phone,
                         name: selectedLead.name,
-                        loanType: selectedLead.product
+                        loanType: selectedLead.loanType || selectedLead.product
                       })
                     });
                     if (res.ok) alert('OmniDM AI Voice Call triggered successfully!');
@@ -156,7 +181,7 @@ export default function LeadsPage() {
           ) : (
             <div className="bg-zinc-900/40 border border-zinc-850/80 border-dashed rounded-2xl p-6 text-center text-zinc-500 flex flex-col items-center justify-center min-h-[150px]">
               <Users className="w-8 h-8 text-zinc-700 mb-2" />
-              <p className="text-xs">Select a lead card to transition stages or inspect data.</p>
+              <p className="text-xs">Select a lead card to inspect forensic details and routing.</p>
             </div>
           )}
 

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import connectToDatabase from '@/lib/db';
 import { Lead } from '@/models/Lead';
-import { triggerCallKaroCall } from '@/lib/callkaro';
+import { defaultVoiceService } from '@/lib/voice-provider';
 
 export async function POST(request: Request) {
   try {
@@ -23,37 +23,59 @@ export async function POST(request: Request) {
       
       if (!name || !phone) continue;
       
-      let formattedPhone = phone.trim();
-      if (!formattedPhone.startsWith('+')) {
-        if (formattedPhone.length === 10) {
-          formattedPhone = '+91' + formattedPhone;
-        } else {
-          formattedPhone = '+' + formattedPhone;
-        }
+      let formattedPhone = phone.trim().replace(/[^0-9]/g, '');
+      if (formattedPhone.length === 10) formattedPhone = '+91' + formattedPhone;
+      else if (formattedPhone.startsWith('91') && formattedPhone.length === 12) formattedPhone = '+' + formattedPhone;
+      else formattedPhone = '+' + formattedPhone;
+
+      let city = leadData.City || leadData.city;
+      if (!city) city = 'UNCLASSIFIED';
+
+      const allowedProfessions = ['Salaried', 'Self Employed', 'Business Owner', 'Doctor / Medical Professional', 'Chartered Accountant', 'Other Professional', 'Student', 'Farmer', 'Pensioner', 'Rental Income'];
+      let profession = leadData.Profession || leadData.employmentType;
+      if (!allowedProfessions.includes(profession)) {
+         console.warn(`[CSV Upload] Unknown profession "${profession}" mapped to UNCLASSIFIED`);
+         profession = 'UNCLASSIFIED';
       }
       
-      let newLead: any = { name, phone: formattedPhone, loanType, status: 'New', details: '' };
+      const leadId = `AVL-${new Date().toISOString().slice(0,10).replace(/-/g,'')}-${Math.floor(Math.random()*1000000).toString().padStart(6,'0')}`;
+      const correlationId = `AVL-CSV-${Date.now()}`;
+
+      let newLead: any = { 
+          leadId, correlationId, name, phone: formattedPhone, loanType, 
+          city, profession, employmentType: profession === 'UNCLASSIFIED' ? 'Other' : profession,
+          status: 'New', details: '', source: 'CSV Upload' 
+      };
       
       try {
         if (process.env.MONGODB_URI && !process.env.MONGODB_URI.includes('localhost')) {
-          newLead = await Lead.create({ name, phone: formattedPhone, loanType, status: 'New' });
+          newLead = await Lead.findOneAndUpdate(
+             { phone: formattedPhone },
+             { $setOnInsert: newLead },
+             { new: true, upsert: true }
+          );
         }
       } catch (dbError) {
         console.warn("DB Save skipped:", dbError);
       }
       
       try {
-        // Trigger CallKaro AI Call
-        const ckResponse = await triggerCallKaroCall(formattedPhone, name, loanType);
+        // Trigger OmniDM AI Call
+        const ckResponse = await defaultVoiceService.dispatchCall({
+            phoneNumber: formattedPhone,
+            customerName: name,
+            loanType: loanType,
+            language: "mr"
+        });
         
         newLead.status = 'Initiated';
-        newLead.callId = ckResponse.call_id || `ck_${Date.now()}`;
-        newLead.details = 'CallKaro AI Outbound Call Initiated';
+        newLead.callId = ckResponse.callId || `omni_${Date.now()}`;
+        newLead.details = 'OmniDM AI Outbound Call Initiated';
         if (newLead.save) await newLead.save();
       } catch (callError: any) {
-        console.error(`Failed to trigger CallKaro call for ${name}:`, callError?.message);
+        console.error(`Failed to trigger OmniDM call for ${name}:`, callError?.message);
         newLead.status = 'Initiated';
-        newLead.details = 'CallKaro AI Outbound Scheduled';
+        newLead.details = 'OmniDM AI Outbound Scheduled';
       }
       
       savedLeads.push(newLead);

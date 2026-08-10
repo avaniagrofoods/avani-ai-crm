@@ -36,7 +36,7 @@ export async function GET(req: Request) {
           destination: lead.phone,
           userName: lead.name || 'Customer',
           text: message
-        });
+        }, `CRON_FOLLOWUP_${Date.now()}_${lead.phone}`);
 
         // Update lead state
         lead.followUpCount = (lead.followUpCount || 0) + 1;

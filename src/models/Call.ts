@@ -1,32 +1,47 @@
 import mongoose from 'mongoose';
 
 const CallSchema = new mongoose.Schema({
-  callId: { type: String, required: true, unique: true },
-  leadId: { type: mongoose.Schema.Types.ObjectId, ref: 'Lead' },
-  contactId: { type: mongoose.Schema.Types.ObjectId, ref: 'Contact' },
-  broadcastId: { type: mongoose.Schema.Types.ObjectId, ref: 'Broadcast' },
-  phone: { type: String, required: true },
-  provider: { type: String, enum: ['OmniDM'], default: 'OmniDM' },
-  providerCallId: { type: String, unique: true }, // Idempotency
-  webhookEventId: { type: String }, // Deduplication
+  leadId: { type: String, required: true, index: true },
+  correlationId: { type: String, index: true },
+  providerCallId: { type: String, index: true },
+  
+  provider: { type: String, default: 'OmniDM' },
+  agentId: { type: String },
+  recipientPhone: { type: String },
+  
+  // Voice State Machine
   status: { 
     type: String, 
-    enum: ['Requested', 'Initiated', 'Ringing', 'Answered', 'Completed', 'No Answer', 'Busy', 'Failed'],
-    default: 'Requested'
+    enum: [
+      'QUEUED', 'DISPATCHED', 'PROVIDER_ACCEPTED', 'CALL_ID_CREATED', 
+      'RINGING', 'ANSWERED', 'AGENT_STARTED', 'CONVERSATION_COMPLETED', 
+      'WEBHOOK_RECEIVED', 'CRM_UPDATED', 'FAILED', 'BUSY', 'NO_ANSWER'
+    ],
+    default: 'QUEUED'
   },
+  
+  // Conversation Data
   duration: { type: Number },
-  outcome: { type: String },
   recordingUrl: { type: String },
-  transcript: { type: String },
+  summary: { type: String },
+  transcript: { type: mongoose.Schema.Types.Mixed },
+  
+  // AI extraction
+  languageDetected: { type: String },
+  professionIdentified: { type: String },
+  loanProductIdentified: { type: String },
+  monthlyIncomeIdentified: { type: String },
+  cityIdentified: { type: String },
+  
+  // Forensic/Audit
   failureReason: { type: String },
-  requestedAt: { type: Date, default: Date.now },
-  initiatedAt: { type: Date },
-  ringingAt: { type: Date },
-  answeredAt: { type: Date },
-  completedAt: { type: Date },
-  failedAt: { type: Date },
+  providerResponse: { type: mongoose.Schema.Types.Mixed },
+  webhookPayloads: [{ type: mongoose.Schema.Types.Mixed }], // Array to track multiple webhooks for this call
+  
   createdAt: { type: Date, default: Date.now },
-  updatedAt: { type: Date, default: Date.now }
+  updatedAt: { type: Date, default: Date.now },
+  answeredAt: { type: Date },
+  completedAt: { type: Date }
 });
 
 export const Call = mongoose.models.Call || mongoose.model('Call', CallSchema);

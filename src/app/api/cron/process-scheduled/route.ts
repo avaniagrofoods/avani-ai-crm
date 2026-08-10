@@ -41,7 +41,7 @@ export async function GET() {
                 destination: formattedPhone,
                 userName: name,
                 templateName: templateName
-              });
+              }, `CRON_SCHEDULED_${Date.now()}_${formattedPhone}`);
             } else {
               await triggerOmnidimCall(formattedPhone, name, loanType);
             }
