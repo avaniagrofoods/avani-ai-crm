@@ -180,14 +180,16 @@ export async function POST(request: Request) {
                 currentWorkflowState: updatedState
             };
             // Merge valid context back to Lead
-            if (conversation.context.fullName) updates.name = conversation.context.fullName;
-            if (conversation.context.email) updates.email = conversation.context.email;
-            if (conversation.context.city) updates.city = conversation.context.city;
-            if (conversation.context.employmentType) updates.employmentType = conversation.context.employmentType;
-            if (conversation.context.profession) updates.profession = conversation.context.profession;
-            if (conversation.context.monthlyIncome) updates.monthlyIncomeRange = conversation.context.monthlyIncome;
-            if (conversation.context.loanProduct) updates.loanType = conversation.context.loanProduct;
-            if (conversation.context.loanAmount) updates.requestedAmount = conversation.context.loanAmount;
+            if (conversation.context) {
+              if (conversation.context.fullName) updates.name = conversation.context.fullName;
+              if (conversation.context.email) updates.email = conversation.context.email;
+              if (conversation.context.city) updates.city = conversation.context.city;
+              if (conversation.context.employmentType) updates.employmentType = conversation.context.employmentType;
+              if (conversation.context.profession) updates.profession = conversation.context.profession;
+              if (conversation.context.monthlyIncome) updates.monthlyIncomeRange = conversation.context.monthlyIncome;
+              if (conversation.context.loanProduct) updates.loanType = conversation.context.loanProduct;
+              if (conversation.context.loanAmount) updates.requestedAmount = conversation.context.loanAmount;
+            }
             
             await Lead.findByIdAndUpdate(lead._id, { $set: updates });
 
