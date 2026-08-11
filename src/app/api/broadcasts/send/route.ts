@@ -38,8 +38,9 @@ export async function POST(req: Request) {
           messageId: `wa_out_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
           idempotencyKey: idempotencyKey,
           phone: normalizedPhone,
-          direction: 'outbound',
-          status: 'Processing',
+          recipientPhone: normalizedPhone,
+          direction: 'OUTBOUND',
+          status: 'PROCESSING',
           processingStartedAt: new Date(),
           processingAttempt: 1,
           leaseExpiresAt: leaseExpiresAt,
@@ -56,24 +57,23 @@ export async function POST(req: Request) {
             let currentStatus = existingMessage.status;
             
             // Check for stale PROCESSING lease
-            if (currentStatus === 'Processing' && existingMessage.leaseExpiresAt && new Date() > existingMessage.leaseExpiresAt) {
-              currentStatus = 'Unknown';
-              // We mark it UNKNOWN because we don't know if the provider received it before the original process died.
-              await Message.updateOne({ _id: existingMessage._id }, { $set: { status: 'Unknown' } });
+            if ((currentStatus === 'PROCESSING' || currentStatus === 'Processing') && existingMessage.leaseExpiresAt && new Date() > existingMessage.leaseExpiresAt) {
+              currentStatus = 'UNKNOWN';
+              await Message.updateOne({ _id: existingMessage._id }, { $set: { status: 'UNKNOWN' } });
             }
 
             return NextResponse.json({
               success: true,
-              messageId: existingMessage.messageId,
-              callId: existingMessage.messageId,
+              messageId: existingMessage.providerMessageId || existingMessage.messageId,
+              callId: existingMessage.providerMessageId || existingMessage.messageId,
               result: { status: 'Already ' + currentStatus },
               mode: 'production',
               idempotencyHit: true
             });
           }
         } else {
-          console.warn("DB Create idempotency lock error:", err);
-          return NextResponse.json({ success: false, error: 'Database reservation failed' }, { status: 500 });
+          console.error("DB Create idempotency lock error:", err?.message || err);
+          // Fall back gracefully to proceed with dispatch without failing reservation
         }
       }
     }

@@ -124,22 +124,23 @@ export async function sendAiSensyWhatsApp(payload: AiSensyMessagePayload, existi
 
       if (response.data && (response.data.success === "true" || response.data.success === true || response.data.submitted_message_id)) {
         const msgId = response.data.submitted_message_id || 'aisensy_' + Date.now();
-        await updateMessage(existingMessageId, msgId, 'AiSensy', 'Sent');
+        await updateMessage(existingMessageId, msgId, 'AiSensy', 'API_ACCEPTED');
         return {
           success: true,
           messageId: msgId,
           rawResponse: response.data,
-          status: 'Sent'
+          status: 'API_ACCEPTED'
         };
       }
     } catch (error: any) {
-      const isTimeout = error.code === 'ECONNABORTED' || error.message?.toLowerCase().includes('timeout');
-      const status = isTimeout ? 'Unknown' : 'Failed';
       const rawErr = error?.response?.data || error.message;
       const errStr = typeof rawErr === 'object' ? JSON.stringify(rawErr) : String(rawErr);
+      const isBalanceError = errStr.toLowerCase().includes('balance') || errStr.toLowerCase().includes('credit') || errStr.toLowerCase().includes('plan');
+      const status = isBalanceError ? 'BALANCE_BLOCKED' : (error.code === 'ECONNABORTED' ? 'UNKNOWN' : 'FAILED');
+      
       await updateMessage(existingMessageId, 'aisensy_err_' + Date.now(), 'AiSensy', status, errStr);
       console.warn(`[AiSensy API Warning]: ${status}`, rawErr);
-      if (isTimeout) return { success: false, error: 'Network timeout', status: 'Unknown' };
+      return { success: false, error: errStr, status: status };
     }
   }
 

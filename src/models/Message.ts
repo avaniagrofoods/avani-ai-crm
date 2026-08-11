@@ -1,23 +1,26 @@
 import mongoose from 'mongoose';
 
 const MessageSchema = new mongoose.Schema({
-  leadId: { type: String, required: true, index: true },
+  leadId: { type: String, index: true },
   correlationId: { type: String, index: true },
+  idempotencyKey: { type: String, index: true, sparse: true },
   providerMessageId: { type: String, index: true },
   
-  direction: { type: String, enum: ['INBOUND', 'OUTBOUND'], required: true },
+  direction: { type: String, required: true },
   channel: { type: String, default: 'WhatsApp' },
   provider: { type: String, default: 'AiSensy' },
   
   recipientPhone: { type: String },
   senderPhone: { type: String },
+  phone: { type: String },
   
-  // The actual state machine
+  // Granular State Machine
   status: { 
     type: String, 
     enum: [
-      'QUEUED', 'DISPATCHED', 'PROVIDER_ACCEPTED', 'PROVIDER_MESSAGE_ID_CREATED', 
-      'SENT', 'DELIVERED', 'READ', 'CUSTOMER_REPLIED', 'FAILED'
+      'QUEUED', 'PROCESSING', 'Processing', 'DISPATCHED', 'PROVIDER_REQUESTED', 'PROVIDER_ACCEPTED', 
+      'API_ACCEPTED', 'WAITING_FOR_STATUS', 'PROVIDER_MESSAGE_ID_CREATED', 
+      'SENT', 'DELIVERED', 'READ', 'CUSTOMER_REPLIED', 'FAILED', 'BALANCE_BLOCKED', 'UNKNOWN'
     ],
     default: 'QUEUED'
   },
