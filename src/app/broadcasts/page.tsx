@@ -12,7 +12,7 @@ export default function BroadcastsPage() {
   const [templateName, setTemplateName] = useState("Avani_Loan_Welcome");
   const [broadcastType, setBroadcastType] = useState<"whatsapp" | "voice">("whatsapp");
   const [scheduleDate, setScheduleDate] = useState("");
-  const [isTestMode, setIsTestMode] = useState(true);
+  const [isTestMode, setIsTestMode] = useState(false);
   const [activeBroadcastId, setActiveBroadcastId] = useState<string | null>(null);
 
   // Progress States
@@ -177,8 +177,9 @@ export default function BroadcastsPage() {
         }
 
         if (res.ok && data.success) {
-          const successStatus = data.mode === "test" ? "SIMULATED SUCCESS" : "QUEUED";
-          sendLogs.unshift({ phone: contact.phone, name: contact.name, status: successStatus, message: `Dispatched to ${broadcastType === 'voice' ? 'OmniDM' : 'AiSensy'}` });
+          const successStatus = data.mode === "test" ? "SIMULATED SUCCESS" : "API ACCEPTED";
+          const msgDetails = data.providerMessageId ? `WAMID: ${data.providerMessageId}` : `Dispatched to ${broadcastType === 'voice' ? 'OmniDM' : 'AiSensy'}`;
+          sendLogs.unshift({ phone: contact.phone, name: contact.name, status: successStatus, message: msgDetails });
         } else {
           const errMsg = data.error || data.result?.error || "Delivery failed (Check Provider Credentials)";
           sendLogs.unshift({ phone: contact.phone, name: contact.name, status: "FAILED", message: errMsg });
