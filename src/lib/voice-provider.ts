@@ -47,6 +47,16 @@ export class OmniDMVoiceProvider implements IVoiceProvider {
   }
 
   async dispatchCall(options: DispatchCallOptions): Promise<DispatchCallResult> {
+    if (process.env.OMNIDM_LIVE_ENABLED !== 'true') {
+      console.log("[OmniDM Provider] Live calling disabled (OMNIDM_LIVE_ENABLED != true).");
+      return {
+        success: false,
+        error: "OmniDM integration READY — live calling disabled pending recharge.",
+        provider: this.name,
+        rawResponse: { status: "DISABLED_PENDING_RECHARGE" }
+      };
+    }
+
     try {
       const agentId = this.selectAgentId(options.language);
       let formattedPhone = options.phoneNumber.trim();
