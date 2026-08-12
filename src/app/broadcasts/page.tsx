@@ -456,15 +456,35 @@ export default function BroadcastsPage() {
               {logs.length === 0 ? (
                 <div className="text-zinc-600 text-center py-20">Upload a CSV file and click "Launch Broadcast" to see real-time dispatch logs.</div>
               ) : (
-                logs.map((log, idx) => (
-                  <div key={idx} className={`p-2.5 rounded border flex flex-col gap-1 ${log.status.includes("SUCCESS") || log.status === "QUEUED" ? (log.status === "SIMULATED SUCCESS" ? "bg-amber-950/30 border-amber-900/50 text-amber-400" : "bg-emerald-950/30 border-emerald-900/50 text-emerald-400") : "bg-red-950/30 border-red-900/50 text-red-400"}`}>
-                    <div className="flex justify-between items-center font-bold">
-                      <span>[{log.phone}] {log.name}</span>
-                      <span className="px-2 py-0.5 rounded text-[10px] bg-black border border-current">{log.status}</span>
+                logs.map((log, idx) => {
+                  let displayTag = log.status;
+                  if (log.status === "API_ACCEPTED" || log.status === "WAITING_FOR_PROVIDER_STATUS" || log.status === "API ACCEPTED") {
+                    displayTag = "API ACCEPTED — WAITING FOR PROVIDER STATUS";
+                  } else if (log.status === "SENT") {
+                    displayTag = "SENT — PROVIDER VERIFIED";
+                  } else if (log.status === "DELIVERED") {
+                    displayTag = "DELIVERED — PROVIDER VERIFIED";
+                  } else if (log.status === "READ") {
+                    displayTag = "READ — PROVIDER VERIFIED";
+                  } else if (log.status === "BALANCE_BLOCKED") {
+                    displayTag = "BALANCE BLOCKED";
+                  } else if (log.status === "API_FAILED" || log.status === "PROVIDER_FAILED") {
+                    displayTag = "PROVIDER FAILED";
+                  }
+
+                  const isPositive = displayTag.includes("ACCEPTED") || displayTag.includes("VERIFIED") || displayTag === "QUEUED";
+                  const isSimulated = log.status === "SIMULATED SUCCESS";
+                  
+                  return (
+                    <div key={idx} className={`p-2.5 rounded border flex flex-col gap-1 ${isPositive ? (isSimulated ? "bg-amber-950/30 border-amber-900/50 text-amber-400" : "bg-emerald-950/30 border-emerald-900/50 text-emerald-400") : "bg-red-950/30 border-red-900/50 text-red-400"}`}>
+                      <div className="flex justify-between items-center font-bold">
+                        <span>[{log.phone}] {log.name}</span>
+                        <span className="px-2 py-0.5 rounded text-[10px] bg-black border border-current">{displayTag}</span>
+                      </div>
+                      <div className="text-[11px] opacity-90">{log.message}</div>
                     </div>
-                    <div className="text-[11px] opacity-90">{log.message}</div>
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
           </div>
