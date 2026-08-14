@@ -1,22 +1,55 @@
-import mongoose from 'mongoose';
+import mongoose, { Schema, Document as MongooseDoc } from 'mongoose';
 
-const DocumentSchema = new mongoose.Schema({
-  leadId: { type: mongoose.Schema.Types.ObjectId, ref: 'Lead', required: true },
-  documentType: { type: String, required: true },
-  required: { type: Boolean, default: true },
-  status: { 
-    type: String, 
-    enum: ['REQUESTED', 'UPLOADED', 'PROCESSING', 'VALID', 'INVALID', 'REJECTED', 'RE-UPLOAD REQUIRED', 'VERIFIED'],
-    default: 'REQUESTED'
+export interface IDocumentRequest extends MongooseDoc {
+  leadId: string;
+  product: string;
+  customerType: string;
+  requiredDocuments: string[];
+  receivedDocuments: string[];
+  missingDocuments: string[];
+  status:
+    | 'NOT_STARTED'
+    | 'CHECKLIST_GENERATED'
+    | 'DOCUMENTS_PENDING'
+    | 'PARTIAL'
+    | 'DOCUMENTS_SUBMITTED'
+    | 'UNDER_REVIEW'
+    | 'VERIFIED'
+    | 'REJECTED';
+  auditLog: Array<{ action: string; timestamp: Date; detail?: string }>;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const DocumentSchema: Schema = new Schema(
+  {
+    leadId: { type: String, required: true, index: true },
+    product: { type: String, required: true },
+    customerType: { type: String, default: 'INDIVIDUAL' },
+    requiredDocuments: { type: Array, default: [] },
+    receivedDocuments: { type: Array, default: [] },
+    missingDocuments: { type: Array, default: [] },
+    status: {
+      type: String,
+      enum: [
+        'NOT_STARTED',
+        'CHECKLIST_GENERATED',
+        'DOCUMENTS_PENDING',
+        'PARTIAL',
+        'DOCUMENTS_SUBMITTED',
+        'UNDER_REVIEW',
+        'VERIFIED',
+        'REJECTED'
+      ],
+      default: 'NOT_STARTED'
+    },
+    auditLog: { type: Array, default: [] }
   },
-  uploadDate: { type: Date },
-  validationStatus: { type: String },
-  rejectionReason: { type: String },
-  verifiedBy: { type: String },
-  verifiedDate: { type: Date },
-  fileUrl: { type: String }, // Assuming files will eventually be stored in S3/Supabase and accessed via URL
-  createdAt: { type: Date, default: Date.now },
-  updatedAt: { type: Date, default: Date.now }
-});
+  { timestamps: true }
+);
 
-export const Document = mongoose.models.Document || mongoose.model('Document', DocumentSchema);
+export const DocumentModel =
+  mongoose.models.DocumentModel || mongoose.model<IDocumentRequest>('DocumentModel', DocumentSchema);
+
+// Export Document alias for backward compatibility across legacy routes
+export const Document = DocumentModel;
