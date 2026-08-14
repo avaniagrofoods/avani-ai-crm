@@ -393,15 +393,23 @@ export default function BroadcastsPage() {
           </div>
 
           <div>
-            <label className="flex items-center gap-2 cursor-pointer p-3 bg-zinc-950 border border-zinc-800 rounded-lg">
-              <input 
-                type="checkbox" 
-                checked={isTestMode} 
-                onChange={(e) => setIsTestMode(e.target.checked)} 
-                className="w-4 h-4 text-emerald-500 bg-zinc-900 border-zinc-700 rounded focus:ring-emerald-500 focus:ring-2"
-              />
-              <span className="text-sm font-bold text-zinc-300">Run in TEST MODE (Dry Run)</span>
-            </label>
+            <div className="flex items-center justify-between p-3.5 bg-zinc-950 border border-zinc-800 rounded-xl">
+              <div>
+                <span className="text-xs font-extrabold uppercase tracking-wider text-emerald-400 block mb-0.5">Execution Mode</span>
+                <span className="text-sm font-bold text-zinc-200 block">
+                  {isTestMode ? "⚠️ TEST MODE (Dry Run — Simulated Dispatch)" : "🟢 LIVE MODE (Default — Direct Provider Dispatch via AiSensy / Meta WABA)"}
+                </span>
+              </div>
+              <label className="flex items-center gap-2 cursor-pointer bg-zinc-900 border border-zinc-700 px-3 py-1.5 rounded-lg hover:border-emerald-500 transition-colors">
+                <input 
+                  type="checkbox" 
+                  checked={isTestMode} 
+                  onChange={(e) => setIsTestMode(e.target.checked)} 
+                  className="w-4 h-4 text-emerald-500 bg-zinc-950 border-zinc-700 rounded focus:ring-emerald-500 focus:ring-2"
+                />
+                <span className="text-xs font-bold text-zinc-300">Enable Test Mode</span>
+              </label>
+            </div>
           </div>
 
           {contacts.length > 0 && (
