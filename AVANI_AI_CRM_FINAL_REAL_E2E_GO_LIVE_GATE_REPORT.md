@@ -2,13 +2,13 @@
 
 ```text
 ============================================================
-AVANI LOAN SERVICES — FINAL REAL E2E GO-LIVE GATE REPORT
+AVANI LOAN SERVICES — FINAL REAL E2E GO-LIVE DECISION
 ============================================================
-DATE & TIMESTAMP            : 2026-08-14 21:10:46 IST
+DATE & TIMESTAMP            : 2026-08-14 21:29:54 IST
 PRIMARY CRM SOURCE OF TRUTH : AVANI AI CRM (3-AVANI AI CRM)
 PRODUCTION DEPLOYMENT URL   : https://avani-ai-crm.vercel.app
 GITHUB REPOSITORY           : https://github.com/avaniagrofoods/avani-ai-crm.git
-HARDENING BRANCH            : release/stage1-hardening
+HARDENING BRANCH            : release/stage1-hardening (Commit d607ad6)
 
 CONTROLLED E2E TEST NUMBER  : Dr. Sachin Shinde (AVL-20260811-000001 | +919175635165)
 WABA ACCOUNT ID             : 130700309306240
@@ -16,62 +16,33 @@ APPROVED SENDER             : +91 72491 08474
 WEBHOOK CALLBACK URL        : https://avani-ai-crm.vercel.app/api/whatsapp-webhook
 GOOGLE SHEETS APP SCRIPT    : https://script.google.com/macros/s/AKfycbyoAmAabpO9PUDH-AXatZm5Td7pO9n5W00Eoh6TNIkPtjbQZiYrhAv27XgyMtJdBxchEg/exec
 
-DISPATCH TEMPLATE           : Avani_Loan_Welcome / doctor_loan_offer [en] [APPROVED]
-OUTBOUND AISENSY UUID       : f48f97ef-bd7d-4f91-9879-a4f14d3ffa83
-REAL DEVICE INTERACTION     : "Check Eligibility" (Interactive Button Reply at 20:38 IST)
-
-SECURITY & TOKEN AUDIT      : PASSED (Verify token rotated & sanitized as [REDACTED])
-SAFETY LOCK ENFORCEMENT     : CONTACT_LIMIT = 1 | STAGE 2 LOCKED | 37 LEADS UNTOUCHED | 3-LEAD PILOT LOCKED
-VOICE CALL ADAPTER GATE     : READY_DISABLED (OMNIDM_LIVE_ENABLED=false)
-
-MASTER GO-LIVE VERDICT      : 🔴 NO-GO (Inbound Webhook Delivery Path Blocked at Provider Gateway)
+MASTER VERDICT              : 🔴 NO-GO
+PRIMARY OBSERVED FAILURE    : Real WhatsApp inbound events are not reaching POST /api/whatsapp-webhook in production.
 ============================================================
 ```
 
-## 1. Phase 1 & 2 — Inbound Architecture & Security Audit
+## 1. Executive Summary & Forensic Evidence
 
-### Authoritative Inbound Architecture
+- **Real Outbound API Request**: **`ACCEPTED`** (HTTP 200 OK returned with AiSensy UUID `f48f97ef-bd7d-4f91-9879-a4f14d3ffa83`).
+- **Real Customer Interaction**: **`OCCURRED`** (Device clicked `"Check Eligibility"` at `20:38 IST`).
+- **Vercel Webhook Receipt**: **`0`** corresponding production webhook POSTs observed.
+- **WebhookInbox Receipt**: **`0`** corresponding real inbound events persisted.
+- **Downstream Execution**: Worker and AgentEngine execution **`COULD NOT OCCUR`** due to missing inbound HTTP POST payload.
+
+---
+
+## 2. Mandatory Items Classification Breakdown (21 Total)
+
 ```text
-[WhatsApp User Device (+91 91756 35165)]
-       │
-       │ (Physical Button Reply: "Check Eligibility" at 20:38 IST)
-       ▼
-[Meta Cloud WABA Infrastructure]
-       │
-       ▼
-[AiSensy Provider Gateway (WABA 130700309306240)]
-       │
-       ❌ [FAILURE BOUNDARY: Provider Webhook HTTP Forwarding Disabled]
-       │ (0 HTTP POST Requests Transmitted)
-       ▼
-[Vercel Server: https://avani-ai-crm.vercel.app/api/whatsapp-webhook] ➔ 0 Requests Received
+STATUS BREAKDOWN:
+• 12 / 21 Mandatory Items VERIFIED
+•  5 / 21 Mandatory Items FAILED
+•  3 / 21 Mandatory Items BLOCKED
+•  1 / 21 Mandatory Items NOT TESTED
+•  9 / 21 Total Unresolved Items (Failed + Blocked + Not Tested)
 ```
 
-### Security & Secret Sanitization
-- **Verify Token Rotation**: Verify token environment configuration updated in `.env.production` and `src/app/api/whatsapp-webhook/route.ts`.
-- **Secret Masking**: 100% of credentials, tokens, and API keys are strictly masked as `[REDACTED]` across source code, logs, markdown reports, and git commits.
-
----
-
-## 2. Phase 3 to 17 — Lifecycle Phase Breakdown
-
-- **Phase 3 (Webhook Contract)**: Verified via `SYNTHETIC_ONLY` test script (`scripts/test_synthetic_webhook_contract.js`). Endpoint returns `HTTP 200 OK` and cleanly records synthetic events.
-- **Phase 4 (Controlled Real Outbound)**: Dispatched `MSG_CTRL_E2E_1786720075320_9175635165` to `+919175635165` at `20:37:54 IST` (`HTTP 200 OK` | `f48f97ef-bd7d-4f91-9879-a4f14d3ffa83`). `REAL_PRODUCTION_VERIFIED`.
-- **Phase 5 (Real Delivery Verification)**: Provider async status callbacks (`SENT`, `DELIVERED`, `READ`): `BLOCKED` (Pending HTTP callback dispatches from provider).
-- **Phase 6 & 7 (Real Inbound Button & Text Test)**: Customer clicked `"Check Eligibility"` at `20:38 IST`. Forwarding to `/api/whatsapp-webhook` failed upstream at provider gateway (`0` HTTP POST requests received). `REAL_PRODUCTION_FAILED`.
-- **Phase 8 & 9 (AI Response & Qualification)**: Fact extraction and Doctor Loan 5-document checklist (`PAN Card`, `Aadhaar Card`, `Degree / Registration Certificate`, `Bank Statement (12 Months)`, `KYC / Address Proof`): `INTEGRATION_TESTED`. Self-Response Protection: `REAL_PRODUCTION_VERIFIED`.
-- **Phase 10 (CRM Persistence)**: Message `MSG_CTRL_E2E_1786720075320_9175635165` persisted in MongoDB for `AVL-20260811-000001`. `REAL_PRODUCTION_VERIFIED`.
-- **Phase 11 (HubSpot Integration)**: Idempotent Contact & Deal upsert engine active by `leadId`. `INTEGRATION_TESTED`.
-- **Phase 12 (Google Sheets Integration)**: Google Sheets App Script URL (`https://script.google.com/macros/s/AKfycbyoAmAabpO9PUDH-AXatZm5Td7pO9n5W00Eoh6TNIkPtjbQZiYrhAv27XgyMtJdBxchEg/exec`) pinged cleanly. `REAL_PRODUCTION_VERIFIED`.
-- **Phase 13 (Zapier Integration)**: Idempotent event stream dispatch active. `INTEGRATION_TESTED`.
-- **Phase 14–16 (Idempotency, Failure & Opt-out Tests)**: Replay deduplication (`eventId` lock), failure routing, and opt-out (`STOP` / `UNSUBSCRIBE`) filters: `REAL_PRODUCTION_VERIFIED`.
-- **Phase 17 (Safety Locks)**: `CONTACT_LIMIT=1`, `STAGE 2=LOCKED`, `37 LEADS=LOCKED`, `3-LEAD PILOT=LOCKED`, `OMNIDM_LIVE_ENABLED=false` (₹0.00 spent). `REAL_PRODUCTION_VERIFIED`.
-
----
-
-## 3. Phase 18 — 21 Mandatory Real E2E Items Checklist
-
-| Checklist Item # | Mandatory Real E2E Item | Standardized Forensic Classification | Status Detail & Evidence |
+| Checklist Item # | Mandatory Real E2E Item | Standardized Forensic Classification | Empirical Status Detail |
 | :---: | :--- | :---: | :--- |
 | **01** | Outbound API accepted | **REAL_PRODUCTION_VERIFIED** | HTTP 200 OK returned with AiSensy UUID `f48f97ef-bd7d...` |
 | **02** | SENT callback received | **BLOCKED** | Pending provider-side HTTP callback forwarding |
@@ -97,15 +68,29 @@ MASTER GO-LIVE VERDICT      : 🔴 NO-GO (Inbound Webhook Delivery Path Blocked 
 
 ---
 
-## 4. Master Go-Live Decision & Release Verdict
+## 3. Important Forensic Qualification
+
+The empirical evidence proves the production inbound event is **not reaching Vercel**. Provider-side webhook forwarding is the current suspected failure domain, but the exact provider root cause remains pending direct provider / portal configuration verification.
+
+---
+
+## 4. Release Locks & Mandatory Release Condition
+
+### Release Locks:
+- **CONTACT_LIMIT**: `1`
+- **STAGE 2**: **`LOCKED`**
+- **3-LEAD PILOT**: **`LOCKED`**
+- **37 DOCTOR LOAN LEADS**: **`LOCKED`**
+- **OMNIDM LIVE CALLS**: **`DISABLED`** (`OMNIDM_LIVE_ENABLED=false`, ₹0.00 spent)
+- **BULK DISPATCH**: **`FORBIDDEN`**
+- **LIVE AI CALLING**: **`FORBIDDEN`**
+
+### Release Condition:
+Do NOT unlock the pilot until ONE genuine WhatsApp interaction traverses the complete production path:
 
 ```text
-FINAL MASTER VERDICT : 🔴 NO-GO
-REASON FOR VERDICT   : 6 out of 21 mandatory items failed or remain blocked due to the upstream
-                      provider gateway forwarding gap. Next.js application code is 100% PASS.
-                      Stage 2, the 3-lead pilot, and the 37 Doctor Loan leads remain STRICTLY BLOCKED.
+WhatsApp Device → Meta → AiSensy → Vercel → WebhookInbox
+→ Worker → AgentEngine → WhatsApp Response → CRM
 ```
 
-### Action Required Before Controlled Pilot Release:
-1. In the **AiSensy Portal (Project Settings ➔ Webhooks)**, set Webhook URL to `https://avani-ai-crm.vercel.app/api/whatsapp-webhook` and enable `Inbound Messages`, `Interactive Button Replies`, and `Message Status Updates`.
-2. In the **Meta Developer Portal (App 1147494668457940 ➔ WhatsApp ➔ Configuration)**, confirm Webhook Callback URL is verified with token `[REDACTED]` and fields `messages`, `messaging_postbacks`, `message_deliveries`, `message_reads` are subscribed to WABA `130700309306240`.
+and all corresponding evidence is captured and verified.
