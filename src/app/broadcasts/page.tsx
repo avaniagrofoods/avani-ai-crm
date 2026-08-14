@@ -393,22 +393,34 @@ export default function BroadcastsPage() {
           </div>
 
           <div>
-            <div className="flex items-center justify-between p-3.5 bg-zinc-950 border border-zinc-800 rounded-xl">
-              <div>
-                <span className="text-xs font-extrabold uppercase tracking-wider text-emerald-400 block mb-0.5">Execution Mode</span>
-                <span className="text-sm font-bold text-zinc-200 block">
-                  {isTestMode ? "⚠️ TEST MODE (Dry Run — Simulated Dispatch)" : "🟢 LIVE MODE (Default — Direct Provider Dispatch via AiSensy / Meta WABA)"}
+            <div className="flex flex-col gap-3 p-3.5 bg-zinc-950 border border-zinc-800 rounded-xl">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="text-xs font-extrabold uppercase tracking-wider text-emerald-400 block mb-0.5">Execution Mode</span>
+                  <span className="text-sm font-bold text-zinc-200 block">
+                    {isTestMode ? "⚠️ TEST MODE (Dry Run — Simulated Dispatch)" : "🟢 LIVE MODE (Default — Direct Provider Dispatch via AiSensy / Meta WABA)"}
+                  </span>
+                </div>
+                <label className="flex items-center gap-2 cursor-pointer bg-zinc-900 border border-zinc-700 px-3 py-1.5 rounded-lg hover:border-emerald-500 transition-colors">
+                  <input 
+                    type="checkbox" 
+                    checked={isTestMode} 
+                    onChange={(e) => setIsTestMode(e.target.checked)} 
+                    className="w-4 h-4 text-emerald-500 bg-zinc-950 border-zinc-700 rounded focus:ring-emerald-500 focus:ring-2"
+                  />
+                  <span className="text-xs font-bold text-zinc-300">Enable Test Mode</span>
+                </label>
+              </div>
+
+              <div className="flex items-center justify-between border-t border-zinc-900 pt-2.5 mt-1">
+                <div>
+                  <span className="text-[11px] font-extrabold uppercase tracking-wider text-indigo-400 block">Rollout Gate</span>
+                  <span className="text-xs font-bold text-zinc-300">STAGE 1 — 5 CONTACT LIMIT</span>
+                </div>
+                <span className="px-2.5 py-1 text-xs font-black rounded bg-amber-950/60 border border-amber-800 text-amber-300">
+                  STAGE_1_READY (Awaiting Admin Release)
                 </span>
               </div>
-              <label className="flex items-center gap-2 cursor-pointer bg-zinc-900 border border-zinc-700 px-3 py-1.5 rounded-lg hover:border-emerald-500 transition-colors">
-                <input 
-                  type="checkbox" 
-                  checked={isTestMode} 
-                  onChange={(e) => setIsTestMode(e.target.checked)} 
-                  className="w-4 h-4 text-emerald-500 bg-zinc-950 border-zinc-700 rounded focus:ring-emerald-500 focus:ring-2"
-                />
-                <span className="text-xs font-bold text-zinc-300">Enable Test Mode</span>
-              </label>
             </div>
           </div>
 
