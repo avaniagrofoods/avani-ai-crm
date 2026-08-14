@@ -1,0 +1,64 @@
+{
+  "inboxCount": 0,
+  "messagesCount": 2,
+  "conversation": {
+    "_id": "6a7def5cf03462b797a00106",
+    "conversationId": "CONV-1786638172664-test",
+    "leadId": "AVL-20260811-000001",
+    "customerPhone": "919175635165",
+    "currentState": "NEW_LEAD",
+    "history": [
+      {
+        "role": "user",
+        "text": "Check Eligibility",
+        "timestamp": "2026-08-13T16:22:52.664Z"
+      },
+      {
+        "role": "model",
+        "text": "Namaste Sachin! We offer Doctor Professional Loans up to ₹50 Lakhs. May I confirm your city and required loan amount?",
+        "timestamp": "2026-08-13T16:22:52.664Z"
+      }
+    ],
+    "context": {
+      "fullName": "Sachin",
+      "profession": "Doctor",
+      "loanProduct": "Doctor Loan"
+    },
+    "createdAt": "2026-08-13T16:22:52.664Z"
+  },
+  "inboxEvents": [],
+  "messages": [
+    {
+      "_id": "6a7f2f4b7f43e8e8bf73f3aa",
+      "messageId": "MSG_CTRL_E2E_1786720075320_9175635165",
+      "providerMessageId": "f48f97ef-bd7d-4f91-9879-a4f14d3ffa83",
+      "leadId": "AVL-20260811-000001",
+      "phone": "9175635165",
+      "customerPhone": "9175635165",
+      "direction": "outbound",
+      "provider": "AiSensy_WABA",
+      "templateName": "Avani_Loan_Welcome",
+      "text": "Namaste Dr. Sachin Shinde, Special offer on Doctor Loan from Avani Finserv.",
+      "status": "API_ACCEPTED",
+      "sentAt": "2026-08-14T15:07:54.749Z",
+      "idempotencyKey": "CTRL_E2E_1786720074749_9175635165",
+      "createdAt": "2026-08-14T15:07:54.749Z"
+    },
+    {
+      "_id": "6a7f2bb481836fe6af04e298",
+      "messageId": "MSG_CTRL_1786719156834_9175635165",
+      "providerMessageId": "8c10027e-3547-4b01-b900-f309550f859c",
+      "leadId": "AVL-20260811-000001",
+      "phone": "9175635165",
+      "customerPhone": "9175635165",
+      "direction": "outbound",
+      "provider": "AiSensy_WABA",
+      "templateName": "Avani_Loan_Welcome",
+      "text": "Namaste Dr. Sachin Shinde, Special offer on Doctor Loan from Avani Finserv.",
+      "status": "API_ACCEPTED",
+      "sentAt": "2026-08-14T14:52:36.653Z",
+      "idempotencyKey": "CONTROLLED_TEST_1786719156653_9175635165",
+      "createdAt": "2026-08-14T14:52:36.653Z"
+    }
+  ]
+}
