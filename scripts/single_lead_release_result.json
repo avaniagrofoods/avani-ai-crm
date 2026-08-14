@@ -1,0 +1,12 @@
+{
+  "leadId": "AVL-20260811-000007",
+  "name": "DR. BHAGWAT SHELKE SIR",
+  "phone": "+919970044345",
+  "wamid": "3e73f528-75c5-47d8-94cf-26a33730b967",
+  "provider": "AiSensy_WABA",
+  "idempotencyKey": "SINGLE_RELEASE_1786718354040_919970044345",
+  "campaignId": "CMP_SINGLE_DOCTOR_20260814",
+  "templateName": "doctor_loan_offer",
+  "status": "API_ACCEPTED",
+  "timestamp": "2026-08-14T14:39:14.040Z"
+}
