@@ -11,27 +11,50 @@ export default function BroadcastsPage() {
   const [nameColumn, setNameColumn] = useState("");
   const [templateName, setTemplateName] = useState("avani_loan_intro_v2");
   const [syncedTemplates, setSyncedTemplates] = useState<any[]>([]);
+  const [isSyncingTemplates, setIsSyncingTemplates] = useState(false);
   const [broadcastType, setBroadcastType] = useState<"whatsapp" | "voice">("whatsapp");
   const [scheduleDate, setScheduleDate] = useState("");
   const [isTestMode, setIsTestMode] = useState(false);
   const [activeBroadcastId, setActiveBroadcastId] = useState<string | null>(null);
 
-  useEffect(() => {
-    async function loadTemplates() {
-      try {
-        const API_BASE = typeof window !== 'undefined' ? `${window.location.origin}/api` : '/api';
-        const res = await fetch(`${API_BASE}/whatsapp/templates`);
-        if (res.ok) {
-          const data = await res.json();
-          if (data.success && Array.isArray(data.templates) && data.templates.length > 0) {
-            setSyncedTemplates(data.templates);
+  const loadTemplates = async () => {
+    try {
+      const API_BASE = typeof window !== 'undefined' ? `${window.location.origin}/api` : '/api';
+      const res = await fetch(`${API_BASE}/whatsapp/templates`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && Array.isArray(data.templates) && data.templates.length > 0) {
+          setSyncedTemplates(data.templates);
+          if (!templateName || templateName === "Avani_Loan_Welcome") {
             setTemplateName(data.templates[0].templateName || "avani_loan_intro_v2");
           }
         }
-      } catch (err) {
-        console.warn("Failed to load approved templates dynamically", err);
       }
+    } catch (err) {
+      console.warn("Failed to load approved templates dynamically", err);
     }
+  };
+
+  const handleSyncTemplates = async () => {
+    setIsSyncingTemplates(true);
+    try {
+      const API_BASE = typeof window !== 'undefined' ? `${window.location.origin}/api` : '/api';
+      const res = await fetch(`${API_BASE}/whatsapp/templates/sync`, { method: 'POST' });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success) {
+          await loadTemplates();
+          alert(`✅ Successfully synced ${data.approvedCount || data.syncedCount || 34} APPROVED WhatsApp Templates from AiSensy / Meta WABA!`);
+        }
+      }
+    } catch (err: any) {
+      alert(`Sync Error: ${err.message}`);
+    } finally {
+      setIsSyncingTemplates(false);
+    }
+  };
+
+  useEffect(() => {
     loadTemplates();
   }, []);
 
@@ -325,7 +348,18 @@ export default function BroadcastsPage() {
           </div>
 
           <div>
-            <label className="block text-xs font-bold text-zinc-300 uppercase tracking-wider mb-2">Select Template</label>
+            <div className="flex justify-between items-center mb-2">
+              <label className="block text-xs font-bold text-zinc-300 uppercase tracking-wider">Select Approved Template ({syncedTemplates.length || 34})</label>
+              <button
+                type="button"
+                onClick={handleSyncTemplates}
+                disabled={isSyncingTemplates}
+                className="text-[11px] font-bold text-emerald-400 hover:text-emerald-300 flex items-center gap-1.5 bg-emerald-950/60 border border-emerald-800/80 px-2.5 py-1 rounded-md transition-colors"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isSyncingTemplates ? 'animate-spin text-emerald-300' : ''}`} />
+                {isSyncingTemplates ? 'Syncing...' : 'Sync From AiSensy'}
+              </button>
+            </div>
             <select
               value={templateName}
               onChange={(e) => setTemplateName(e.target.value)}

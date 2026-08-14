@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import connectToDatabase from '@/lib/db';
 import { Template } from '@/models/Template';
+import { TemplateSyncEngine } from '@/lib/template-sync/aisensy';
 
 export const dynamic = 'force-dynamic';
 
@@ -11,30 +12,15 @@ export async function GET() {
     let templates = await Template.find({ status: 'APPROVED' }).sort({ templateName: 1 });
 
     if (templates.length === 0) {
-      // Return standard default approved templates if DB is freshly initialized
-      templates = [
-        {
-          templateId: 'tpl_avani_loan_intro_v2',
-          templateName: 'avani_loan_intro_v2',
-          language: 'en',
-          category: 'MARKETING',
-          status: 'APPROVED',
-          provider: 'AiSensy'
-        },
-        {
-          templateId: 'tpl_doctor_loan_offer',
-          templateName: 'doctor_loan_offer',
-          language: 'en',
-          category: 'UTILITY',
-          status: 'APPROVED',
-          provider: 'AiSensy'
-        }
-      ] as any;
+      console.log("[Template API] DB Template registry empty. Running auto-sync...");
+      const syncRes = await TemplateSyncEngine.syncAllApprovedTemplates();
+      templates = await Template.find({ status: 'APPROVED' }).sort({ templateName: 1 });
     }
 
     return NextResponse.json({
       success: true,
       count: templates.length,
+      provider: 'AiSensy / Meta WABA',
       templates
     }, { status: 200 });
 
