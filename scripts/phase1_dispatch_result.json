@@ -1,0 +1,15 @@
+{
+  "leadId": "AVL-20260811-000001",
+  "phone": "+919175635165",
+  "campaignId": "DOCTOR_LOAN_CONTROLLED_E2E",
+  "stage": "STAGE_1_CONTROLLED",
+  "templateName": "Avani_Loan_Welcome",
+  "internalMessageId": "MSG_CTRL_E2E_1786720075320_9175635165",
+  "provider": "AiSensy_WABA",
+  "providerRequestId": "CTRL_E2E_1786720074749_9175635165",
+  "aiSensyMessageId": "f48f97ef-bd7d-4f91-9879-a4f14d3ffa83",
+  "metaWamid": "N/A (AiSensy UUID format used)",
+  "httpStatus": 200,
+  "apiAcceptedTimestamp": "2026-08-14T15:07:54.749Z",
+  "inboxMatchCount": 0
+}
