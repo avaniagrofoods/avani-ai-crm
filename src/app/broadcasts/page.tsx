@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Upload, Send, CheckCircle2, AlertCircle, RefreshCw, PhoneCall, FileSpreadsheet, Users, ShieldCheck, HelpCircle, CalendarClock } from "lucide-react";
 
 export default function BroadcastsPage() {
@@ -9,11 +9,31 @@ export default function BroadcastsPage() {
   const [contacts, setContacts] = useState<any[]>([]);
   const [recipientColumn, setRecipientColumn] = useState("");
   const [nameColumn, setNameColumn] = useState("");
-  const [templateName, setTemplateName] = useState("Avani_Loan_Welcome");
+  const [templateName, setTemplateName] = useState("avani_loan_intro_v2");
+  const [syncedTemplates, setSyncedTemplates] = useState<any[]>([]);
   const [broadcastType, setBroadcastType] = useState<"whatsapp" | "voice">("whatsapp");
   const [scheduleDate, setScheduleDate] = useState("");
   const [isTestMode, setIsTestMode] = useState(false);
   const [activeBroadcastId, setActiveBroadcastId] = useState<string | null>(null);
+
+  useEffect(() => {
+    async function loadTemplates() {
+      try {
+        const API_BASE = typeof window !== 'undefined' ? `${window.location.origin}/api` : '/api';
+        const res = await fetch(`${API_BASE}/whatsapp/templates`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success && Array.isArray(data.templates) && data.templates.length > 0) {
+            setSyncedTemplates(data.templates);
+            setTemplateName(data.templates[0].templateName || "avani_loan_intro_v2");
+          }
+        }
+      } catch (err) {
+        console.warn("Failed to load approved templates dynamically", err);
+      }
+    }
+    loadTemplates();
+  }, []);
 
   // Progress States
   const [isSending, setIsSending] = useState(false);
@@ -309,13 +329,22 @@ export default function BroadcastsPage() {
             <select
               value={templateName}
               onChange={(e) => setTemplateName(e.target.value)}
-              className="w-full bg-zinc-950 border border-zinc-800 text-sm text-zinc-200 rounded-lg p-2.5 focus:border-indigo-500 focus:outline-none"
+              className="w-full bg-zinc-950 border border-zinc-800 text-sm text-zinc-200 rounded-lg p-2.5 focus:border-indigo-500 focus:outline-none font-medium"
             >
-              <option value="Avani_Loan_Welcome">Avani Loan Welcome & Intro</option>
-              <option value="avani_doctor_loan">Doctor Loan Exclusive Offer</option>
-              <option value="avani_ca_loan">CA & Professional Loan Special</option>
-              <option value="avani_business_growth">Business Loan Fast Approval</option>
-              <option value="avani_education_global">Global & India Education Funding</option>
+              {syncedTemplates.length > 0 ? (
+                syncedTemplates.map((t: any) => (
+                  <option key={t.templateId || t.templateName} value={t.templateName}>
+                    {t.templateName} [{t.status || 'APPROVED'}] [{t.language || 'en'}]
+                  </option>
+                ))
+              ) : (
+                <>
+                  <option value="avani_loan_intro_v2">avani_loan_intro_v2 [APPROVED] [en]</option>
+                  <option value="doctor_loan_offer">doctor_loan_offer [APPROVED] [en]</option>
+                  <option value="personal_loan_eligibility">personal_loan_eligibility [APPROVED] [en]</option>
+                  <option value="education_loan_global">education_loan_global [APPROVED] [en]</option>
+                </>
+              )}
             </select>
           </div>
 
