@@ -1,8 +1,8 @@
 import axios from 'axios';
 
 // CallKaro AI & AiSensy Calling Engine Integration
-const CALLKARO_API_KEY = process.env.CALLKARO_API_KEY || process.env.AISENSY_API_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjZhNjcwZjk0ZDBjMzl...';
-const AISENSY_CAMPAIGN_PWD = process.env.AISENSY_CAMPAIGN_PWD || 'da114b5c99951e1fcafe4';
+const CALLKARO_API_KEY = process.env.CALLKARO_API_KEY || process.env.AISENSY_API_KEY || '';
+const AISENSY_CAMPAIGN_PWD = process.env.AISENSY_CAMPAIGN_PWD || '';
 
 export async function triggerCallKaroCall(customerPhone: string, customerName: string, loanType: string) {
   let formattedPhone = customerPhone.trim();

@@ -1,9 +1,9 @@
 import axios from 'axios';
 
-const VAPI_API_KEY = process.env.VAPI_API_KEY || '006036f2-b1ee-44de-9abd-117cb4298681';
+const VAPI_API_KEY = process.env.VAPI_API_KEY || '';
 const VAPI_API_URL = process.env.VAPI_API_URL || 'https://api.vapi.ai';
-const VAPI_ASSISTANT_ID = process.env.VAPI_ASSISTANT_ID || '9f322737-3bb8-467a-95e3-7a66f9a93dc1';
-const VAPI_PHONE_NUMBER_ID = process.env.VAPI_PHONE_NUMBER_ID || 'f7a22c43-89f1-4a17-aefd-d401333ee3a2';
+const VAPI_ASSISTANT_ID = process.env.VAPI_ASSISTANT_ID || '';
+const VAPI_PHONE_NUMBER_ID = process.env.VAPI_PHONE_NUMBER_ID || '';
 
 export async function triggerOutboundCall(customerPhone: string, customerName: string, loanType: string) {
   try {

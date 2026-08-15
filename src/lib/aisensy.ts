@@ -30,7 +30,7 @@ export interface AiSensyResponse {
  * Triggers OmniDM WhatsApp Campaign API (Campaign #22)
  */
 export async function sendOmniDMWhatsApp(phone: string, name: string): Promise<any> {
-  const omnidmKey = (process.env.OMNIDIM_API_KEY || 'w-uV11bJBZ3g5icPI-uw97k2Fz8VswFsCUCcMIjBqok.').trim();
+  const omnidmKey = (process.env.OMNIDIM_API_KEY || '').trim();
 
   let formattedPhone = phone.trim();
   if (!formattedPhone.startsWith('+')) {
@@ -64,8 +64,8 @@ export async function sendOmniDMWhatsApp(phone: string, name: string): Promise<a
  * Primary WABA Dispatcher using AiSensy Official API + OmniDM & Meta Cloud Fallbacks
  */
 export async function sendAiSensyWhatsApp(payload: AiSensyMessagePayload, existingMessageId: string): Promise<AiSensyResponse> {
-  const omnidmKey = (process.env.OMNIDIM_API_KEY || 'w-uV11bJBZ3g5icPI-uw97k2Fz8VswFsCUCcMIjBqok.').trim();
-  const apiKey = (process.env.AISENCY_WABA_API_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjZhNjcwZjk0ZDBjMzlmNTdlYWE2Nzk5ZiIsIm5hbWUiOiJBVkFOSSBMT0FOIFNFUlZJQ0UiLCJhcHBOYW1lIjoiQWlTZW5zeSIsImNsaWVudElkIjoiNmE2NzBmOTRkMGMzOWY1N2VhYTY3OTlhIiwiYWN0aXZlUGxhbiI6IkJBU0lDX1FVQVJURVJMWSIsImlhdCI6MTc4NjM2MTY5Nn0.zUbuZSCFRH5ZZo_pqBVMfqaHXLKbGEFC5mPOse1bW5M.').trim();
+  const omnidmKey = (process.env.OMNIDIM_API_KEY || '').trim();
+  const apiKey = (process.env.AISENCY_WABA_API_KEY || process.env.AISENSY_WABA_API_KEY || process.env.AISENSY_API_KEY || '').trim();
   const automationNumber = process.env.WABA_AUTOMATION_NUMBER || '+917249108474';
 
   let phone = payload.destination.trim();
@@ -158,7 +158,7 @@ export async function sendAiSensyWhatsApp(payload: AiSensyMessagePayload, existi
   }
 
   // 3. Fallback: Meta Cloud API v25.0
-  let metaToken = (process.env.WHATSAPP_TOKEN || process.env.WHATSAPP_API_TOKEN || "EAAdIUij5eSEBSNfoyNAcIPxkPjzbha5MGRon34ydzNaZALXi5UViIJgLsOEQ9qScR0s8cT7gyQGvbsrfQiiJM9cmiS46rFj7zJ6qig77AQi06zaK2XudDekrYhfB5395nVFfljYVZCl2eiZCm5TUQFeOEq8kRsCu3gtlzINBO9QGdzUZBUVHJ8ZBdwswgygZDZD").trim();
+  let metaToken = (process.env.WHATSAPP_TOKEN || process.env.WHATSAPP_API_TOKEN || "").trim();
   let phoneId = (process.env.WHATSAPP_PHONE_NUMBER_ID || '1147494668457940').trim();
 
   try {

@@ -34,7 +34,7 @@ export class OmniDMVoiceProvider implements IVoiceProvider {
 
   constructor() {
     // Strip any leading/trailing whitespace or periods from API key
-    this.apiKey = (process.env.OMNIDIM_API_KEY || 'w-uV11bJBZ3g5icPI-uw97k2Fz8VswFsCUCcMIjBqok').replace(/\.+$/, '').trim();
+    this.apiKey = (process.env.OMNIDIM_API_KEY || '').replace(/\.+$/, '').trim();
     this.defaultAgentId = (process.env.OMNIDIM_DEFAULT_AGENT_ID || '229425').trim();
     this.marathiAgentId = (process.env.OMNIDIM_MARATHI_AGENT_ID || '229425').trim();
     this.englishAgentId = (process.env.OMNIDIM_ENGLISH_AGENT_ID || '228450').trim();
