@@ -67,45 +67,79 @@ export async function POST(request: Request) {
             }
           }
 
-          if (!leadPhone) {
-            leadPhone = change.value?.phone_number || "+919175635165";
-          }
+          let rawPhone = leadPhone || change.value?.phone_number || "+919175635165";
+          const formattedPhone = rawPhone.replace(/[^0-9]/g, '');
+          const normalizedPhone = formattedPhone.length === 10 ? '+91' + formattedPhone : (formattedPhone.startsWith('91') && formattedPhone.length === 12 ? '+' + formattedPhone : '+' + formattedPhone);
 
-          // Save Lead into CRM Database
+          // Resolve Approved Template
+          const lt = (loanType || '').toLowerCase();
+          let templateName = 'Avani_Loan_Welcome';
+          let canonicalLoanType = 'Personal Loan';
+          if (lt.includes('doctor')) { templateName = 'doctor_loan_offer'; canonicalLoanType = 'Doctor Loan'; }
+          else if (lt.includes('business')) { templateName = 'business_loan_welcome'; canonicalLoanType = 'Business Loan'; }
+          else if (lt.includes('home')) { templateName = 'home_loan_welcome'; canonicalLoanType = 'Home Loan'; }
+          else if (lt.includes('mortgage') || lt.includes('property') || lt.includes('lap')) { templateName = 'mortgage_loan_welcome'; canonicalLoanType = 'Mortgage Loan'; }
+          else if (lt.includes('global') || lt.includes('abroad')) { templateName = 'education_loan_global_welcome'; canonicalLoanType = 'Education Loan (Global)'; }
+          else if (lt.includes('education') || lt.includes('student')) { templateName = 'education_loan_india_welcome'; canonicalLoanType = 'Education Loan (India)'; }
+          else if (lt.includes('school')) { templateName = 'school_funding_welcome'; canonicalLoanType = 'School Funding'; }
+          else if (lt.includes('college') || lt.includes('institution')) { templateName = 'college_funding_welcome'; canonicalLoanType = 'College Funding'; }
+
+          const sourceTag = formId ? (change.value?.platform === 'instagram' ? 'INSTAGRAM_LEAD_FORM' : 'FACEBOOK_LEAD_FORM') : 'FACEBOOK_LEAD_FORM';
+          const correlationId = `META-LEAD-${Date.now()}-${Math.random().toString(36).substring(7)}`;
+
+          // Save / Upsert Lead into CRM Database with Zero Duplication
           let leadRecord: any;
           try {
-            leadRecord = await Lead.create({
-              name: leadName,
-              phone: leadPhone,
-              email: email || 'enquiry@avanifinserv.com',
-              loanType: loanType || 'Personal Loan',
-              status: 'New Lead',
-              notes: `Meta Lead Ad (Form: ${formId || 'Instant Form'}, Ad: ${adId || 'N/A'})`
-            });
-          } catch (dbErr) {
-            console.warn("DB Save warning:", dbErr);
+            leadRecord = await Lead.findOneAndUpdate(
+              { phone: normalizedPhone },
+              {
+                $set: {
+                  name: leadName,
+                  email: email || 'enquiry@avanifinserv.com',
+                  loanType: canonicalLoanType,
+                  lastInteractionAt: new Date()
+                },
+                $setOnInsert: {
+                  leadId: `AVL-${new Date().toISOString().slice(0,10).replace(/-/g,'')}-${Math.floor(Math.random()*1000000).toString().padStart(6,'0')}`,
+                  source: sourceTag,
+                  leadSource: 'Meta Lead Ads',
+                  status: 'NEW',
+                  correlationId: correlationId,
+                  createdAt: new Date()
+                }
+              },
+              { upsert: true, new: true }
+            );
+          } catch (dbErr: any) {
+            console.warn("DB Save warning:", dbErr.message);
           }
 
-          // Phase 8 Automated Workflow Execution
-          // 1. WhatsApp Welcome via AiSensy / Meta
+          // Automated Outbound WhatsApp Welcome via AiSensy Campaign API
           try {
-            await sendAiSensyWhatsApp({
-              destination: leadPhone,
+            const aiSensyRes = await sendAiSensyWhatsApp({
+              destination: normalizedPhone,
               userName: leadName,
-              templateName: 'Avani_Loan_Welcome',
-              templateParams: [leadName, loanType]
-            }, `META_WEBHOOK_${Date.now()}_${leadPhone}`);
-          } catch (waErr) { console.error("AiSensy Welcome error:", waErr); }
+              templateName: templateName,
+              templateParams: [leadName, canonicalLoanType],
+              tags: [canonicalLoanType.replace(/\s+/g, '_').toUpperCase(), sourceTag]
+            }, `META_WEBHOOK_${Date.now()}_${normalizedPhone}`);
 
-          // 2. OmniDM AI Voice Call Schedule
-          try {
-            await defaultVoiceService.dispatchCall({
-              phoneNumber: leadPhone,
-              customerName: leadName,
-              loanType: loanType,
-              language: 'hi'
-            });
-          } catch (voiceErr) { console.error("OmniDM Call error:", voiceErr); }
+            if (aiSensyRes.success && leadRecord) {
+              await Lead.findByIdAndUpdate(leadRecord._id, { $set: { status: 'WHATSAPP_SENT' } });
+            }
+          } catch (waErr: any) { console.error("AiSensy Welcome error:", waErr.message); }
+
+          // Voice Call Schedule (Guarded by OMNIDM_LIVE_ENABLED)
+          if (process.env.OMNIDM_LIVE_ENABLED === 'true') {
+            try {
+              await defaultVoiceService.dispatchCall({
+                phoneNumber: normalizedPhone,
+                customerName: leadName,
+                loanType: canonicalLoanType,
+                language: 'hi'
+              });
+            } catch (voiceErr: any) { console.error("OmniDM Call error:", voiceErr.message); }
+          }
 
           // 3. Google Sheets & Zapier & HubSpot Sync
           const syncPayload = {

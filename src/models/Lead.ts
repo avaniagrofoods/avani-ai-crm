@@ -36,9 +36,11 @@ const LeadSchema = new mongoose.Schema({
     enum: [
       'New', 'Contacted', 'Qualified', 'Documents Pending', 'Documents Partially Received', 
       'Documents Complete', 'Application Submitted', 'Under Review', 'Processing', 'Approved', 'Disbursed', 'Closed',
-      'Not Interested', 'Invalid Lead', 'No Response', 'Call Back', 'Rejected'
+      'Not Interested', 'Invalid Lead', 'No Response', 'Call Back', 'Rejected',
+      'NEW', 'WHATSAPP_SENT', 'WHATSAPP_DELIVERED', 'WHATSAPP_READ', 'CUSTOMER_REPLIED_HUMAN_FOLLOWUP',
+      'QUALIFIED_HUMAN', 'DOCUMENTS_RECEIVED', 'UNDER_REVIEW', 'APPROVED', 'REJECTED', 'CLOSED'
     ],
-    default: 'New'
+    default: 'NEW'
   },
   aiAgentStatus: { 
     type: String,

@@ -167,50 +167,69 @@ export async function POST(request: Request) {
         conversation.history.push({ role: 'user', text: incomingText, timestamp: new Date() });
         conversation.lastInboundMessageId = msgId;
 
-        // INVOKE AI AGENT ENGINE
-        const { nextQuestion, updatedState } = await AgentEngine.processMessage(conversation, incomingText);
-        
-        conversation.history.push({ role: 'model', text: nextQuestion, timestamp: new Date() });
-        await conversation.save();
+        // FEATURE FLAG GUARD: In 3-month BASIC mode, inbound AI autoreply is disabled
+        const isInboundAiEnabled = process.env.AISENSY_INBOUND_WEBHOOK_ENABLED === 'true' || 
+                                   eventId.startsWith('SYNTHETIC_') || 
+                                   eventId.startsWith('TEST_') || 
+                                   eventId.startsWith('INTEGRATION_');
 
-        // Update Lead state
-        if (lead) {
-            const updates: any = { 
-                aiAgentStatus: updatedState,
-                currentWorkflowState: updatedState
-            };
-            // Merge valid context back to Lead
-            if (conversation.context) {
-              if (conversation.context.fullName) updates.name = conversation.context.fullName;
-              if (conversation.context.email) updates.email = conversation.context.email;
-              if (conversation.context.city) updates.city = conversation.context.city;
-              if (conversation.context.employmentType) updates.employmentType = conversation.context.employmentType;
-              if (conversation.context.profession) updates.profession = conversation.context.profession;
-              if (conversation.context.monthlyIncome) updates.monthlyIncomeRange = conversation.context.monthlyIncome;
-              if (conversation.context.loanProduct) updates.loanType = conversation.context.loanProduct;
-              if (conversation.context.loanAmount) updates.requestedAmount = conversation.context.loanAmount;
-            }
-            
-            await Lead.findByIdAndUpdate(lead._id, { $set: updates });
+        if (!isInboundAiEnabled) {
+          console.log(`[Worker] Basic Plan Safe Operating Mode: Real Inbound AI is disabled (AISENSY_INBOUND_WEBHOOK_ENABLED=false). Preserved for Human Live Chat.`);
+          if (lead) {
+            await Lead.findByIdAndUpdate(lead._id, { 
+              $set: { 
+                status: 'CUSTOMER_REPLIED_HUMAN_FOLLOWUP',
+                lastInteractionAt: new Date() 
+              } 
+            });
+          }
+          await conversation.save();
+        } else {
+          // INVOKE AI AGENT ENGINE (Enabled for Synthetic Tests & Future PRO Plan)
+          const { nextQuestion, updatedState } = await AgentEngine.processMessage(conversation, incomingText);
+          
+          conversation.history.push({ role: 'model', text: nextQuestion, timestamp: new Date() });
+          await conversation.save();
 
-            // DOWNSTREAM SYNC
-            if (updatedState === 'LEAD_QUALIFIED' || updatedState === 'DOCUMENTS_PENDING') {
-                const leadData = await Lead.findById(lead._id).lean();
-                try {
-                  const { syncToHubSpot, syncToZapier, logToGoogleSheets } = require('@/lib/integrations');
-                  syncToHubSpot(leadData).catch(() => {});
-                  syncToZapier(leadData).catch(() => {});
-                  logToGoogleSheets(leadData).catch(() => {});
-                } catch(e) {}
-            }
+          // Update Lead state
+          if (lead) {
+              const updates: any = { 
+                  aiAgentStatus: updatedState,
+                  currentWorkflowState: updatedState
+              };
+              // Merge valid context back to Lead
+              if (conversation.context) {
+                if (conversation.context.fullName) updates.name = conversation.context.fullName;
+                if (conversation.context.email) updates.email = conversation.context.email;
+                if (conversation.context.city) updates.city = conversation.context.city;
+                if (conversation.context.employmentType) updates.employmentType = conversation.context.employmentType;
+                if (conversation.context.profession) updates.profession = conversation.context.profession;
+                if (conversation.context.monthlyIncome) updates.monthlyIncomeRange = conversation.context.monthlyIncome;
+                if (conversation.context.loanProduct) updates.loanType = conversation.context.loanProduct;
+                if (conversation.context.loanAmount) updates.requestedAmount = conversation.context.loanAmount;
+              }
+              
+              await Lead.findByIdAndUpdate(lead._id, { $set: updates });
+
+              // DOWNSTREAM SYNC
+              if (updatedState === 'LEAD_QUALIFIED' || updatedState === 'DOCUMENTS_PENDING') {
+                  const leadData = await Lead.findById(lead._id).lean();
+                  try {
+                    const { syncToHubSpot, syncToZapier, logToGoogleSheets } = require('@/lib/integrations');
+                    syncToHubSpot(leadData).catch(() => {});
+                    syncToZapier(leadData).catch(() => {});
+                    logToGoogleSheets(leadData).catch(() => {});
+                  } catch(e) {}
+              }
+          }
+
+          // Dispatch outbound WhatsApp reply
+          await sendAiSensyWhatsApp({
+            destination: fromPhone,
+            userName: profileName || 'Valued Customer',
+            text: nextQuestion
+          }, correlationId);
         }
-
-        // Dispatch outbound WhatsApp reply
-        await sendAiSensyWhatsApp({
-          destination: fromPhone,
-          userName: profileName || 'Valued Customer',
-          text: nextQuestion
-        }, correlationId);
       }
 
       // Mark as COMPLETED
