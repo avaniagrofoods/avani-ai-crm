@@ -97,7 +97,12 @@ export async function POST(request: Request) {
                   name: leadName,
                   email: email || 'enquiry@avanifinserv.com',
                   loanType: canonicalLoanType,
-                  lastInteractionAt: new Date()
+                  metaLeadId: leadgenId,
+                  ad: adId,
+                  adSet: change.value?.adset_id,
+                  campaign: change.value?.campaign_id,
+                  lastInteractionAt: new Date(),
+                  lastContactAt: new Date()
                 },
                 $setOnInsert: {
                   leadId: `AVL-${new Date().toISOString().slice(0,10).replace(/-/g,'')}-${Math.floor(Math.random()*1000000).toString().padStart(6,'0')}`,
@@ -125,7 +130,14 @@ export async function POST(request: Request) {
             }, `META_WEBHOOK_${Date.now()}_${normalizedPhone}`);
 
             if (aiSensyRes.success && leadRecord) {
-              await Lead.findByIdAndUpdate(leadRecord._id, { $set: { status: 'WHATSAPP_SENT' } });
+              await Lead.findByIdAndUpdate(leadRecord._id, { 
+                $set: { 
+                  status: 'WHATSAPP_SENT',
+                  aiSensyMessageId: aiSensyRes.messageId,
+                  whatsappMessageId: aiSensyRes.messageId,
+                  lastContactAt: new Date()
+                } 
+              });
             }
           } catch (waErr: any) { console.error("AiSensy Welcome error:", waErr.message); }
 
