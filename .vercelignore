@@ -1,0 +1,10 @@
+.env*
+*.env
+*.tmp
+*.backup
+temp-app/
+tests/
+test*
+scratch/
+coverage/
+*.md

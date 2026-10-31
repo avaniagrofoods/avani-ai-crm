@@ -4,7 +4,13 @@ import { Contact } from '@/models/Contact';
 
 export async function GET(req: Request) {
   try {
-    await connectToDatabase();
+    const conn = await connectToDatabase();
+    if (!conn || conn.connection?.readyState !== 1) {
+      return NextResponse.json(
+        { success: false, error: 'DATABASE_UNAVAILABLE', message: 'Database offline. Production persistence unavailable.' },
+        { status: 503 }
+      );
+    }
     const { searchParams } = new URL(req.url);
     const phone = searchParams.get('phone');
     
@@ -14,13 +20,19 @@ export async function GET(req: Request) {
     const contacts = await Contact.find(query).sort({ createdAt: -1 }).limit(200);
     return NextResponse.json({ success: true, contacts });
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }
 
 export async function POST(req: Request) {
   try {
-    await connectToDatabase();
+    const conn = await connectToDatabase();
+    if (!conn || conn.connection?.readyState !== 1) {
+      return NextResponse.json(
+        { success: false, error: 'DATABASE_UNAVAILABLE', message: 'Database offline. Production persistence unavailable.' },
+        { status: 503 }
+      );
+    }
     const body = await req.json();
 
     const { name, phone, email, city, optedIn } = body;
@@ -41,6 +53,6 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ success: true, contact });
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }

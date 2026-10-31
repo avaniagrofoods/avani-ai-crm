@@ -6,29 +6,43 @@ import { Document } from '@/models/Document';
 export const dynamic = 'force-dynamic';
 
 export default async function Dashboard() {
-  await connectToDatabase();
-
-  const totalCalls = await Lead.countDocuments({ callId: { $exists: true, $ne: "" } });
-  
-  const qualifiedLeads = await Lead.countDocuments({
-    status: { $in: ['Contacted', 'Documents Requested', 'Documents Complete', 'Processing', 'Approved', 'Disbursed'] }
-  });
-  
-  const documentsCollected = await Document.countDocuments({
-    status: { $in: ['UPLOADED', 'VERIFIED', 'VALID'] }
-  });
-
-  // Calculate potential revenue (rough estimate by parsing amounts if possible)
-  const leadsWithAmount = await Lead.find({ requestedAmount: { $exists: true, $ne: null } }, 'requestedAmount');
+  let totalCalls = 0;
+  let qualifiedLeads = 0;
+  let documentsCollected = 0;
   let totalRevenue = 0;
-  for (const l of leadsWithAmount) {
-    if (l.requestedAmount) {
-      const parsed = parseInt(String(l.requestedAmount).replace(/[^0-9]/g, ''));
-      if (!isNaN(parsed)) totalRevenue += parsed;
-    }
-  }
+  let recentLeads: any[] = [];
+  let isDbOffline = false;
 
-  const recentLeads = await Lead.find().sort({ createdAt: -1 }).limit(5);
+  try {
+    const conn = await connectToDatabase();
+    if (!conn || conn.connection?.readyState !== 1) {
+      isDbOffline = true;
+    } else {
+      totalCalls = await Lead.countDocuments({ callId: { $exists: true, $ne: "" } });
+      
+      qualifiedLeads = await Lead.countDocuments({
+        status: { $in: ['Contacted', 'Documents Requested', 'Documents Complete', 'Processing', 'Approved', 'Disbursed'] }
+      });
+      
+      documentsCollected = await Document.countDocuments({
+        status: { $in: ['UPLOADED', 'VERIFIED', 'VALID'] }
+      });
+
+      // Calculate potential revenue (rough estimate by parsing amounts if possible)
+      const leadsWithAmount = await Lead.find({ requestedAmount: { $exists: true, $ne: null } }, 'requestedAmount');
+      for (const l of leadsWithAmount) {
+        if (l.requestedAmount) {
+          const parsed = parseInt(String(l.requestedAmount).replace(/[^0-9]/g, ''));
+          if (!isNaN(parsed)) totalRevenue += parsed;
+        }
+      }
+
+      recentLeads = await Lead.find().sort({ createdAt: -1 }).limit(5);
+    }
+  } catch (err: any) {
+    console.warn("Dashboard DB query skipped due to offline DB:", err?.message);
+    isDbOffline = true;
+  }
 
   const formatCurrency = (amount: number) => {
     if (amount >= 10000000) return `₹${(amount / 10000000).toFixed(2)} Cr`;
@@ -41,14 +55,19 @@ export default async function Dashboard() {
       <header className="mb-8">
         <h1 className="text-3xl font-bold tracking-tight">Dashboard Overview</h1>
         <p className="text-muted-foreground mt-2">Welcome back to Avani Loan Services. Here is how your AI campaigns are performing.</p>
+        {isDbOffline && (
+          <div className="mt-4 p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 text-sm">
+            <strong>System Notice:</strong> Database persistence is currently offline or unreachable. Real-time metric counters and recent lead records are temporarily displaying cached/default values.
+          </div>
+        )}
       </header>
 
       {/* KPI Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <MetricCard title="Total Calls Made" value={totalCalls.toLocaleString()} icon={<PhoneCall size={22} />} trend="Lifetime calls via AI" />
-        <MetricCard title="Qualified Leads" value={qualifiedLeads.toLocaleString()} icon={<Users size={22} />} trend="Active in funnel" />
-        <MetricCard title="Documents Collected" value={documentsCollected.toLocaleString()} icon={<FileText size={22} />} trend="Total files submitted" />
-        <MetricCard title="Potential Revenue" value={formatCurrency(totalRevenue)} icon={<IndianRupee size={22} />} trend="Based on requested amounts" />
+        <MetricCard title="Total Calls Made" value={isDbOffline ? "—" : totalCalls.toLocaleString()} icon={<PhoneCall size={22} />} trend={isDbOffline ? "Offline" : "Lifetime calls via AI"} />
+        <MetricCard title="Qualified Leads" value={isDbOffline ? "—" : qualifiedLeads.toLocaleString()} icon={<Users size={22} />} trend={isDbOffline ? "Offline" : "Active in funnel"} />
+        <MetricCard title="Documents Collected" value={isDbOffline ? "—" : documentsCollected.toLocaleString()} icon={<FileText size={22} />} trend={isDbOffline ? "Offline" : "Total files submitted"} />
+        <MetricCard title="Potential Revenue" value={isDbOffline ? "—" : formatCurrency(totalRevenue)} icon={<IndianRupee size={22} />} trend={isDbOffline ? "Offline" : "Based on requested amounts"} />
       </div>
 
       {/* Recent Activity */}
@@ -67,7 +86,9 @@ export default async function Dashboard() {
             <tbody className="divide-y divide-white/10">
               {recentLeads.length === 0 && (
                 <tr>
-                  <td colSpan={4} className="px-6 py-4 text-center text-muted-foreground">No recent leads found.</td>
+                  <td colSpan={4} className="px-6 py-4 text-center text-muted-foreground">
+                    {isDbOffline ? "Database offline — lead activity temporarily unavailable." : "No recent leads found."}
+                  </td>
                 </tr>
               )}
               {recentLeads.map((lead: any) => (

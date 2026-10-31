@@ -60,6 +60,11 @@ export class FollowUpEngine {
 
       // Dispatch Follow-up WhatsApp Message
       const lead = await Lead.findOne({ leadId: conv.leadId });
+      if (lead?.isOptedOut || lead?.status === 'OPTED_OUT') {
+        console.log(`[FollowUpEngine] Lead ${conv.leadId} is marked as opted out. Suppressing follow-up.`);
+        await WorkflowTrigger.updateOne({ eventId }, { $set: { status: 'SUPPRESSED_OPTOUT', processedAt: new Date() } });
+        continue;
+      }
       const dispatchRes = await ProviderRouter.dispatchMessage({
         phone: conv.customerPhone,
         name: lead?.name || 'Valued Customer',

@@ -4,7 +4,13 @@ import { Contact } from '@/models/Contact';
 
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    await connectToDatabase();
+    const conn = await connectToDatabase();
+    if (!conn || conn.connection?.readyState !== 1) {
+      return NextResponse.json(
+        { success: false, error: 'DATABASE_UNAVAILABLE', message: 'Database offline. Persistence unavailable.' },
+        { status: 503 }
+      );
+    }
     const resolvedParams = await params;
     const contact = await Contact.findById(resolvedParams.id);
     if (!contact) return NextResponse.json({ success: false, error: 'Contact not found' }, { status: 404 });
@@ -16,7 +22,13 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    await connectToDatabase();
+    const conn = await connectToDatabase();
+    if (!conn || conn.connection?.readyState !== 1) {
+      return NextResponse.json(
+        { success: false, error: 'DATABASE_UNAVAILABLE', message: 'Database offline. Persistence unavailable.' },
+        { status: 503 }
+      );
+    }
     const body = await req.json();
     const resolvedParams = await params;
     

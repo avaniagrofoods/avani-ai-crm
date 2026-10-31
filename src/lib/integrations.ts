@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { ProviderRouter } from './provider-router';
 
 export async function logToGoogleSheets(lead: any) {
   const url = process.env.GOOGLE_SHEET_APP_SCRIPT_URL;
@@ -160,14 +161,20 @@ export async function sendAiSensyWhatsAppTemplate(
 }
 
 export async function sendWhatsAppChecklist(phone: string, name: string, loanType: string) {
-  // Always send via AiSensy campaign
-  const res = await sendAiSensyWhatsAppTemplate(phone, name, 'loan_consultation_offer', [name]);
+  // Dispatch via active provider (ChatMitra by default, AiSensy for rollback)
+  const res = await ProviderRouter.dispatchMessage({
+    phone,
+    name,
+    templateName: 'loan_consultation_offer',
+    templateParams: [name],
+    campaignId: `CHECKLIST_${Date.now()}`
+  });
   if (res.success) {
     return;
   }
 
-  // Fallback to twilio if AiSensy fails
-  console.log("AiSensy failed. Falling back to Twilio WhatsApp...");
+  // Fallback to twilio if active provider fails
+  console.log("Primary provider failed. Falling back to Twilio WhatsApp...");
   const accountSid = process.env.TWILIO_ACCOUNT_SID;
   const authToken = process.env.TWILIO_AUTH_TOKEN;
   const twilioWhatsApp = "+917249108474";

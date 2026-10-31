@@ -5,10 +5,20 @@ import { defaultVoiceService } from '@/lib/voice-provider';
 
 export async function POST(request: Request) {
   try {
-    await connectToDatabase();
+    const conn = await connectToDatabase();
+    if (!conn || conn.connection?.readyState !== 1) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'DATABASE_UNAVAILABLE',
+          message: 'Database persistence unavailable: MONGODB_URI is unconfigured or connection failed. Lead upload cannot guarantee durable persistence.'
+        },
+        { status: 503 }
+      );
+    }
     
     const body = await request.json();
-    const { leads } = body;
+    const leads = body?.leads || (Array.isArray(body) ? body : null);
     
     if (!leads || !Array.isArray(leads)) {
       return NextResponse.json({ error: "Invalid leads data" }, { status: 400 });
@@ -48,15 +58,14 @@ export async function POST(request: Request) {
       };
       
       try {
-        if (process.env.MONGODB_URI && !process.env.MONGODB_URI.includes('localhost')) {
-          newLead = await Lead.findOneAndUpdate(
-             { phone: formattedPhone },
-             { $setOnInsert: newLead },
-             { new: true, upsert: true }
-          );
-        }
-      } catch (dbError) {
-        console.warn("DB Save skipped:", dbError);
+        newLead = await Lead.findOneAndUpdate(
+           { phone: formattedPhone },
+           { $setOnInsert: newLead },
+           { new: true, upsert: true }
+        );
+      } catch (dbError: any) {
+        console.error("DB Save failed during upload:", dbError?.message);
+        return NextResponse.json({ success: false, error: 'DATABASE_WRITE_FAILED', message: 'Failed to persist uploaded lead.' }, { status: 500 });
       }
       
       try {

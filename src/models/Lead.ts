@@ -36,12 +36,20 @@ const LeadSchema = new mongoose.Schema({
     enum: [
       'New', 'Contacted', 'Qualified', 'Documents Pending', 'Documents Partially Received', 
       'Documents Complete', 'Application Submitted', 'Under Review', 'Processing', 'Approved', 'Disbursed', 'Closed',
-      'Not Interested', 'Invalid Lead', 'No Response', 'Call Back', 'Rejected',
+      'Not Interested', 'Invalid Lead', 'No Response', 'Call Back', 'Rejected', 'OPTED_OUT',
       'NEW', 'WHATSAPP_SENT', 'WHATSAPP_DELIVERED', 'WHATSAPP_READ', 'CUSTOMER_REPLIED_HUMAN_FOLLOWUP',
       'QUALIFIED_HUMAN', 'DOCUMENTS_RECEIVED', 'UNDER_REVIEW', 'APPROVED', 'REJECTED', 'CLOSED'
     ],
     default: 'NEW'
   },
+  // DPDP Act Consent & Opt-Out Records
+  consentStatus: { type: String, enum: ['GRANTED', 'DENIED', 'PENDING'], default: 'GRANTED' },
+  consentPurpose: { type: String, default: 'LOAN_ELIGIBILITY_PROCESSING' },
+  consentTimestamp: { type: Date, default: Date.now },
+  isOptedOut: { type: Boolean, default: false },
+  optedOutAt: { type: Date },
+  preferredLanguage: { type: String, default: 'English' },
+  idempotencyKey: { type: String, index: true },
   aiAgentStatus: { 
     type: String,
     enum: [

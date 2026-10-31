@@ -7,7 +7,13 @@ export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {
-    await connectToDatabase();
+    const conn = await connectToDatabase();
+    if (!conn || conn.connection?.readyState !== 1) {
+      return NextResponse.json(
+        { success: false, error: 'DATABASE_UNAVAILABLE', message: 'Database offline. Templates unavailable.', templates: [], count: 0 },
+        { status: 503 }
+      );
+    }
 
     let templates = await Template.find({ status: 'APPROVED' }).sort({ templateName: 1 });
 

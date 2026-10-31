@@ -75,6 +75,9 @@ export class MetaLeadAdsEngine {
         adSet: payload.adSetName || payload.adSetId,
         ad: payload.adName || payload.adId,
         metaLeadId: payload.metaLeadId,
+        consentStatus: 'GRANTED',
+        consentPurpose: 'META_LEAD_FORM_CONSENT',
+        consentTimestamp: new Date(),
         pipelineStage: 'NEW_LEAD'
       });
     }

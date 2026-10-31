@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import { getDatabase } from '@/lib/db';
 import { sendAiSensyWhatsApp } from '@/lib/aisensy';
+import { ProviderRouter } from '@/lib/provider-router';
 import { processOutgoingZapierPayload } from '@/app/api/omnidim-webhook/route';
 
 /**
@@ -56,7 +57,12 @@ export async function handleInboundCorrectionWorkflow(userPhone10Digit: string, 
       );
 
       const humanHandoverMessage = `Hi ${lead.name || "Customer"},\n\nWe are matching you with a representative. \n\nOur system couldn't verify that detail automatically. Our founder, Sachin Shinde, or an expert loan consultant from our Ausa Road, Latur office will review your message history and contact you directly.\n\n*Avani Finserv - Personal Consultation*`;
-      await sendAiSensyWhatsApp({ destination: userPhone10Digit, userName: lead.name || "Customer", text: humanHandoverMessage }, `CHATBOT_ROUTER_HANDOVER_${Date.now()}_${userPhone10Digit}`);
+      await ProviderRouter.dispatchMessage({
+        phone: userPhone10Digit,
+        name: lead.name || "Customer",
+        messageText: humanHandoverMessage,
+        campaignId: `CHATBOT_ROUTER_HANDOVER_${Date.now()}`
+      });
       return true;
     }
 
@@ -66,7 +72,12 @@ export async function handleInboundCorrectionWorkflow(userPhone10Digit: string, 
     );
 
     const rePromptMessage = `Sorry, we couldn't process that response. Please enter a valid name or description to update your profile properly.\n\n👉 Please reply explicitly with your correct information.`;
-    await sendAiSensyWhatsApp({ destination: userPhone10Digit, userName: lead.name || "Customer", text: rePromptMessage }, `CHATBOT_ROUTER_REPROMPT_${Date.now()}_${userPhone10Digit}`);
+    await ProviderRouter.dispatchMessage({
+      phone: userPhone10Digit,
+      name: lead.name || "Customer",
+      messageText: rePromptMessage,
+      campaignId: `CHATBOT_ROUTER_REPROMPT_${Date.now()}`
+    });
     return true;
   }
 
@@ -98,7 +109,12 @@ export async function handleInboundCorrectionWorkflow(userPhone10Digit: string, 
   const updatedLead = await leadsCollection.findOne({ _id: lead._id });
 
   const finalizedSuccessMessage = `Thank you! Your profile details have been successfully verified.\n\nWe have forwarded your completed file to our underwriting desk. \n\nOur estimated calculation parameters for your profile are now active in the CRM dashboard view panel. An executive will get back to you shortly.\n\n*Avani Finserv - Fast & Secure Approvals*`;
-  await sendAiSensyWhatsApp({ destination: userPhone10Digit, userName: updatedLead?.name || "Customer", text: finalizedSuccessMessage }, `CHATBOT_ROUTER_SUCCESS_${Date.now()}_${userPhone10Digit}`);
+  await ProviderRouter.dispatchMessage({
+    phone: userPhone10Digit,
+    name: updatedLead?.name || "Customer",
+    messageText: finalizedSuccessMessage,
+    campaignId: `CHATBOT_ROUTER_SUCCESS_${Date.now()}`
+  });
 
   try {
     const loanType = updatedLead?.financialProfile?.loanType || updatedLead?.loanType || "Personal Loan";

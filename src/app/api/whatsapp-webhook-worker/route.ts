@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 import { sendAiSensyWhatsApp } from '@/lib/aisensy';
+import { sendChatMitraMessage } from '@/lib/chatmitra';
+import { FollowUpEngine } from '@/lib/followup-engine';
 import { normalizeIndianPhone } from '@/lib/phone';
 import connectToDatabase from '@/lib/db';
 import { Message } from '@/models/Message';
@@ -21,7 +23,14 @@ export async function POST(request: Request) {
     const payload = await request.json();
     const { eventId, correlationId } = payload;
     
-    await connectToDatabase();
+    const conn = await connectToDatabase();
+    if (!conn || mongoose.connection.readyState !== 1) {
+      console.warn(`[Worker] Database unavailable: cannot process event ${eventId}. Returning HTTP 503.`);
+      return NextResponse.json(
+        { success: false, error: 'DATABASE_UNAVAILABLE', message: 'Database offline: worker cannot acquire lease.' },
+        { status: 503 }
+      );
+    }
 
     // 1. Atomic Lease Claim
     const lock = await WebhookInbox.findOneAndUpdate(
@@ -167,6 +176,43 @@ export async function POST(request: Request) {
         conversation.history.push({ role: 'user', text: incomingText, timestamp: new Date() });
         conversation.lastInboundMessageId = msgId;
 
+        // Check for Opt-Out Keywords (DPDP Act Compliance: STOP, UNSUBSCRIBE, थांबवा, रोकें)
+        const isOptOut = /^\s*(stop|unsubscribe|cancel|थांबवा|रोकें|बंद करा|नको)\b/i.test(incomingText.trim());
+        if (isOptOut) {
+          console.log(`[Worker] Opt-out keyword detected for ${fromPhone}. Suppressing lead.`);
+          if (lead) {
+            await Lead.findByIdAndUpdate(lead._id, {
+              $set: {
+                isOptedOut: true,
+                optedOutAt: new Date(),
+                status: 'OPTED_OUT',
+                consentStatus: 'WITHDRAWN',
+                lastInteractionAt: new Date()
+              }
+            });
+            await FollowUpEngine.cancelPendingFollowUps(lead.leadId);
+          }
+          if (conversation) {
+            conversation.optOutStatus = true;
+            conversation.currentState = 'OPTED_OUT';
+            await conversation.save();
+          }
+
+          const optOutAck = "You have been successfully unsubscribed from AVANI LOAN SERVICES updates. You will not receive any further automated messages. To re-subscribe, text START or contact Sachin Shinde at +91 72491 08474.";
+          const isChatMitra = payload.provider === 'ChatMitra' || process.env.ACTIVE_WHATSAPP_PROVIDER === 'chatmitra';
+          if (isChatMitra) {
+            await sendChatMitraMessage({ toPhone: fromPhone, messageText: optOutAck, correlationId });
+          } else {
+            await sendAiSensyWhatsApp({ destination: fromPhone, userName: profileName || 'Customer', text: optOutAck }, correlationId);
+          }
+
+          await WebhookInbox.updateOne(
+            { eventId },
+            { $set: { status: 'COMPLETED', processedAt: new Date() }, $unset: { leaseExpiresAt: 1 } }
+          );
+          return NextResponse.json({ success: true, optedOut: true });
+        }
+
         // FEATURE FLAG GUARD: In 3-month BASIC mode, inbound AI autoreply is disabled
         const isInboundAiEnabled = process.env.AISENSY_INBOUND_WEBHOOK_ENABLED === 'true' || 
                                    eventId.startsWith('SYNTHETIC_') || 
@@ -223,12 +269,22 @@ export async function POST(request: Request) {
               }
           }
 
-          // Dispatch outbound WhatsApp reply
-          await sendAiSensyWhatsApp({
-            destination: fromPhone,
-            userName: profileName || 'Valued Customer',
-            text: nextQuestion
-          }, correlationId);
+          // Dispatch outbound WhatsApp reply based on provider
+          const isChatMitra = payload.provider === 'ChatMitra' || process.env.ACTIVE_WHATSAPP_PROVIDER === 'chatmitra';
+          if (isChatMitra) {
+            await sendChatMitraMessage({
+              toPhone: fromPhone,
+              messageText: nextQuestion,
+              leadId: lead?._id?.toString(),
+              correlationId
+            });
+          } else {
+            await sendAiSensyWhatsApp({
+              destination: fromPhone,
+              userName: profileName || 'Valued Customer',
+              text: nextQuestion
+            }, correlationId);
+          }
         }
       }
 

@@ -1,8 +1,30 @@
 import mongoose from 'mongoose';
+import fs from 'fs';
+import path from 'path';
+import dns from 'dns';
 
-const uri = "mongodb://avani_crm_prod_app:GtU8M9dPe4WRLVGd@cluster0-shard-00-00.mlcxcp.mongodb.net:27017,cluster0-shard-00-01.mlcxcp.mongodb.net:27017,cluster0-shard-00-02.mlcxcp.mongodb.net:27017/avani_ai_crm_prod?ssl=true&authSource=admin&retryWrites=true&w=majority";
+try {
+  dns.setServers(['8.8.8.8', '1.1.1.1']);
+} catch (e) {
+  // Ignore
+}
 
-console.log("Testing DIRECT connection...");
+const envPath = path.resolve('.env.local');
+let uri = process.env.MONGODB_URI;
+
+if (!uri && fs.existsSync(envPath)) {
+  const envContent = fs.readFileSync(envPath, 'utf8');
+  const match = envContent.match(/MONGODB_URI=["']?([^"'\r\n]+)["']?/);
+  if (match) uri = match[1];
+}
+
+if (!uri) {
+  console.error("MONGODB_URI not found in .env.local");
+  process.exit(1);
+}
+
+const sanitizedTarget = uri.replace(/\/\/[^@]+@/, '//****:****@');
+console.log("Testing DIRECT connection to:", sanitizedTarget);
 
 mongoose.connect(uri, { serverSelectionTimeoutMS: 5000 })
   .then(() => {
@@ -11,5 +33,10 @@ mongoose.connect(uri, { serverSelectionTimeoutMS: 5000 })
   })
   .catch((err) => {
     console.error("Connection failed:", err.message);
+    if (err.reason && err.reason.servers) {
+      for (const [server, desc] of err.reason.servers) {
+        console.error(`  Shard: ${server} | Error: ${desc.error ? desc.error.message : 'none'}`);
+      }
+    }
     process.exit(1);
   });

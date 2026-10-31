@@ -91,3 +91,28 @@ export async function GET() {
     return NextResponse.json({ success: true, campaigns: [] });
   }
 }
+
+export async function PATCH(request: Request) {
+  try {
+    const body = await request.json();
+    const { campaignId, action } = body;
+    if (!campaignId) {
+      return NextResponse.json({ error: 'campaignId is required' }, { status: 400 });
+    }
+    const targetStatus = action === 'PAUSE' ? 'PAUSED' : (action === 'CANCEL' ? 'CANCELED' : 'RESUMED');
+    const updateSql = `
+      UPDATE "ScheduledCampaign"
+      SET "status" = $1
+      WHERE "id" = $2
+      RETURNING *;
+    `;
+    const res = await query(updateSql, [targetStatus, campaignId]);
+    return NextResponse.json({
+      success: true,
+      message: `Campaign status updated to ${targetStatus}`,
+      campaign: res.rows?.[0] || { id: campaignId, status: targetStatus }
+    });
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message }, { status: 500 });
+  }
+}
