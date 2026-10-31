@@ -184,25 +184,41 @@ export async function sendChatMitraMessage(payload: ChatMitraPayload): Promise<C
 
   try {
     let res: any;
+    const idempotencyKey = payload.correlationId || `CM-${Date.now()}-${Math.random().toString(36).substring(7)}`;
+    const headers: Record<string, string> = {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+      'Idempotency-Key': idempotencyKey
+    };
+
     if (payload.templateName) {
+      // Official ChatMitra Developer API for Templates
       res = await axios.post(
-        `${CHATMITRA_BASE_URL}/v2/client/send_template`,
+        `${CHATMITRA_BACKEND_URL}/developer/api/send_message`,
         {
-          templateName: payload.templateName,
-          language: payload.language || 'en',
-          phoneNumber: formattedPhone,
-          components: [
+          recipient_mobile_number: formattedPhone,
+          messages: [
             {
-              type: 'body',
-              parameters: (payload.templateParams || []).map(p => ({ type: 'text', text: String(p) }))
+              kind: 'template',
+              template: {
+                name: payload.templateName,
+                language: payload.language || 'en',
+                components: [
+                  {
+                    type: 'body',
+                    parameters: (payload.templateParams || []).map((p, idx) => ({
+                      type: 'text',
+                      parameter_name: `param_${idx + 1}`,
+                      text: String(p).replace(/[#*~_]/g, '') // Sanitize per ChatMitra text guidelines
+                    }))
+                  }
+                ]
+              }
             }
           ]
         },
         {
-          headers: {
-            'Authorization': `Bearer ${apiKey}`,
-            'Content-Type': 'application/json'
-          },
+          headers,
           timeout: 10000
         }
       );
@@ -224,10 +240,7 @@ export async function sendChatMitraMessage(payload: ChatMitraPayload): Promise<C
           ]
         },
         {
-          headers: {
-            'Authorization': `Bearer ${apiKey}`,
-            'Content-Type': 'application/json'
-          },
+          headers,
           timeout: 10000
         }
       );
