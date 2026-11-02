@@ -1,6 +1,6 @@
 "use client"
 
-const API_URL = typeof window !== 'undefined' ? ('https://avani-ai-crm.vercel.app/api') : 'https://avani-ai-crm.vercel.app/api';
+const API_URL = '/api';
 
 import { useState, useEffect } from "react";
 import { Search, Plus, Filter, MoreHorizontal, FileDown, MessageSquare, Send, Image, Video, FileText, Phone, Settings, CheckCircle2, AlertTriangle, RefreshCw, Eye, X } from "lucide-react";
@@ -41,7 +41,7 @@ export default function ContactsPage() {
   useEffect(() => {
     if (!selectedContact) return;
     const interval = setInterval(() => {
-      fetchContactMessages(selectedContact.id);
+      fetchContactMessages(selectedContact.id || selectedContact._id);
     }, 4000);
     return () => clearInterval(interval);
   }, [selectedContact]);
@@ -50,7 +50,7 @@ export default function ContactsPage() {
     try {
       const response = await fetch(`${API_URL}/contacts`);
       const data = await response.json();
-      setContacts(data);
+      setContacts(Array.isArray(data) ? data : (data.contacts || []));
     } catch (error) {
       console.error("Failed to fetch contacts", error);
     } finally {
@@ -363,11 +363,11 @@ export default function ContactsPage() {
                   </td>
                 </tr>
               )}
-              {contacts.map((contact) => (
-                <tr key={contact.id} className="hover:bg-zinc-800/40 transition-colors">
+              {contacts.map((contact, idx) => (
+                <tr key={contact.id || contact._id || contact.phone || idx} className="hover:bg-zinc-800/40 transition-colors">
                   <td className="px-6 py-4 font-semibold text-zinc-200 flex items-center gap-3">
                     <div className="w-8 h-8 rounded-full bg-indigo-600/10 border border-indigo-500/20 flex items-center justify-center text-indigo-450 font-bold">
-                      {(contact.name || contact.phone).charAt(0).toUpperCase()}
+                      {(contact.name || contact.phone || "U").charAt(0).toUpperCase()}
                     </div>
                     {contact.name || "Unknown Lead"}
                   </td>
@@ -381,7 +381,7 @@ export default function ContactsPage() {
                       contact.status === 'CLOSED' ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' :
                       'bg-zinc-900 text-zinc-400 border border-zinc-800'
                     }`}>
-                      {contact.status.replace('_', ' ')}
+                      {(contact.status || 'NEW_LEAD').replace('_', ' ')}
                     </span>
                   </td>
                   <td className="px-6 py-4 text-zinc-300">{contact.loanType || contact.profession || "Personal Loan"}</td>
@@ -391,14 +391,14 @@ export default function ContactsPage() {
                   <td className="px-6 py-4 text-zinc-450 text-xs">
                     {contact.messages && contact.messages.length > 0 
                       ? new Date(contact.messages[0].timestamp).toLocaleString()
-                      : new Date(contact.createdAt).toLocaleString()}
+                      : contact.createdAt ? new Date(contact.createdAt).toLocaleString() : 'Recent'}
                   </td>
                   <td className="px-6 py-4 text-right">
                     <button 
                       onClick={() => {
                         setSelectedContact(contact);
                         setDrawerMessages([]);
-                        fetchContactMessages(contact.id);
+                        fetchContactMessages(contact.id || contact._id);
                       }}
                       className="text-indigo-400 hover:text-indigo-300 hover:bg-indigo-500/10 px-3 py-1.5 rounded-lg transition-all text-xs font-bold flex items-center gap-1.5 ml-auto border border-indigo-500/20"
                     >

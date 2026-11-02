@@ -1,6 +1,6 @@
 "use client"
 
-const API_URL = typeof window !== 'undefined' ? ('https://avani-ai-crm.vercel.app/api') : 'https://avani-ai-crm.vercel.app/api';
+const API_URL = '/api';
 
 import { useState, useEffect } from "react";
 import { Send, User } from "lucide-react";
@@ -15,7 +15,7 @@ export default function InboxPage() {
     try {
       const response = await fetch(`${API_URL}/contacts`);
       const data = await response.json();
-      setContacts(data);
+      setContacts(Array.isArray(data) ? data : (data.contacts || []));
     } catch (error) {
       console.error("Failed to fetch contacts", error);
     }
@@ -45,7 +45,7 @@ export default function InboxPage() {
 
   const handleSendReply = async () => {
     if (!replyText.trim() || !activeContactId) return;
-    const contact = contacts.find(c => c.id === activeContactId);
+    const contact = contacts.find(c => c.id === activeContactId || c._id === activeContactId);
     if (!contact || !contact.phone) return;
 
     try {
@@ -69,7 +69,7 @@ export default function InboxPage() {
     }
   };
 
-  const activeContact = contacts.find(c => c.id === activeContactId);
+  const activeContact = contacts.find(c => c.id === activeContactId || c._id === activeContactId);
 
   return (
     <div className="flex h-[calc(100vh-64px)] border rounded-xl overflow-hidden bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800">
@@ -79,21 +79,24 @@ export default function InboxPage() {
           <h2 className="font-semibold text-lg dark:text-white">Conversations</h2>
         </div>
         <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
-          {contacts.map(c => (
-            <div 
-              key={c.id} 
-              onClick={() => {
-                setActiveContactId(c.id);
-                fetchMessages(c.id);
-              }}
-              className={`p-4 cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors ${activeContactId === c.id ? 'bg-zinc-100 dark:bg-zinc-800' : ''}`}
-            >
-              <div className="font-medium text-sm dark:text-zinc-200">{c.name || c.phone}</div>
-              <div className="text-xs text-zinc-500 mt-1 truncate">
-                {c.messages && c.messages.length > 0 ? c.messages[0].content : "No messages yet"}
+          {contacts.map((c, idx) => {
+            const cId = c.id || c._id || `c_${idx}`;
+            return (
+              <div 
+                key={cId} 
+                onClick={() => {
+                  setActiveContactId(cId);
+                  fetchMessages(cId);
+                }}
+                className={`p-4 cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors ${activeContactId === cId ? 'bg-zinc-100 dark:bg-zinc-800' : ''}`}
+              >
+                <div className="font-medium text-sm dark:text-zinc-200">{c.name || c.phone}</div>
+                <div className="text-xs text-zinc-500 mt-1 truncate">
+                  {c.messages && c.messages.length > 0 ? c.messages[0].content : "No messages yet"}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 

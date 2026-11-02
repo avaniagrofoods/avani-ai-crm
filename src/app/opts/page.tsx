@@ -1,45 +1,72 @@
 "use client";
 
-import { useState } from "react";
-import { Plus, ShieldCheck, Trash2, X } from "lucide-react";
-
-const preconfiguredOpts = [
-  { id: "o1", phone: "+91 91756 35165", status: "OPTED_IN", source: "Website Form", createdAt: new Date().toISOString() },
-  { id: "o2", phone: "+91 72491 08474", status: "OPTED_IN", source: "Meta Lead Ad", createdAt: new Date().toISOString() },
-  { id: "o3", phone: "+91 72190 53645", status: "OPTED_IN", source: "Direct WhatsApp", createdAt: new Date().toISOString() }
-];
+import { useState, useEffect } from "react";
+import { Plus, ShieldCheck, Trash2, X, RefreshCw } from "lucide-react";
 
 export default function OptsPage() {
-  const [items, setItems] = useState<any[]>(preconfiguredOpts);
+  const [items, setItems] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [phone, setPhone] = useState("");
   const [status, setStatus] = useState("OPTED_IN");
   const [source, setSource] = useState("Manual CRM Opt-in");
 
-  const handleAddOpt = (e: React.FormEvent) => {
+  const fetchOpts = async () => {
+    try {
+      setLoading(true);
+      const res = await fetch('/api/opts');
+      const data = await res.json();
+      if (data.success && Array.isArray(data.items)) {
+        setItems(data.items);
+      }
+    } catch (e) {
+      console.error("Failed to load opts registry:", e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchOpts();
+  }, []);
+
+  const handleAddOpt = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!phone) return;
 
-    let formattedPhone = phone.trim();
-    if (!formattedPhone.startsWith('+')) {
-      formattedPhone = formattedPhone.length === 10 ? '+91 ' + formattedPhone : '+' + formattedPhone;
+    try {
+      const res = await fetch('/api/opts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone, status, source })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setPhone("");
+        setIsModalOpen(false);
+        fetchOpts();
+      } else {
+        alert(data.error || "Failed to update consent preference.");
+      }
+    } catch (err) {
+      console.error("Error adding consent:", err);
+      alert("Error adding consent preference.");
     }
-
-    const newOpt = {
-      id: "opt_" + Date.now(),
-      phone: formattedPhone,
-      status,
-      source,
-      createdAt: new Date().toISOString()
-    };
-
-    setItems([newOpt, ...items]);
-    setPhone("");
-    setIsModalOpen(false);
   };
 
-  const handleDelete = (id: string) => {
-    setItems(items.filter(item => item.id !== id));
+  const handleDelete = async (id: string, itemPhone?: string) => {
+    if (!confirm("Are you sure you want to delete this consent registry entry?")) return;
+    try {
+      const res = await fetch(`/api/opts?id=${encodeURIComponent(id)}&phone=${encodeURIComponent(itemPhone || '')}`, {
+        method: 'DELETE'
+      });
+      const data = await res.json();
+      if (data.success) {
+        setItems(items.filter(item => item.id !== id));
+      }
+    } catch (err) {
+      console.error("Failed to delete entry:", err);
+    }
   };
 
   return (
@@ -50,15 +77,24 @@ export default function OptsPage() {
             <ShieldCheck className="w-8 h-8 text-emerald-400" />
             Opt-in & Consent Management
           </h2>
-          <p className="text-sm text-zinc-400 mt-1">Manage TRAI & Meta compliant WhatsApp user consent registries.</p>
+          <p className="text-sm text-zinc-400 mt-1">Manage TRAI & Meta compliant WhatsApp user consent registries under DPDP Act 2023.</p>
         </div>
-        <button 
-          onClick={() => setIsModalOpen(true)} 
-          className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-lg text-sm font-semibold transition-all shadow-lg hover:shadow-emerald-500/20"
-        >
-          <Plus className="w-4 h-4" />
-          Add Opt Preference
-        </button>
+        <div className="flex items-center gap-3">
+          <button 
+            onClick={fetchOpts}
+            className="flex items-center gap-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 px-3 py-2.5 rounded-lg text-sm font-semibold transition-all border border-zinc-700"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
+          <button 
+            onClick={() => setIsModalOpen(true)} 
+            className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-lg text-sm font-semibold transition-all shadow-lg hover:shadow-emerald-500/20"
+          >
+            <Plus className="w-4 h-4" />
+            Add Opt Preference
+          </button>
+        </div>
       </div>
 
       <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden shadow-md">
@@ -66,6 +102,7 @@ export default function OptsPage() {
           <thead className="text-xs text-zinc-300 uppercase bg-zinc-800/50 border-b border-zinc-800">
             <tr>
               <th className="px-6 py-4 font-semibold">Phone Number</th>
+              <th className="px-6 py-4 font-semibold">Contact / Name</th>
               <th className="px-6 py-4 font-semibold">Consent Status</th>
               <th className="px-6 py-4 font-semibold">Consent Source</th>
               <th className="px-6 py-4 font-semibold">Opt Date</th>
@@ -73,9 +110,17 @@ export default function OptsPage() {
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-800/80">
+            {items.length === 0 && !loading && (
+              <tr>
+                <td colSpan={6} className="px-6 py-8 text-center text-zinc-500">
+                  No consent records found.
+                </td>
+              </tr>
+            )}
             {items.map((item) => (
               <tr key={item.id} className="hover:bg-zinc-800/30 transition-colors">
-                <td className="px-6 py-4 font-medium text-zinc-200">{item.phone}</td>
+                <td className="px-6 py-4 font-medium text-zinc-200 font-mono text-xs">{item.phone}</td>
+                <td className="px-6 py-4 text-zinc-300 text-xs">{item.name || 'Customer'}</td>
                 <td className="px-6 py-4">
                   <span className={`px-2.5 py-1 rounded-full text-xs font-semibold border ${item.status === 'OPTED_IN' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-red-500/10 text-red-400 border-red-500/20'}`}>
                     {item.status}
@@ -85,8 +130,9 @@ export default function OptsPage() {
                 <td className="px-6 py-4 text-xs text-zinc-500">{new Date(item.createdAt).toLocaleDateString()}</td>
                 <td className="px-6 py-4 text-right">
                   <button 
-                    onClick={() => handleDelete(item.id)} 
+                    onClick={() => handleDelete(item.id, item.phone)} 
                     className="text-red-400 hover:text-red-300 p-1.5 rounded hover:bg-red-400/10 transition-colors text-xs font-medium"
+                    title="Remove preference"
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>
@@ -118,7 +164,7 @@ export default function OptsPage() {
                   type="text" 
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
-                  placeholder="e.g. +91 98765 43210"
+                  placeholder="e.g. +91 91756 35165"
                   className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500"
                   required
                 />
@@ -131,8 +177,8 @@ export default function OptsPage() {
                   onChange={(e) => setStatus(e.target.value)}
                   className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500"
                 >
-                  <option value="OPTED_IN">OPTED_IN (Subscribed)</option>
-                  <option value="OPTED_OUT">OPTED_OUT (Unsubscribed / STOP)</option>
+                  <option value="OPTED_IN">OPTED_IN (Subscribed & Express Consent)</option>
+                  <option value="OPTED_OUT">OPTED_OUT (Unsubscribed / STOP / Opt-Out)</option>
                 </select>
               </div>
 
@@ -142,7 +188,7 @@ export default function OptsPage() {
                   type="text" 
                   value={source}
                   onChange={(e) => setSource(e.target.value)}
-                  placeholder="e.g. Meta Lead Form / WhatsApp Reply"
+                  placeholder="e.g. Website Form / WhatsApp STOP Reply"
                   className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500"
                 />
               </div>
