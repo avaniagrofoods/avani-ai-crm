@@ -126,12 +126,16 @@ export async function POST(req: Request) {
     const idempotencyKey = `SCHED:${title.trim().toLowerCase().replace(/[^a-z0-9]/g, '_')}:${date}:${time || 'default'}`;
     const existing = await Schedule.findOne({ idempotencyKey });
     if (existing) {
-      return NextResponse.json({
-        success: true,
-        message: 'A schedule with identical parameters already exists (idempotent match).',
-        schedule: existing,
-        isDuplicate: true
-      });
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'DUPLICATE_SCHEDULE',
+          message: 'A schedule with identical parameters already exists (idempotent match).',
+          schedule: existing,
+          isDuplicate: true
+        },
+        { status: 409 }
+      );
     }
 
     const scheduleId = `SCHED-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.floor(1000 + Math.random() * 9000)}`;
@@ -207,14 +211,46 @@ export async function PATCH(req: Request) {
     }
 
     const body = await req.json();
-    const { scheduleId, id, action } = body;
+    const { scheduleId, id, action, status, title, time, date, targetAudience, templateName, messageText } = body;
+
+    if (!id && !scheduleId) {
+      return NextResponse.json(
+        { success: false, error: 'ID_REQUIRED', message: 'Either id or scheduleId is required.' },
+        { status: 400 }
+      );
+    }
 
     const query = id ? { _id: id } : { scheduleId };
-    const targetStatus = action === 'CANCEL' ? 'CANCELLED' : (action === 'RESUME' ? 'SCHEDULED' : 'COMPLETED');
+    const updateFields: any = { updatedAt: new Date() };
+
+    if (action) {
+      updateFields.status = action === 'CANCEL' ? 'CANCELLED' : (action === 'RESUME' ? 'SCHEDULED' : 'COMPLETED');
+    } else if (status) {
+      updateFields.status = status;
+    }
+
+    if (title) updateFields.title = title.trim();
+    if (time) updateFields.time = time.trim();
+    if (date) updateFields.date = date.trim();
+    if (targetAudience) updateFields.targetAudience = targetAudience;
+    if (templateName) updateFields.templateName = templateName;
+    if (messageText !== undefined) updateFields.messageText = messageText;
+
+    if (date || time) {
+      const targetDate = date || body.existingDate;
+      const targetTime = time || body.existingTime;
+      if (targetDate) {
+        const combined = `${targetDate}T${targetTime && targetTime.includes(':') && targetTime.length <= 5 ? targetTime + ':00' : '10:00:00'}`;
+        const newDateObj = new Date(combined);
+        if (!isNaN(newDateObj.getTime())) {
+          updateFields.scheduledAt = newDateObj;
+        }
+      }
+    }
 
     const updated = await Schedule.findOneAndUpdate(
       query,
-      { $set: { status: targetStatus, updatedAt: new Date() } },
+      { $set: updateFields },
       { new: true }
     );
 
@@ -224,7 +260,7 @@ export async function PATCH(req: Request) {
 
     return NextResponse.json({
       success: true,
-      message: `Schedule status updated to ${targetStatus}`,
+      message: `Schedule updated successfully`,
       schedule: updated
     });
 
