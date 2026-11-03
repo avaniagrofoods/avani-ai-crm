@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import connectToDatabase from '@/lib/db';
 import { Contact } from '@/models/Contact';
+import { Message } from '@/models/Message';
+import { Conversation } from '@/models/Conversation';
 
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -14,7 +16,37 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     const resolvedParams = await params;
     const contact = await Contact.findById(resolvedParams.id);
     if (!contact) return NextResponse.json({ success: false, error: 'Contact not found' }, { status: 404 });
-    return NextResponse.json({ success: true, contact });
+
+    // Fetch message history for CRM Inbox conversation panel
+    const rawMessages = await Message.find({
+      $or: [
+        { phone: contact.phone },
+        { senderPhone: contact.phone },
+        { recipientPhone: contact.phone }
+      ]
+    }).sort({ createdAt: 1 });
+
+    let messages = rawMessages.map(m => ({
+      id: m._id?.toString() || m.messageId || m.providerMessageId,
+      content: m.text || '',
+      role: m.direction === 'inbound' ? 'user' : 'assistant',
+      timestamp: m.createdAt || new Date()
+    }));
+
+    // Fallback to conversation history if Message collection is empty
+    if (messages.length === 0) {
+      const conv = await Conversation.findOne({ customerPhone: contact.phone });
+      if (conv && Array.isArray(conv.history)) {
+        messages = conv.history.map((h: any, i: number) => ({
+          id: `conv_${i}`,
+          content: h.text || '',
+          role: h.role === 'model' ? 'assistant' : h.role,
+          timestamp: h.timestamp || conv.updatedAt || new Date()
+        }));
+      }
+    }
+
+    return NextResponse.json({ success: true, contact, messages });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }

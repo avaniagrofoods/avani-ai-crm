@@ -6,10 +6,12 @@ import { normalizeIndianPhone } from '@/lib/phone';
 import connectToDatabase from '@/lib/db';
 import { Message } from '@/models/Message';
 import { Lead } from '@/models/Lead';
+import { Contact } from '@/models/Contact';
 import { Document } from '@/models/Document';
 import { WebhookInbox } from '@/models/WebhookInbox';
 import { Conversation } from '@/models/Conversation';
 import { AgentEngine } from '@/lib/ai-agent';
+import { OptOutEngine } from '@/lib/optout-engine';
 import mongoose from 'mongoose';
 
 export async function POST(request: Request) {
@@ -64,7 +66,7 @@ export async function POST(request: Request) {
            console.warn(`[Worker] Missing msgId or statusStr for STATUS_UPDATE. Payload:`, payload);
            return NextResponse.json({ success: true, bypassed: true });
         }
-        const formattedStatus = statusStr.charAt(0).toUpperCase() + statusStr.slice(1).toLowerCase();
+        const formattedStatus = statusStr.toUpperCase();
         const updateData: any = { status: formattedStatus };
         if (statusStr.toLowerCase() === 'delivered') updateData.deliveredAt = new Date();
         else if (statusStr.toLowerCase() === 'read') updateData.readAt = new Date();
@@ -133,19 +135,48 @@ export async function POST(request: Request) {
           );
           leadId = lead._id;
 
-          await Message.create({
-            messageId: msgId,
-            leadId: leadId,
-            phone: fromPhone,
-            direction: 'inbound',
-            provider: 'WhatsApp',
-            text: incomingText,
-            status: 'Received',
-            sentAt: new Date(),
-            deliveredAt: new Date()
+          // Also upsert Contact so the inbound sender appears in CRM Inbox
+          await Contact.findOneAndUpdate(
+            { phone: fromPhone },
+            { 
+              $set: { phone: fromPhone, updatedAt: new Date() },
+              $setOnInsert: { 
+                name: profileName || 'Customer', 
+                optedIn: true, 
+                leadId: leadId 
+              }
+            },
+            { new: true, upsert: true }
+          ).catch((cErr: any) => console.warn(`[Worker Contact Upsert Warning]: ${cErr.message}`));
+
+          // Check if message already exists (idempotency guard)
+          const existingMessage = await Message.findOne({
+            $or: [
+              { messageId: msgId },
+              { providerMessageId: msgId }
+            ]
           });
+
+          if (!existingMessage) {
+            await Message.create({
+              messageId: msgId,
+              providerMessageId: msgId,
+              leadId: leadId ? leadId.toString() : undefined,
+              phone: fromPhone,
+              senderPhone: fromPhone,
+              recipientPhone: process.env.META_PHONE_NUMBER_ID || 'AVANI_OFFICIAL',
+              direction: 'inbound',
+              provider: payload.provider || 'WhatsApp',
+              text: incomingText,
+              status: 'RECEIVED',
+              correlationId: correlationId,
+              sentAt: new Date(),
+              deliveredAt: new Date()
+            });
+          }
         } catch (dbErr: any) {
-          console.warn(`[Worker DB Error] Failed to upsert lead/message: ${dbErr.message}`);
+          console.error(`[Worker DB Error] Failed to upsert lead/message: ${dbErr.message}`);
+          throw dbErr;
         }
 
         if (mediaId && leadId) {
@@ -177,9 +208,15 @@ export async function POST(request: Request) {
         conversation.lastInboundMessageId = msgId;
 
         // Check for Opt-Out Keywords (DPDP Act Compliance: STOP, UNSUBSCRIBE, थांबवा, रोकें)
-        const isOptOut = /^\s*(stop|unsubscribe|cancel|थांबवा|रोकें|बंद करा|नको)\b/i.test(incomingText.trim());
+        const isOptOut = OptOutEngine.isOptOutMessage(incomingText);
         if (isOptOut) {
           console.log(`[Worker] Opt-out keyword detected for ${fromPhone}. Suppressing lead.`);
+          await OptOutEngine.processOptOut({
+            leadId: lead?.leadId,
+            phone: fromPhone,
+            messageText: incomingText,
+            eventId
+          }).catch((err: any) => console.warn(`[Worker OptOutEngine Error]: ${err.message}`));
           if (lead) {
             await Lead.findByIdAndUpdate(lead._id, {
               $set: {

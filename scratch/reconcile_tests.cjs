@@ -16,6 +16,7 @@ const testFiles = [
   { name: 'test_drip_workflow_and_api_endpoints.test.cjs', type: 'Drip Workflow & Sidebar Endpoints Integration' },
   { name: 'test_webhook_signature_forensics.test.cjs', type: 'Webhook Signature Forensics & Provider Discrimination' },
   { name: 'test_chatmitra_webhook_live_contract.test.cjs', type: 'ChatMitra Webhook Live Contract & Deduplication' },
+  { name: 'test_inbound_message_persistence_and_crm_inbox.test.cjs', type: 'Inbound Message Persistence & CRM Inbox' },
 ];
 
 console.log('================================================================================');

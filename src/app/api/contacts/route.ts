@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import connectToDatabase from '@/lib/db';
 import { Contact } from '@/models/Contact';
+import { Message } from '@/models/Message';
 
 export async function GET(req: Request) {
   try {
@@ -17,8 +18,30 @@ export async function GET(req: Request) {
     let query = {};
     if (phone) query = { phone };
 
-    const contacts = await Contact.find(query).sort({ createdAt: -1 }).limit(200);
-    return NextResponse.json({ success: true, contacts });
+    const contacts = await Contact.find(query).sort({ updatedAt: -1, createdAt: -1 }).limit(200).lean();
+
+    // Attach latest message snippet for Inbox UI compatibility
+    const contactsWithMessages = await Promise.all(
+      contacts.map(async (c: any) => {
+        const lastMsg = await Message.findOne({
+          $or: [
+            { phone: c.phone },
+            { senderPhone: c.phone },
+            { recipientPhone: c.phone }
+          ]
+        }).sort({ createdAt: -1 });
+
+        if (lastMsg) {
+          return {
+            ...c,
+            messages: [{ content: lastMsg.text || '' }]
+          };
+        }
+        return c;
+      })
+    );
+
+    return NextResponse.json({ success: true, contacts: contactsWithMessages });
   } catch (error: any) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }

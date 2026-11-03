@@ -5,6 +5,7 @@ const MessageSchema = new mongoose.Schema({
   correlationId: { type: String, index: true },
   idempotencyKey: { type: String, index: true, sparse: true },
   providerMessageId: { type: String, index: true },
+  messageId: { type: String, index: true },
   
   direction: { type: String, required: true },
   channel: { type: String, default: 'WhatsApp' },
@@ -20,7 +21,8 @@ const MessageSchema = new mongoose.Schema({
     enum: [
       'QUEUED', 'PROCESSING', 'Processing', 'DISPATCHED', 'PROVIDER_REQUESTED', 'PROVIDER_ACCEPTED', 
       'API_ACCEPTED', 'WAITING_FOR_PROVIDER_STATUS', 'PROVIDER_MESSAGE_ID_CREATED', 
-      'SENT', 'DELIVERED', 'READ', 'CUSTOMER_REPLIED', 'FAILED', 'API_FAILED', 'PROVIDER_FAILED',
+      'RECEIVED', 'Received', 'received',
+      'SENT', 'Sent', 'DELIVERED', 'Delivered', 'READ', 'Read', 'CUSTOMER_REPLIED', 'FAILED', 'Failed', 'API_FAILED', 'PROVIDER_FAILED',
       'BALANCE_BLOCKED', 'INVALID_DESTINATION', 'TEMPLATE_REJECTED', 'WEBHOOK_TIMEOUT', 'UNKNOWN'
     ],
     default: 'QUEUED'
