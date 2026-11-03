@@ -1,15 +1,19 @@
 import { NextResponse } from 'next/server';
 import connectToDatabase from '@/lib/db';
-import { query } from '@/lib/postgres';
+import { Schedule } from '@/models/Schedule';
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
-    const { campaignName, scheduledAt, templateName, leads } = body;
-
-    if (!leads || !Array.isArray(leads) || leads.length === 0) {
-      return NextResponse.json({ error: 'No leads provided' }, { status: 400 });
+    const conn = await connectToDatabase();
+    if (!conn || conn.connection?.readyState !== 1) {
+      return NextResponse.json(
+        { success: false, error: 'DATABASE_UNAVAILABLE', message: 'Database offline.' },
+        { status: 503 }
+      );
     }
+
+    const body = await request.json();
+    const { campaignName, scheduledAt, templateName, leads, name, campaignType } = body;
 
     if (!scheduledAt) {
       return NextResponse.json({ error: 'Scheduled date and time are required' }, { status: 400 });
@@ -20,58 +24,27 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Invalid scheduled date/time' }, { status: 400 });
     }
 
-    // Try saving scheduled campaign to Postgres
-    try {
-      const sql = `
-        CREATE TABLE IF NOT EXISTS "ScheduledCampaign" (
-          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-          "name" TEXT,
-          "templateName" TEXT,
-          "campaignType" TEXT DEFAULT 'voice',
-          "scheduledAt" TIMESTAMPTZ NOT NULL,
-          "leads" JSONB NOT NULL,
-          "status" TEXT DEFAULT 'PENDING',
-          "createdAt" TIMESTAMPTZ DEFAULT NOW()
-        );
-      `;
-      await query(sql);
-      
-      // Ensure campaignType exists if the table was already created
-      try {
-        await query(`ALTER TABLE "ScheduledCampaign" ADD COLUMN IF NOT EXISTS "campaignType" TEXT DEFAULT 'voice';`);
-      } catch (e) {
-        // Ignore alter table errors
-      }
+    const title = name || campaignName || `Campaign ${new Date().toISOString().substring(0, 10)}`;
+    const scheduleId = `SCHED-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.floor(1000 + Math.random() * 9000)}`;
 
-      const insertSql = `
-        INSERT INTO "ScheduledCampaign" ("name", "templateName", "campaignType", "scheduledAt", "leads", "status")
-        VALUES ($1, $2, $3, $4, $5, 'PENDING')
-        RETURNING *;
-      `;
-      const res = await query(insertSql, [
-        body.name || campaignName || `Campaign ${new Date().toISOString().substring(0, 10)}`,
-        templateName || 'Avani_Loan_Welcome',
-        body.campaignType || 'voice',
-        scheduledDateObj.toISOString(),
-        JSON.stringify(leads)
-      ]);
+    const newSchedule = await Schedule.create({
+      scheduleId,
+      title,
+      type: campaignType === 'whatsapp' ? 'Broadcast' : 'Follow-up Call',
+      scheduledAt: scheduledDateObj,
+      date: scheduledDateObj.toISOString().split('T')[0],
+      time: scheduledDateObj.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+      targetAudience: leads && leads.length ? `${leads.length}_LEADS` : 'ALL_LEADS',
+      templateName: templateName || 'Avani_Loan_Welcome',
+      status: 'SCHEDULED'
+    });
 
-      return NextResponse.json({
-        success: true,
-        message: `Campaign successfully scheduled for ${scheduledDateObj.toLocaleString('en-IN')}`,
-        campaign: res.rows[0]
-      });
-    } catch (pgErr: any) {
-      console.warn("Postgres schedule save fallback:", pgErr.message);
-      // Fallback response if DB table creation is read-only
-      return NextResponse.json({
-        success: true,
-        message: `Campaign scheduled for ${scheduledDateObj.toLocaleString('en-IN')}`,
-        scheduledAt: scheduledDateObj.toISOString(),
-        count: leads.length,
-        templateName
-      });
-    }
+    return NextResponse.json({
+      success: true,
+      message: `Campaign successfully scheduled for ${scheduledDateObj.toLocaleString('en-IN')}`,
+      campaign: newSchedule
+    });
+
   } catch (error: any) {
     console.error("Schedule Campaign Error:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -80,13 +53,13 @@ export async function POST(request: Request) {
 
 export async function GET() {
   try {
-    const sql = `
-      SELECT * FROM "ScheduledCampaign"
-      ORDER BY "scheduledAt" DESC
-      LIMIT 50;
-    `;
-    const res = await query(sql);
-    return NextResponse.json({ success: true, campaigns: res.rows });
+    const conn = await connectToDatabase();
+    if (!conn || conn.connection?.readyState !== 1) {
+      return NextResponse.json({ success: true, campaigns: [] });
+    }
+
+    const campaigns = await Schedule.find({}).sort({ scheduledAt: -1 }).limit(50);
+    return NextResponse.json({ success: true, campaigns });
   } catch (error: any) {
     return NextResponse.json({ success: true, campaigns: [] });
   }
@@ -94,23 +67,31 @@ export async function GET() {
 
 export async function PATCH(request: Request) {
   try {
+    const conn = await connectToDatabase();
+    if (!conn || conn.connection?.readyState !== 1) {
+      return NextResponse.json(
+        { success: false, error: 'DATABASE_UNAVAILABLE', message: 'Database offline.' },
+        { status: 503 }
+      );
+    }
+
     const body = await request.json();
     const { campaignId, action } = body;
     if (!campaignId) {
       return NextResponse.json({ error: 'campaignId is required' }, { status: 400 });
     }
-    const targetStatus = action === 'PAUSE' ? 'PAUSED' : (action === 'CANCEL' ? 'CANCELED' : 'RESUMED');
-    const updateSql = `
-      UPDATE "ScheduledCampaign"
-      SET "status" = $1
-      WHERE "id" = $2
-      RETURNING *;
-    `;
-    const res = await query(updateSql, [targetStatus, campaignId]);
+
+    const targetStatus = action === 'PAUSE' || action === 'CANCEL' ? 'CANCELLED' : 'SCHEDULED';
+    const updated = await Schedule.findOneAndUpdate(
+      { $or: [{ scheduleId: campaignId }, { _id: campaignId }] },
+      { $set: { status: targetStatus, updatedAt: new Date() } },
+      { new: true }
+    );
+
     return NextResponse.json({
       success: true,
       message: `Campaign status updated to ${targetStatus}`,
-      campaign: res.rows?.[0] || { id: campaignId, status: targetStatus }
+      campaign: updated || { id: campaignId, status: targetStatus }
     });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });

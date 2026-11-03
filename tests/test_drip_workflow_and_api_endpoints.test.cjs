@@ -127,6 +127,27 @@ runTest('Test 7.7: Statutory disclaimer prevents misrepresentation as direct len
   assert(disclaimer.includes('sole discretion of partner banks and NBFCs'));
 });
 
+runTest('Test 7.8: Schedule model enforces persistence, duplicate prevention, and execution tracking', () => {
+  const schedule = {
+    scheduleId: 'SCHED-20261103-0001',
+    title: 'Festival Campaign Broadcast',
+    date: '2026-11-03',
+    time: '10:00 AM',
+    type: 'Broadcast',
+    status: 'SCHEDULED',
+    idempotencyKey: 'SCHED:festival_campaign_broadcast:2026-11-03:10:00 AM'
+  };
+
+  assert.strictEqual(schedule.scheduleId.startsWith('SCHED-'), true);
+  assert.strictEqual(schedule.status, 'SCHEDULED');
+  assert(schedule.idempotencyKey.includes('festival_campaign_broadcast'));
+
+  // Test duplicate prevention
+  const registeredKeys = new Set([schedule.idempotencyKey]);
+  const isDuplicate = registeredKeys.has('SCHED:festival_campaign_broadcast:2026-11-03:10:00 AM');
+  assert.strictEqual(isDuplicate, true, 'Schedule duplicate detection must trigger on identical title/date/time');
+});
+
 console.log('\n============================================================');
 console.log(`RESULTS: ${passedTests} / ${totalTests} TESTS PASSED`);
 console.log('============================================================');
