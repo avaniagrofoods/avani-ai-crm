@@ -97,9 +97,12 @@ export async function POST(request: Request) {
           if (metaAppSecret) {
             log(`[Meta Security] Invalid Webhook Signature for Meta WABA payload (UA: ${userAgent.slice(0, 40)})`);
             return NextResponse.json({ success: false, error: 'Invalid Meta Webhook Signature' }, { status: 401 });
+          } else if (process.env.STRICT_META_WEBHOOK_VERIFICATION === 'true') {
+            log(`[Meta Security] STRICT ENFORCEMENT: Rejected unverified Meta WABA payload because META_APP_SECRET is not configured (UA: ${userAgent.slice(0, 40)})`);
+            return NextResponse.json({ success: false, error: 'Meta App Secret not configured (strict mode)' }, { status: 401 });
           } else {
-            // META_APP_SECRET is not configured in Vercel; log safe diagnostic without breaking Meta WABA receipts
-            log(`[Meta Security] Received x-hub-signature-256 for Meta WABA payload, but META_APP_SECRET is not configured (UA: ${userAgent.slice(0, 40)}). Proceeding with Meta payload.`);
+            // META_APP_SECRET is not configured in Vercel; log prominent production security gap alert
+            log(`[Meta Security Gap Alert] Accepting unverified Meta WABA payload because META_APP_SECRET is not configured. Configure META_APP_SECRET in Vercel to enforce strict cryptographic validation (UA: ${userAgent.slice(0, 40)}).`);
           }
         } else {
           // Unrecognized payload structure with an unverified signature
@@ -110,10 +113,14 @@ export async function POST(request: Request) {
         }
       }
     }
-    // 3. Missing Signature on ChatMitra payload when secret is configured
+    // 3. Missing Signature Guards
     else if (isChatMitraPayload && chatmitraSecret && !isDirectDispatch) {
       log(`[ChatMitra Security] Missing required signature header on ChatMitra event: ${body.event} (UA: ${userAgent.slice(0, 40)})`);
       return NextResponse.json({ success: false, error: 'Missing webhook signature' }, { status: 401 });
+    }
+    else if (isMetaPayload && (metaAppSecret || process.env.STRICT_META_WEBHOOK_VERIFICATION === 'true')) {
+      log(`[Meta Security] Missing required x-hub-signature-256 header on Meta payload (UA: ${userAgent.slice(0, 40)})`);
+      return NextResponse.json({ success: false, error: 'Missing Meta webhook signature' }, { status: 401 });
     }
 
     log("Received Webhook Payload: " + JSON.stringify(body).substring(0, 300));

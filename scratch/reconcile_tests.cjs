@@ -15,6 +15,7 @@ const testFiles = [
   { name: 'test_authorized_test_contact_validation.test.cjs', type: 'Phase 6 Test Contact Validation (+91 91756 35165)' },
   { name: 'test_drip_workflow_and_api_endpoints.test.cjs', type: 'Drip Workflow & Sidebar Endpoints Integration' },
   { name: 'test_webhook_signature_forensics.test.cjs', type: 'Webhook Signature Forensics & Provider Discrimination' },
+  { name: 'test_chatmitra_webhook_live_contract.test.cjs', type: 'ChatMitra Webhook Live Contract & Deduplication' },
 ];
 
 console.log('================================================================================');
