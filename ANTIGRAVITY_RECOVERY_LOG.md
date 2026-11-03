@@ -218,17 +218,32 @@ This log maintains an immutable, chronological audit trail of all execution sess
     - `GET /api/health` confirmed `status: "HEALTHY"`, `databaseReady: true`, `activeProvider: true`.
   * Updated Section 25 in `AVANI_FINAL_PRODUCTION_FORENSIC_VERIFICATION_REPORT.md` and artifact `AVANI_FINAL_PRODUCTION_FORENSIC_SIGNOFF_REPORT.md`.
 
-### [2026-11-03 20:45 IST] — Stage 20 CP-19 Final Live Webhook Verification & Owner Action Report
-- **Action:** Audited live telemetry, owner dashboard screenshots, and production endpoint configuration:
-  * Inspected 3 owner-uploaded screenshots:
-    - `media_1793714790045.png`: ChatMitra Settings → Webhooks confirmed URL `https://avani-ai-crm.vercel.app/api/chatmitra-webhook`, status Active, all 4 events subscribed. No dedicated "Send Test Event" button in UI.
-    - `media_1793714805770.png`: Vercel 30-minute logs confirmed our 3 live probes from 19:06–19:07; 0 external ChatMitra requests received.
-    - `media_1793714834386.png`: CRM Inbox confirmed 0 active conversations.
-  * Audited MongoDB Atlas `WebhookInbox` via `GET /api/webhooks`: 52 total events, all 52 Meta, 0 ChatMitra events.
-  * Probed `/api/whatsapp-webhook` with unsigned Meta payload: returned HTTP 200, proving `META_APP_SECRET` and `STRICT_META_WEBHOOK_VERIFICATION` remain unconfigured in Vercel.
-  * Documented exact 4-step instructions for Sachin Shinde to configure `META_APP_SECRET` and send live test WhatsApp message to `+91 72491 08474`.
-  * Classified Part 1 as `BLOCKED — WAITING FOR PROVIDER DASHBOARD TRIGGER / INBOUND WHATSAPP TEST` and Part 2 as `SECURITY GAP ACTIVE — UNRESOLVED OWNER ACTION`.
-  * Final sign-off decision maintained as `PRODUCTION DEPLOYED — LIVE WORKFLOW VERIFICATION INCOMPLETE`.
+### [2026-11-03 22:30 IST] — Stage 21 CP-20 Inbound Message Persistence Failure Forensic Investigation & Controlled Repair
+- **Action:** Investigated and resolved the production inbound WhatsApp message persistence failure observed in Vercel logs:
+  * Analyzed error: `Message validation failed: status: 'Received' is not a valid enum value for path 'status'`.
+  * Root Cause: `src/models/Message.ts` enum lacked `RECEIVED`, `Received`, `received`. In `src/app/api/whatsapp-webhook-worker/route.ts` line 143, the worker wrote `status: 'Received'`, causing Mongoose validation failure which was swallowed in an inner catch block and falsely marked `WebhookInbox` as `COMPLETED`.
+  * Inbox Blankness Root Cause: The worker only updated `Lead`, never `Contact`, and `GET /api/contacts/[id]` didn't query `Message`, causing `/inbox` to display 0 conversations.
+  * DPDP Opt-Out Root Cause: Worker used an ASCII `\b` word boundary regex which failed to match Devanagari Unicode characters (e.g. `थांबवा`).
+- **Corrections Implemented:**
+  * Updated `src/models/Message.ts`: Added `messageId: { type: String, index: true }` and expanded `status.enum` to include `'RECEIVED'`, `'Received'`, `'received'`, `'Sent'`, `'Delivered'`, `'Read'`, `'Failed'`.
+  * Updated `src/app/api/whatsapp-webhook-worker/route.ts`:
+    - Upserted `Contact` on inbound message so sender appears in CRM Inbox.
+    - Added idempotency check via `Message.findOne` querying `messageId` and `providerMessageId`.
+    - Standardized inbound status to canonical uppercase `'RECEIVED'`.
+    - Normalized status updates to uppercase (`statusStr.toUpperCase()`).
+    - Integrated `OptOutEngine.isOptOutMessage(incomingText)` and `OptOutEngine.processOptOut(...)` for multilingual DPDP opt-out detection (Marathi "थांबवा", Hindi "रोको", English "STOP").
+    - Rethrew database errors (`throw dbErr;`) so failures correctly mark `WebhookInbox` as `FAILED` with HTTP 500 for retry.
+  * Updated `src/app/api/contacts/[id]/route.ts`: Queries and returns formatted `messages` array from `Message` collection (with `Conversation.history` fallback).
+  * Updated `src/app/api/contacts/route.ts`: Attaches latest message preview snippet to contact records for Inbox sidebar.
+- **Verification & Parity:**
+  * Created `tests/test_inbound_message_persistence_and_crm_inbox.test.cjs` with 12/12 passing tests.
+  * Reconciled test suite: **150 passed / 150 tests across 13 test suites (100% PASS rate)**.
+  * Production build compiled: `npm run build` finished in 42s with Exit Code 0 and 0 TypeScript errors across 50 routes.
+  * Synchronized `main` and `release/stage1-hardening` branches to commit `be7488f` and pushed to `origin`.
+  * Deployed to Vercel Production (`dpl_6PgcZaWQyMM364NezGSdi9LaKmto`), aliased to `https://avani-ai-crm.vercel.app`.
+  * Live health check confirmed `HEALTHY`, database `HEALTHY`.
+  * Documented Phase 5 AI Reply Readiness Assessment: `AISENSY_INBOUND_WEBHOOK_ENABLED=false` enforced for Basic plan safety and Human Live Chat preservation.
+  * Updated Section 27 in `AVANI_FINAL_PRODUCTION_FORENSIC_VERIFICATION_REPORT.md` and artifact `AVANI_FINAL_PRODUCTION_FORENSIC_SIGNOFF_REPORT.md`.
 
 
 

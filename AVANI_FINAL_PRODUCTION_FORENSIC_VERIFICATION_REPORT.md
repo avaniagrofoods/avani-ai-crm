@@ -620,16 +620,97 @@ To complete Part 2 and achieve 100% cryptographic enforcement on Meta webhooks:
 
 ---
 
-### 4. Consolidated Production Readiness & Sign-Off Status
+## 27. Checkpoint CP-20 — Inbound Message Persistence Forensic Audit & Repair
+
+### 1. Incident Overview
+On 03 November 2026, production Vercel logs recorded an inbound message ingestion failure during live WhatsApp webhook execution:
+```text
+[Meta Security] Signature verified successfully via META_APP_SECRET
+[Webhook Inbox] Recorded INBOUND_MESSAGE
+[Worker DB Error] Failed to upsert lead/message: Message validation failed: status: `Received` is not a valid enum value for path `status`.
+[Worker] Basic Plan Safe Operating Mode: Real Inbound AI is disabled (AISENSY_INBOUND_WEBHOOK_ENABLED=false).
+```
+
+### 2. Phase 1 — Comprehensive Forensic Investigation Findings
+1. **Allowed `Message.status` Enum Values:**
+   - In `src/models/Message.ts`, the schema defined:
+     `QUEUED`, `PROCESSING`, `Processing`, `DISPATCHED`, `PROVIDER_REQUESTED`, `PROVIDER_ACCEPTED`, `API_ACCEPTED`, `WAITING_FOR_PROVIDER_STATUS`, `PROVIDER_MESSAGE_ID_CREATED`, `SENT`, `DELIVERED`, `READ`, `CUSTOMER_REPLIED`, `FAILED`, `API_FAILED`, `PROVIDER_FAILED`, `BALANCE_BLOCKED`, `INVALID_DESTINATION`, `TEMPLATE_REJECTED`, `WEBHOOK_TIMEOUT`, `UNKNOWN`.
+   - Inbound status values (`RECEIVED`, `Received`, `received`) were missing entirely from the enum definition.
+2. **Worker Status Write Locations:**
+   - Line 69 (`STATUS_UPDATE`): was writing title-case `statusStr.charAt(0).toUpperCase() + statusStr.slice(1).toLowerCase()`.
+   - Line 143 (`INBOUND_MESSAGE`): was executing `await Message.create({ ... status: 'Received' })`.
+3. **Expected Inbound Message Lifecycle:**
+   - Ingestion: Signature verified → event recorded in `WebhookInbox` with `status: 'RECEIVED'`.
+   - Processing: Worker acquires lease (`status: 'PROCESSING'`) → Upserts `Lead` and `Contact` → Creates `Message` with `status: 'RECEIVED'`, `direction: 'inbound'` → Updates `Conversation` history → Evaluates DPDP opt-out keywords → If opt-out, sets `Lead.status: 'OPTED_OUT'`; otherwise sets `Lead.status: 'CUSTOMER_REPLIED_HUMAN_FOLLOWUP'` → Sets `WebhookInbox` to `COMPLETED`.
+4. **Provider Path Scope (Meta vs ChatMitra):**
+   - Both `/api/whatsapp-webhook` (Meta) and `/api/chatmitra-webhook` (ChatMitra) delegate asynchronous processing to `/api/whatsapp-webhook-worker`. Thus, inbound messages on both provider paths were affected by the enum mismatch.
+5. **WebhookInbox (Ledger) vs Worker Relationship:**
+   - `WebhookInbox` serves as an immutable distributed event ledger and atomic lease lock (`eventId` unique index).
+   - The worker executes asynchronously in the background (`waitUntil`), updating the ledger upon completion or failure.
+6. **Webhook Ledger Behavior on Validation Error:**
+   - The worker had an inner `try/catch` block around the database upsert that logged `console.warn` without rethrowing. Consequently, the worker continued execution and marked `WebhookInbox` as `COMPLETED` despite the message failing to persist, masking the silent data loss.
+7. **Partial Write Impact:**
+   - The `Lead` and `Conversation` records were created, but the `Message` creation threw a validation error, and no `Contact` record was ever created, leaving the database partially populated and the CRM Inbox empty.
+8. **Deduplication Strategy:**
+   - Enforced at three layers: `WebhookInbox` unique index on `eventId`, atomic lease acquisition via `findOneAndUpdate`, and `Message.findOne` querying `messageId` and `providerMessageId` prior to insertion.
+9. **CRM Inbox Visibility:**
+   - The CRM Inbox (`/inbox`) displays contacts via `GET /api/contacts` and message history via `GET /api/contacts/[id]`. Because `Contact` was never upserted by the worker, and `GET /api/contacts/[id]` did not query `Message`, inbound conversations never appeared in the inbox.
+10. **Exact Root Cause:**
+    - Mongoose validation rejection: `src/models/Message.ts` rejected `status: 'Received'` written by `src/app/api/whatsapp-webhook-worker/route.ts` line 143 due to missing enum values.
+
+### 3. Phase 2 & 3 — Implementation, Hardening & Test Verification
+1. **Model Hardening (`src/models/Message.ts`):**
+   - Added `messageId: { type: String, index: true }`.
+   - Added `'RECEIVED'`, `'Received'`, `'received'`, and title-case variants (`'Sent'`, `'Delivered'`, `'Read'`, `'Failed'`) to `status.enum` for full backwards/forwards compatibility.
+2. **Worker Hardening (`src/app/api/whatsapp-webhook-worker/route.ts`):**
+   - Upserted `Contact` alongside `Lead` to ensure sender appears in CRM Inbox.
+   - Added idempotency check using `Message.findOne` prior to message creation.
+   - Standardized inbound status to canonical uppercase `'RECEIVED'`.
+   - Normalized status updates to uppercase (`statusStr.toUpperCase()`).
+   - Integrated `OptOutEngine.isOptOutMessage(incomingText)` to replace flawed ASCII word boundary regex for Marathi/Hindi DPDP compliance.
+   - Re-threw database errors (`throw dbErr;`) so failures correctly mark `WebhookInbox` as `FAILED` with HTTP 500 for retry.
+3. **CRM Inbox API Hardening:**
+   - `src/app/api/contacts/[id]/route.ts`: Queries and returns formatted `messages` array from `Message` collection (with `Conversation.history` fallback).
+   - `src/app/api/contacts/route.ts`: Attaches latest message preview snippet to contact records.
+4. **Automated Regression Suite (`tests/test_inbound_message_persistence_and_crm_inbox.test.cjs`):**
+   - 12 comprehensive unit and integration tests passing (100%):
+     1. Valid inbound message persistence with status `RECEIVED`.
+     2. Case tolerance for `RECEIVED`, `Received`, `received`.
+     3. Strict rejection of invalid statuses by schema enum.
+     4. Dual `Lead` and `Contact` upsert.
+     5. `Conversation` history association.
+     6. CRM Inbox `/api/contacts/[id]` payload formatting.
+     7. Idempotent deduplication against replayed message IDs.
+     8. Database failure propagation (no silent swallowing).
+     9. Persistence in AI-disabled mode (`AISENSY_INBOUND_WEBHOOK_ENABLED=false`).
+     10. Trilingual opt-out detection (Marathi "थांबवा", Hindi "रोको", English "STOP").
+     11. Live outbound recipient restriction clamp (`+91 91756 35165`).
+     12. Distinct signing contracts for Meta and ChatMitra webhooks.
+5. **Full Master Suite Reconciliation:**
+   - **150 / 150 automated tests passing across all 13 suites (100%)**.
+
+### 4. Phase 5 — AI Reply Readiness Assessment & Operating Mode
+- **Current Production Configuration:** `AISENSY_INBOUND_WEBHOOK_ENABLED=false`.
+- **Business Rationale:**
+  1. Under the AVANI 3-Month Operating Charter for the ChatMitra Basic Plan, 0 automated AI inbound webhooks are allocated.
+  2. All inbound replies are categorized as `CUSTOMER_REPLIED_HUMAN_FOLLOWUP` so that Sachin Shinde and licensed loan advisors can review loan applications personally in Human Live Chat.
+  3. Prevents ungrounded generative AI hallucinations or unmonitored WhatsApp message generation from impacting customer credit evaluations.
+- **Enabling Requirements (Future Milestone):**
+  - Requires explicit upgrade of ChatMitra plan to include conversational AI webhooks, business owner written authorization, and end-to-end prompt engineering validation.
+
+---
+
+### 5. Consolidated Production Readiness & Sign-Off Status
 
 | Verification Area | Required Gate | Current Status | Detailed Evidence |
 | :--- | :--- | :---: | :--- |
-| **Code & Repository** | Branch Parity & Build | **`PASS — VERIFIED LIVE`** | `main` and `release/stage1-hardening` synchronized at commit `f1bd871`. 138/138 tests pass. |
-| **Vercel Deployment** | Canonical Health & ReadyState | **`PASS — VERIFIED LIVE`** | `dpl_5Wqbn3fzr1LfyGxL4VeNzEzWLsxr` live at `avani-ai-crm.vercel.app`. MongoDB Atlas connected. |
-| **ChatMitra Webhook Contract** | HMAC-SHA256 & Deduplication | **`PASS — ISOLATED TEST`**<br/>**`PASS — VERIFIED LIVE (PROBES)`** | 7/7 tests pass; live HTTP 401 on missing & forged signatures. |
-| **ChatMitra Live Event Receipt** | Provider-Generated Event Ingestion | **`BLOCKED — WAITING FOR TRIGGER`** | 0 ChatMitra events in `WebhookInbox`; awaiting WhatsApp test message to `+91 72491 08474`. |
+| **Code & Repository** | Branch Parity & Build | **`PASS — VERIFIED LIVE`** | `main` and `release/stage1-hardening` synchronized at commit `be7488f`. 150/150 tests pass. Next.js 50 routes build clean. |
+| **Vercel Deployment** | Canonical Health & ReadyState | **`PASS — VERIFIED LIVE`** | Deployment `dpl_6PgcZaWQyMM364NezGSdi9LaKmto` live at `avani-ai-crm.vercel.app`. Process uptime verified. |
+| **Inbound Message Persistence** | Schema Enum & DB Write | **`PASS — VERIFIED & DEPLOYED`** | `MessageSchema.status` enum repaired (`RECEIVED`); Contact upserted; CRM Inbox wired; 12/12 CP-20 tests pass. |
+| **ChatMitra Webhook Contract** | HMAC-SHA256 & Deduplication | **`PASS — ISOLATED TEST`**<br/>**`PASS — VERIFIED LIVE (PROBES)`** | Live HTTP 401 on missing & forged signatures; timing-safe SHA256 HMAC enforced. |
+| **ChatMitra Live Event Receipt** | Provider-Generated Event Ingestion | **`BLOCKED — WAITING FOR TRIGGER`** | Awaiting business owner test WhatsApp message to official WABA `+91 72491 08474`. |
 | **Meta Signature Security** | Strict HMAC-SHA256 Verification | **`SECURITY GAP ACTIVE`** | `META_APP_SECRET` unconfigured in Vercel; strict mode awaiting owner configuration. |
-| **Customer Safety Clamps** | Opt-Outs & Mock Mode | **`PASS — VERIFIED LIVE`** | `PROVIDER_MODE=mock` active; bulk broadcast disabled; single-recipient clamp active. |
+| **Customer Safety Clamps** | Opt-Outs & Mock Mode | **`PASS — VERIFIED LIVE`** | `PROVIDER_MODE=mock` active; bulk broadcast disabled; single-recipient clamp active (`919175635165`). |
 | **Overall Production Decision** | Full Sign-Off Certification | **`PRODUCTION DEPLOYED — LIVE WORKFLOW VERIFICATION INCOMPLETE`** | Full sign-off requires live ChatMitra event observation and Meta strict mode activation. |
 
 ---

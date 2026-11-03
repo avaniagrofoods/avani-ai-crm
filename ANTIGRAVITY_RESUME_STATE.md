@@ -13,24 +13,24 @@
 ## 1. REPOSITORY & RECOVERY IDENTITY
 
 - **Current Active Release Branch:** `main` (synchronized with `release/stage1-hardening`)
-- **Current HEAD Commit SHA:** `f60b37a54483321598f4841fb0a8661ecbb7b607` (`f60b37a`)
+- **Current HEAD Commit SHA:** `be7488f`
 - **Remote Tracking Branches:**
-  * `origin/main` (`f60b37a...`, 0 ahead, 0 behind — 100% synchronized)
-  * `origin/release/stage1-hardening` (`f60b37a...`, 0 ahead, 0 behind — 100% synchronized)
+  * `origin/main` (`be7488f...`, 0 ahead, 0 behind — 100% synchronized)
+  * `origin/release/stage1-hardening` (`be7488f...`, 0 ahead, 0 behind — 100% synchronized)
 - **Official Production Release Tag:** `v1.1.0-production-release` (published remotely at `3634744...`)
 - **Remote URL:** `https://github.com/avaniagrofoods/avani-ai-crm.git` (PAT masked)
 - **Working Tree:** Clean for all tracked application source code.
-- **Active Vercel Deployment:** `https://avani-ai-c8sbp1lpy-avaniagrofoods1356-4705s-projects.vercel.app` (Deployment ID: `dpl_5Wqbn3fzr1LfyGxL4VeNzEzWLsxr`, `● Ready` in 28s)
+- **Active Vercel Deployment:** `https://avani-ai-r6ci88mlx-avaniagrofoods1356-4705s-projects.vercel.app` (Deployment ID: `dpl_6PgcZaWQyMM364NezGSdi9LaKmto`, `● Ready` in 26s)
 - **Production Canonical Domain:** `https://avani-ai-crm.vercel.app`
 
 ---
 
 ## 2. CURRENT TASK PHASE & CHECKPOINTS
 
-- **Current Phase:** Final Production Forensic Verification Audit & Sign-Off Certification Complete
-- **Last Completed Checkpoint:** `CP-19 — Visual Dashboard Telemetry Forensic Analysis & Meta Strict Verification Audit Complete: Evaluated owner dashboard screenshots (ChatMitra Settings, Vercel 30-min logs, CRM Inbox). Probed live Meta endpoint: confirmed META_APP_SECRET and STRICT_META_WEBHOOK_VERIFICATION unconfigured (HTTP 200 returned). Ingested events audit: 52 Meta events, 0 ChatMitra events. Documented exact 4-step owner configuration procedure in Section 26 of verification report.`
-- **Current In-Progress Operation:** Awaiting Owner Action on Meta App Secret & WhatsApp Test Message
-- **Next Exact Action to Execute:** Owner action to configure META_APP_SECRET and trigger live test message from +91 91756 35165 to +91 72491 08474.
+- **Current Phase:** CP-20 Inbound Message Persistence Failure & Controlled Repair Complete
+- **Last Completed Checkpoint:** `CP-20 — Inbound Message Persistence Failure Forensic Investigation & Controlled Repair: Repaired Message.status enum to include RECEIVED, Received, received; fixed worker write casing; added dual Contact & Lead upsert; connected /api/contacts/[id] and /api/contacts to return messages and previews to CRM Inbox (/inbox); rethrew DB errors so failures aren't swallowed; integrated OptOutEngine for multilingual DPDP opt-out detection (Marathi "थांबवा", Hindi "रोको", English "STOP"); created tests/test_inbound_message_persistence_and_crm_inbox.test.cjs (12/12 passed); reconciled master suite to 150/150 passed (100% across 13 suites); compiled clean Turbopack build (50 routes, 0 errors); deployed commit be7488f to production.`
+- **Current In-Progress Operation:** Production Verification & AI Reply Readiness Documentation Complete
+- **Next Exact Action to Execute:** Live inbound WhatsApp test message from authorized test contact (+91 91756 35165) to official business number (+91 72491 08474) to observe live inbound message bubble rendering in CRM Inbox.
 
 
 ### Chronological Checkpoint Record:
@@ -53,23 +53,26 @@
 17. `CP-17 [12:45 IST, 03 Nov]`: Webhook Signature Forensic Audit & Safe Correction — Resolved repeated 401 `[ChatMitra Security] Invalid Webhook Signature` logs on `/api/whatsapp-webhook` caused by conflating Meta Cloud API `x-hub-signature-256` with `CHATMITRA_WEBHOOK_SECRET`. Added discriminated provider signature handling (Meta vs ChatMitra), safe diagnostic telemetry (zero secrets logged), HTTP 503 fail-closed retry handling on DB unavailability, and fail-closed 401 on unsigned requests when secret is configured. Created `tests/test_webhook_signature_forensics.test.cjs` (11/11 passed). Reconciled test suite to **131 / 131 tests passed (100% PASS rate across 11 suites)**. Production build compiled cleanly in 62s with 0 errors.
 18. `CP-18 [19:05 IST, 03 Nov]`: ChatMitra Webhook Live Contract Audit & Meta Signature Hardening — Hardened `/api/whatsapp-webhook` with strict Meta signature verification guards (`META_APP_SECRET` and `STRICT_META_WEBHOOK_VERIFICATION`), added `[Meta Security Gap Alert]` telemetry. Built `tests/test_chatmitra_webhook_live_contract.test.cjs` (7/7 passed) validating HMAC-SHA256, timingSafeEqual, eventId generation (`CM_INBOUND_...`), duplicate swallow, fail-closed DB (HTTP 503), and zero credential leakage. Verified live production HTTP 401 on missing & forged signatures for `/api/chatmitra-webhook`. Reconciled all 12 test suites: **138 / 138 passed (100% PASS rate)**. Deployed to Vercel Production (`dpl_5Wqbn3fzr1LfyGxL4VeNzEzWLsxr`).
 19. `CP-19 [20:45 IST, 03 Nov]`: CP-19 Final Live Webhook Verification & Owner Action Audit — Analyzed owner-provided dashboard telemetry (`media_1793714790045.png`, `media_1793714805770.png`, `media_1793714834386.png`). Executed live probe on `/api/whatsapp-webhook`: verified `META_APP_SECRET` is currently unconfigured (HTTP 200 debug response). Audited live database: 52 Meta events, 0 ChatMitra events. Documented exact 4-step owner action procedure. Classified Part 1 as `BLOCKED — WAITING FOR PROVIDER DASHBOARD TRIGGER / INBOUND WHATSAPP TEST` and Part 2 as `SECURITY GAP ACTIVE — UNRESOLVED OWNER ACTION`.
+20. `CP-20 [22:30 IST, 03 Nov]`: CP-20 Inbound Message Persistence Failure & Controlled Repair — Repaired Message schema enum mismatch (added `RECEIVED`, `Received`, `received`); fixed worker write casing; added dual Contact & Lead upsert; connected `/api/contacts/[id]` and `/api/contacts` to return messages and previews to CRM Inbox (`/inbox`); rethrew DB errors so failures aren't swallowed; integrated `OptOutEngine` for multilingual DPDP opt-out detection (Marathi "थांबवा", Hindi "रोको", English "STOP"); created `tests/test_inbound_message_persistence_and_crm_inbox.test.cjs` (12/12 passed); reconciled master suite to **150/150 passed (100% across 13 suites)**; compiled clean Turbopack build (50 routes, 0 errors); deployed commit `be7488f` to production (`dpl_6PgcZaWQyMM364NezGSdi9LaKmto`).
 
 ---
 
 ## 3. EXECUTED COMMANDS & VERIFIED OUTCOMES
 
 | Command | Exit Code | Verified Outcome |
-| :--- | :---: | :--- |
-| `npx next build` | 0 | All 50 routes compiled cleanly with Turbopack, production bundle optimized. |
-| `node scratch/reconcile_tests.cjs` | 0 | **138 passed / 138 tests across 12 suites (100% PASS rate)**. |
+| :--- | :--- | :--- |
+| `npm run build` | 0 | All 50 routes compiled cleanly with Turbopack, 0 TypeScript errors. |
+| `node scratch/reconcile_tests.cjs` | 0 | **150 passed / 150 tests across 13 suites (100% PASS rate)**. |
+| `node tests/test_inbound_message_persistence_and_crm_inbox.test.cjs` | 0 | **12/12 passed** covering status enum, casing, Contact upsert, CRM inbox API, idempotency, opt-out, safety clamp. |
 | `node tests/test_chatmitra_webhook_live_contract.test.cjs` | 0 | **7/7 passed** covering HMAC-SHA256, eventId, idempotency, tampering, fail-closed 503. |
 | `node tests/test_webhook_signature_forensics.test.cjs` | 0 | **11/11 passed** covering HMAC-SHA256, tampering, Meta discrimination, timing-safety, idempotency. |
 | `node scratch/scan_secret_exposure.cjs` | 0 | **0 secret exposures found** across 600+ repository files. |
 | `GET /api/schedule` | 0 (HTTP 200/409) | Full CRUD verified live; duplicate prevention returns HTTP 409 Conflict. |
 | `POST /api/contacts/direct-message` | 0 (HTTP 200/400/403) | Rejects < 10 digits (400), blocks opted-out (403), delivers mock accepted (200). |
 | `GET /api/health` | 0 (HTTP 200) | Live Production returns **`HEALTHY`**, database: **`HEALTHY`** (MongoDB Atlas connected). |
+| `GET /api/contacts` | 0 (HTTP 200) | Returns 200 OK with formatted contacts and attached latest message snippets for Inbox. |
 | `GET /api/opts` | 0 (HTTP 200) | Live consent registry returns 200 OK with authorized test contacts. |
-| `GET /api/webhooks` | 0 (HTTP 200) | Live gateway inventory & `WebhookInbox` returns 200 OK with 51 real logged events. |
+| `GET /api/webhooks` | 0 (HTTP 200) | Live gateway inventory & `WebhookInbox` returns 200 OK with real logged events. |
 
 ---
 
@@ -89,4 +92,5 @@
 | 10. `test_drip_workflow_and_api_endpoints.test.cjs` | Drip Workflow & Sidebar Endpoints Integration | 8 / 8 | PASS |
 | 11. `test_webhook_signature_forensics.test.cjs` | Webhook Signature Forensics & Provider Discrimination | 11 / 11 | PASS |
 | 12. `test_chatmitra_webhook_live_contract.test.cjs` | ChatMitra Webhook Live Contract & Deduplication | 7 / 7 | PASS |
-| **TOTAL** | **Comprehensive Master Suite** | **138 / 138** | **100% PASS** |
+| 13. `test_inbound_message_persistence_and_crm_inbox.test.cjs` | Inbound Message Persistence & CRM Inbox | 12 / 12 | PASS |
+| **TOTAL** | **Comprehensive Master Suite** | **150 / 150** | **100% PASS** |
