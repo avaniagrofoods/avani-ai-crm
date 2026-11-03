@@ -533,21 +533,106 @@ To permanently close the Meta security gap:
 
 ---
 
-### 4. Consolidated Test Reconciliation & Parity Summary
+## 26. CP-19 Final Live Webhook Verification (ChatMitra & Meta Hardening)
 
-| Metric / Check | Value / Status |
-| :--- | :--- |
-| **Total Test Suites** | 12 Suites |
-| **Total Automated Tests** | **138 / 138 Passing (100%)** |
-| **Active Git Branches** | `main` and `release/stage1-hardening` (0 divergence) |
-| **Production Git Commit** | `36b66258c704f0d7e6ca99406080bf595f464010` (`36b6625`) |
-| **Vercel Deployment ID** | `dpl_5Wqbn3fzr1LfyGxL4VeNzEzWLsxr` |
-| **Production URL** | `https://avani-ai-crm.vercel.app` |
-| **Next.js Turbopack Build** | 50 routes compiled, 0 errors |
-| **MongoDB Atlas Status** | Connected (`databaseReady: true`) |
-| **Provider Mode** | `live` (with test contact safety guards active) |
-| **Final Sign-Off Decision** | **`PRODUCTION DEPLOYED — LIVE WORKFLOW VERIFICATION INCOMPLETE`** |
+### 1. Visual Evidence Forensic Analysis (Owner Uploaded Dashboard Telemetry)
+
+During the CP-19 audit verification, the business owner uploaded three high-resolution dashboard screenshots providing real-time production evidence:
+
+1. **Evidence Image 1 (`media_1793714790045.png`) — ChatMitra Webhooks Configuration Dashboard:**
+   - **Page URL:** `https://app.chatmitra.com/settings/webhooks`
+   - **Account Details:** Phone: `+91 72491 08474` | WABA ID: `1062614709598311` | Quality: `HIGH` | API Status: `LIVE`
+   - **Webhook URL:** `https://avani-ai-crm.vercel.app/api/chatmitra-webhook` (Confirmed 100% matched to dedicated CRM endpoint)
+   - **Webhook Status:** `Active — events will be delivered to your URL` (Toggle: ON)
+   - **Subscribed Events:**
+     * `message.received`: `Active` (Toggle: ON) — "Triggered when your business receives a message"
+     * `message.sent`: `Active` (Toggle: ON) — "Triggered when a message is sent to a customer"
+     * `message.status.updated`: `Active` (Toggle: ON) — "Triggered when message delivery status changes"
+     * `payment.status.updated`: `Active` (Toggle: ON) — "Triggered when a WhatsApp Pay order payment is captured, pending or failed"
+   - **UI Action Buttons:** Only "Save Changes" and "Delete Webhook" are present at the bottom of the screen. No standalone "Send Test Event" button is provided on this settings view; live ChatMitra event generation occurs when WhatsApp messages are sent to or from the business number `+91 72491 08474`.
+
+2. **Evidence Image 2 (`media_1793714805770.png`) — Vercel Project Logs (`avani-ai-crm`):**
+   - **Filter Window:** Last 30 minutes (19:06:00 to 19:35:50 IST on 03 Nov 2026)
+   - **Recorded Webhook Invocations:**
+     * `19:06:17.98`: `POST /api/chatmitra-webhook` → `[ChatMitra Security] Missing required webhook signature header` (HTTP 401 — Live Missing Header Probe)
+     * `19:07:01.33`: `POST /api/chatmitra-webhook` → `[ChatMitra Security] Signature verification failed` (HTTP 401 — Live Forged Signature Probe)
+     * `19:07:28.25`: `POST /api/whatsapp-webhook` → `[ChatMitra Security] Missing required signature header on ChatMitra event` (HTTP 401 — Live Provider Discrimination Probe)
+   - **Observation:** Zero incoming external webhook calls were initiated by ChatMitra between 19:07:28 and 19:35:50 IST, confirming that no provider-generated event was dispatched during this window.
+
+3. **Evidence Image 3 (`media_1793714834386.png`) — Live CRM Inbox View:**
+   - **Page URL:** `https://avani-ai-crm.vercel.app/inbox`
+   - **State:** "Welcome back, Sachin!" with empty conversations panel ("Select a conversation to start chatting.").
+   - **Observation:** Confirms that no live inbound customer conversation from ChatMitra has been ingested into the CRM database or UI yet.
+
+---
+
+### 2. Part 1 — ChatMitra Live Test Verification Status
+
+- **Cryptographic Contract:** Verified 100% in isolated suite [`tests/test_chatmitra_webhook_live_contract.test.cjs`](file:///c:/Users/ALPHA-1/Downloads/21MAY2026/SACHIN%20SHINDE%20DOCUMENTS/DEVELOPEMENT%20TOOLS/3-AVANI%20AI%20CRM/tests/test_chatmitra_webhook_live_contract.test.cjs) (7/7 tests passed):
+  * Algorithm: `HMAC-SHA256(secret, raw_body)` via `crypto.timingSafeEqual`
+  * Header: `X-Webhook-Signature`
+  * Event ID deduplication: `CM_INBOUND_${msgId}` with idempotent duplicate swallow (`HTTP 200 duplicate: true`)
+  * Database failure: `HTTP 503 Service Unavailable` for provider retry
+- **Live Production Probes:**
+  * Unsigned request rejected: `HTTP 401 Missing webhook signature` (**`PASS — VERIFIED LIVE`**)
+  * Forged signature rejected: `HTTP 401 Invalid Webhook Signature` (**`PASS — VERIFIED LIVE`**)
+- **Live Database Telemetry (`https://avani-ai-crm.vercel.app/api/webhooks?limit=100`):**
+  * Total Events: 52
+  * Provider Breakdown: `{ Meta: 52, ChatMitra: 0 }`
+  * ChatMitra Provider Events Observed: **0**
+- **Safety Verification:** `PROVIDER_MODE=mock` maintained throughout; zero automated replies or unauthorized customer outbound dispatches occurred.
+- **Evidence Classification:** **`BLOCKED — WAITING FOR PROVIDER DASHBOARD TRIGGER / INBOUND WHATSAPP TEST`**.
+
+---
+
+### 3. Part 2 — Meta Signature Enforcement Audit & Remaining Action
+
+#### A. Live Production Verification of Variable Status
+A live probe was executed against `https://avani-ai-crm.vercel.app/api/whatsapp-webhook` transmitting an unsigned Meta WABA payload:
+```bash
+POST /api/whatsapp-webhook
+Headers: Content-Type: application/json (No x-hub-signature-256)
+Body: {"object":"whatsapp_business_account","entry":[]}
+```
+- **Response:** `HTTP 200 OK` — `{"success":true,"debugLogs":["Received Webhook Payload: {\"object\":\"whatsapp_business_account\",\"entry\":[]}"]}`
+- **Forensic Finding:**
+  1. `META_APP_SECRET` is **UNCONFIGURED** in Vercel Production.
+  2. `STRICT_META_WEBHOOK_VERIFICATION` is **UNCONFIGURED** (`false`) in Vercel Production.
+  3. The endpoint is currently operating in **Diagnostic Permissive Fallback Mode**, emitting `[Meta Security Gap Alert]` in server logs to ensure production delivery receipts from Meta are not dropped during transition.
+  4. Per audit rules: Meta signature verification **CANNOT** be claimed as complete until the owner configures the required variable and strict enforcement is verified live.
+
+#### B. Exact Remaining Actions for Sachin Shinde (Business Owner)
+To complete Part 2 and achieve 100% cryptographic enforcement on Meta webhooks:
+1. **Retrieve Meta App Secret:**
+   - Log into [Meta for Developers](https://developers.facebook.com/apps/).
+   - Select the App connected to WhatsApp Business Account `1062614709598311` (Phone: `+91 72491 08474`).
+   - Navigate to **App Settings** → **Basic** → **App Secret**.
+   - Click "Show" and copy the secret string.
+2. **Configure Vercel Environment Variables:**
+   - Open [Vercel Dashboard → avani-ai-crm → Settings → Environment Variables](https://vercel.com/avaniagrofoods1356-4705s-projects/avani-ai-crm/settings/environment-variables).
+   - Add variable: `META_APP_SECRET` with the copied secret (Environments: Production, Preview).
+   - Add variable: `STRICT_META_WEBHOOK_VERIFICATION` = `true` (Environments: Production, Preview).
+3. **Trigger Redeployment:**
+   - Go to Vercel Deployments → Click "Redeploy" on the latest deployment (`dpl_5Wqbn3fzr1LfyGxL4VeNzEzWLsxr`) or trigger via git commit.
+4. **Trigger Inbound ChatMitra Live Test:**
+   - Send one test WhatsApp message (e.g. "Test loan eligibility") from authorized number `+91 91756 35165` to the official business number `+91 72491 08474`.
+   - ChatMitra will deliver the signed `message.received` event to `/api/chatmitra-webhook`, which will record it in `WebhookInbox` and display it in the CRM Inbox.
+
+---
+
+### 4. Consolidated Production Readiness & Sign-Off Status
+
+| Verification Area | Required Gate | Current Status | Detailed Evidence |
+| :--- | :--- | :---: | :--- |
+| **Code & Repository** | Branch Parity & Build | **`PASS — VERIFIED LIVE`** | `main` and `release/stage1-hardening` synchronized at commit `f1bd871`. 138/138 tests pass. |
+| **Vercel Deployment** | Canonical Health & ReadyState | **`PASS — VERIFIED LIVE`** | `dpl_5Wqbn3fzr1LfyGxL4VeNzEzWLsxr` live at `avani-ai-crm.vercel.app`. MongoDB Atlas connected. |
+| **ChatMitra Webhook Contract** | HMAC-SHA256 & Deduplication | **`PASS — ISOLATED TEST`**<br/>**`PASS — VERIFIED LIVE (PROBES)`** | 7/7 tests pass; live HTTP 401 on missing & forged signatures. |
+| **ChatMitra Live Event Receipt** | Provider-Generated Event Ingestion | **`BLOCKED — WAITING FOR TRIGGER`** | 0 ChatMitra events in `WebhookInbox`; awaiting WhatsApp test message to `+91 72491 08474`. |
+| **Meta Signature Security** | Strict HMAC-SHA256 Verification | **`SECURITY GAP ACTIVE`** | `META_APP_SECRET` unconfigured in Vercel; strict mode awaiting owner configuration. |
+| **Customer Safety Clamps** | Opt-Outs & Mock Mode | **`PASS — VERIFIED LIVE`** | `PROVIDER_MODE=mock` active; bulk broadcast disabled; single-recipient clamp active. |
+| **Overall Production Decision** | Full Sign-Off Certification | **`PRODUCTION DEPLOYED — LIVE WORKFLOW VERIFICATION INCOMPLETE`** | Full sign-off requires live ChatMitra event observation and Meta strict mode activation. |
 
 ---
 *Certified by Antigravity Autonomous Lead Architect on 03 November 2026 for AVANI LOAN SERVICES.*
+
 
