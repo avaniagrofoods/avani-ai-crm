@@ -200,4 +200,23 @@ This log maintains an immutable, chronological audit trail of all execution sess
   * Zero secret exposures detected in diff or logs.
   * Synchronized Section 24 in `AVANI_FINAL_PRODUCTION_FORENSIC_VERIFICATION_REPORT.md` and artifact.
 
+### [2026-11-03 19:15 IST] — Stage 19 ChatMitra Webhook Live Contract Audit & Meta Signature Hardening
+- **Action:** Investigated `/api/chatmitra-webhook` and `/api/whatsapp-webhook` per Tasks A & B:
+  * Inspected `/api/chatmitra-webhook` and `src/lib/chatmitra.ts`: verified HMAC-SHA256 signature verification over raw request body using `crypto.timingSafeEqual` and `X-Webhook-Signature` header.
+  * Confirmed configured production secret variable name as `CHATMITRA_WEBHOOK_SECRET` (fallback `CHATMANTRA_WEBHOOK_SECRET` / `CHATMITRA_SECRET`) with zero plaintext exposure.
+  * Added `tests/test_chatmitra_webhook_live_contract.test.cjs` with 7/7 passing tests validating HMAC-SHA256, eventId generation (`CM_INBOUND_...`), duplicate swallow, fail-closed DB (HTTP 503), and zero credential leakage.
+  * Hardened `/api/whatsapp-webhook` against unverified Meta payloads by adding strict mode enforcement (`STRICT_META_WEBHOOK_VERIFICATION=true` or `META_APP_SECRET`) and logging prominent `[Meta Security Gap Alert]` when unconfigured.
+  * Built Next.js production bundle with `npm run build`: Exit Code 0, 50 routes compiled with Turbopack, 0 errors.
+  * Reconciled all 12 test suites via `scratch/reconcile_tests.cjs`: **138 passed / 138 tests (100% PASS rate)**.
+  * Synchronized `main` and `release/stage1-hardening` branches to commit `f60b37a` and pushed to `origin`.
+  * Deployed to Vercel Production (`dpl_5Wqbn3fzr1LfyGxL4VeNzEzWLsxr`), aliased to `https://avani-ai-crm.vercel.app`.
+  * Probed live production endpoints:
+    - `POST /api/chatmitra-webhook` unsigned returned HTTP 401 (`Missing webhook signature`).
+    - `POST /api/chatmitra-webhook` forged signature returned HTTP 401 (`Invalid Webhook Signature`).
+    - `POST /api/whatsapp-webhook` unsigned ChatMitra returned HTTP 401 (`Missing webhook signature`).
+    - `GET /api/webhooks` confirmed 51 live Meta events ingested into `WebhookInbox` with status `COMPLETED` (zero 401 loops).
+    - `GET /api/health` confirmed `status: "HEALTHY"`, `databaseReady: true`, `activeProvider: true`.
+  * Updated Section 25 in `AVANI_FINAL_PRODUCTION_FORENSIC_VERIFICATION_REPORT.md` and artifact `AVANI_FINAL_PRODUCTION_FORENSIC_SIGNOFF_REPORT.md`.
+
+
 
