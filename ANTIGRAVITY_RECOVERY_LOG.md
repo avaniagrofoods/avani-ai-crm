@@ -181,4 +181,23 @@ This log maintains an immutable, chronological audit trail of all execution sess
 - **Deliverable Generated:** `AVANI_FINAL_PRODUCTION_FORENSIC_VERIFICATION_REPORT.md` (23 sections, certified).
 - **Final Sign-Off Decision:** **`PRODUCTION DEPLOYED — LIVE WORKFLOW VERIFICATION INCOMPLETE`** (due to mock provider mode safety guard and pending 10:30/11:30 AM cron run times).
 
+### [2026-11-03 12:45 IST] — Stage 18 Webhook Signature Forensic Audit & Safe Correction
+- **Action:** Investigated repeated production logs showing `[ChatMitra Security] Invalid Webhook Signature` on `/api/whatsapp-webhook`.
+- **Root Cause Confirmed:**
+  * In `src/app/api/whatsapp-webhook/route.ts`, `x-hub-signature-256` and `x-webhook-signature` were both tested against `CHATMITRA_WEBHOOK_SECRET`.
+  * Direct Meta Cloud API WABA webhooks sent `x-hub-signature-256` signed by Meta's App Secret, which mathematically failed HMAC verification against ChatMitra's secret every time.
+  * `META_APP_SECRET` was unconfigured in Vercel environment variables.
+  * External settings in ChatMitra/Meta historically pointed to `/api/whatsapp-webhook` rather than `/api/chatmitra-webhook`.
+- **Corrections Implemented:**
+  * Implemented discriminated provider signature verification in `src/app/api/whatsapp-webhook/route.ts`: validates explicit ChatMitra headers against `CHATMITRA_WEBHOOK_SECRET`, checks `x-hub-signature-256` against `META_APP_SECRET` (if configured) or `CHATMITRA_WEBHOOK_SECRET`, and avoids false 401 rejections on Meta Cloud API WABA payloads when `META_APP_SECRET` is unset.
+  * Added safe diagnostic telemetry (User-Agent, header types, payload schema keys) with zero credential or PII leakage.
+  * Updated DB disconnection handling to HTTP 503 (`Database unavailable: retry scheduled`) across all webhook branches.
+  * Enforced HTTP 401 on unsigned requests when secret is configured in `src/app/api/chatmitra-webhook/route.ts` and `src/app/api/chatmantra-webhook/route.ts`.
+  * Created `tests/test_webhook_signature_forensics.test.cjs` with 11/11 tests passing.
+- **Verification & Parity:**
+  * Reconciled test suite: **131 passed / 131 tests across 11 test suites (100% PASS rate)**.
+  * Production build compiled: `npm run build` finished in 62s with Exit Code 0 and 0 TypeScript errors.
+  * Zero secret exposures detected in diff or logs.
+  * Synchronized Section 24 in `AVANI_FINAL_PRODUCTION_FORENSIC_VERIFICATION_REPORT.md` and artifact.
+
 

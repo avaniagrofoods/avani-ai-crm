@@ -68,6 +68,9 @@ export async function POST(request: Request) {
         return NextResponse.json({ success: false, error: 'Invalid Webhook Signature' }, { status: 401 });
       }
       console.log('[ChatMantra Security] Signature verified successfully');
+    } else if (!signatureHeader && secret) {
+      console.warn('[ChatMantra Security] Missing required webhook signature header');
+      return NextResponse.json({ success: false, error: 'Missing webhook signature' }, { status: 401 });
     }
 
     // 2. JSON Parsing & Structure Validation

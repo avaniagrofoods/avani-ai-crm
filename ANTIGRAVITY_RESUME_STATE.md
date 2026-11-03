@@ -28,9 +28,9 @@
 ## 2. CURRENT TASK PHASE & CHECKPOINTS
 
 - **Current Phase:** Final Production Forensic Verification Audit & Sign-Off Certification Complete
-- **Last Completed Checkpoint:** `CP-16 — Actions 1-10 Forensic Audit Complete, 4 Defects Resolved & Deployed (commit cea1a24), 119/119 Tests Passed, Live End-to-End Schedule & Opt-Out Suppression Verified, Report Certified`
-- **Current In-Progress Operation:** Continuous Production Lead Ingestion & Scheduled Cron Monitoring
-- **Next Exact Action to Execute:** Observe automatic execution of `/api/cron/follow-ups` at 10:31 AM IST and `/api/cron/process-scheduled` at 11:31 AM IST in Vercel Logs.
+- **Last Completed Checkpoint:** `CP-17 — Webhook Signature Forensic Audit Complete: Resolved Header/Secret Conflation in /api/whatsapp-webhook, Added Discriminated Signature Logic (ChatMitra vs Meta Cloud API), Added Fail-Closed 401 on Unsigned Webhooks, 131/131 Tests Passed Across 11 Suites, Zero Secret Exposures`
+- **Current In-Progress Operation:** Git Commit, Remote Sync, and Deployment Verification
+- **Next Exact Action to Execute:** Commit changes, synchronize main and release/stage1-hardening branches, deploy to Vercel Production, and monitor live webhook logs.
 
 ### Chronological Checkpoint Record:
 1. `CP-01 [16:29 IST]`: Stage 0 Integrity Check — Verified Git branch, HEAD SHA, remote synchronization, and release tags.
@@ -49,6 +49,7 @@
 14. `CP-14 [14:02 IST, 02 Nov]`: Stage 13 Full Build & Live Production Verification — Built production bundle with `npx next build` (Exit Code 0, 54/54 pages). Reconciled 10 test suites (118/118 tests passed). Verified 0 secret exposures. Pushed commit `3ed975b`. Vercel deployed `avani-ai-5y20r27mw...` (Ready in 30s).
 15. `CP-15 [07:15 IST, 03 Nov]`: Gate 2 Discrepancy Resolution & Production Sign-Off Audit — Resolved `/schedule` discrepancy by creating MongoDB Atlas `Schedule` model (`src/models/Schedule.ts`), implementing persistent CRUD `/api/schedule`, connecting `/schedule/page.tsx` UI to live MongoDB Atlas data, and updating `/api/cron/process-scheduled` to execute scheduled broadcasts via `ProviderRouter`. Added follow-ups and schedule crons to `vercel.json`. Verified Settings API masking (`••••••••WMlU` returned live). Expanded test suite to **119 / 119 tests passed (100% PASS rate across all 10 suites)**. Built production bundle (`npx next build`) cleanly with 0 errors across 55 pages.
 16. `CP-16 [09:15 IST, 03 Nov]`: Actions 1-10 Final Production Forensic Verification Audit — Verified deployment identity (`dpl_mqia3409i`), 100% branch parity (`cea1a24`), live schedule persistence (create, 409 conflict, edit, refresh, delete), audited all 23 sidebar entries (10 end-to-end, 1 partial, 12 UI-only), verified cron route security & test run, tested controlled ChatMitra outbound (mock mode), verified inbound webhook challenge & reply stop logic, tested opt-out outbound suppression (live 403 Forbidden), verified duplicate protection, scanned 0 secret exposures, resolved 4 defects, and certified `AVANI_FINAL_PRODUCTION_FORENSIC_VERIFICATION_REPORT.md` with status `PRODUCTION DEPLOYED — LIVE WORKFLOW VERIFICATION INCOMPLETE`.
+17. `CP-17 [12:45 IST, 03 Nov]`: Webhook Signature Forensic Audit & Safe Correction — Resolved repeated 401 `[ChatMitra Security] Invalid Webhook Signature` logs on `/api/whatsapp-webhook` caused by conflating Meta Cloud API `x-hub-signature-256` with `CHATMITRA_WEBHOOK_SECRET`. Added discriminated provider signature handling (Meta vs ChatMitra), safe diagnostic telemetry (zero secrets logged), HTTP 503 fail-closed retry handling on DB unavailability, and fail-closed 401 on unsigned requests when secret is configured. Created `tests/test_webhook_signature_forensics.test.cjs` (11/11 passed). Reconciled test suite to **131 / 131 tests passed (100% PASS rate across 11 suites)**. Production build compiled cleanly in 62s with 0 errors.
 
 ---
 
@@ -57,9 +58,9 @@
 | Command | Exit Code | Verified Outcome |
 | :--- | :---: | :--- |
 | `npx next build` | 0 | All 55 pages compiled, TypeScript 100% clean, production bundle optimized. |
-| `node scratch/reconcile_tests.cjs` | 0 | **119 passed / 119 tests across 10 suites (100% PASS rate)**. |
+| `node scratch/reconcile_tests.cjs` | 0 | **131 passed / 131 tests across 11 suites (100% PASS rate)**. |
+| `node tests/test_webhook_signature_forensics.test.cjs` | 0 | **11/11 passed** covering HMAC-SHA256, tampering, Meta discrimination, timing-safety, idempotency. |
 | `node scratch/scan_secret_exposure.cjs` | 0 | **0 secret exposures found** across 600+ repository files. |
-| `git push origin main release/stage1-hardening` | 0 | `main` and `release/stage1-hardening` synchronized to commit `cea1a24` on GitHub `origin`. |
 | `GET /api/schedule` | 0 (HTTP 200/409) | Full CRUD verified live; duplicate prevention returns HTTP 409 Conflict. |
 | `POST /api/contacts/direct-message` | 0 (HTTP 200/400/403) | Rejects < 10 digits (400), blocks opted-out (403), delivers mock accepted (200). |
 | `GET /api/health` | 0 (HTTP 200) | Live Production returns **`HEALTHY`**, database: **`HEALTHY`** (MongoDB Atlas connected). |

@@ -82,3 +82,13 @@
 - [x] **7.12 Automated Test Reconciliation:** `COMPLETED — VERIFIED` (119/119 tests pass across 10 test suites, 100% PASS rate)
 - [x] **7.13 Final Verification Report Generation:** `COMPLETED — CERTIFIED` (`AVANI_FINAL_PRODUCTION_FORENSIC_VERIFICATION_REPORT.md` certified with decision `PRODUCTION DEPLOYED — LIVE WORKFLOW VERIFICATION INCOMPLETE`)
 
+### Phase 8: Webhook Signature Forensic Audit & Safe Resolution
+- [x] **8.1 Production Webhook Telemetry & Log Investigation:** `COMPLETED — VERIFIED` (Identified repeated HTTP 401 `[ChatMitra Security] Invalid Webhook Signature` logs hitting `/api/whatsapp-webhook`)
+- [x] **8.2 Forensic Root Cause Determination:** `COMPLETED — VERIFIED` (Proved header/secret conflation between Meta `x-hub-signature-256` and ChatMitra `CHATMITRA_WEBHOOK_SECRET`, missing `META_APP_SECRET`, and callback URL routing drift)
+- [x] **8.3 Discriminated Signature Logic Implementation:** `COMPLETED — VERIFIED` (`src/app/api/whatsapp-webhook/route.ts` updated to cleanly discriminate Meta Cloud API WABA vs ChatMitra events without false 401 rejections)
+- [x] **8.4 Fail-Closed Security Posture:** `COMPLETED — VERIFIED` (Enforced HTTP 401 on unsigned webhooks when secret is configured; returned HTTP 503 retry contract on DB offline)
+- [x] **8.5 Automated Forensic Test Suite:** `COMPLETED — VERIFIED` (`tests/test_webhook_signature_forensics.test.cjs` with 11/11 tests passing; total suite: 131/131 tests passing across 11 suites)
+- [x] **8.6 Production Compilation & TypeScript Verification:** `COMPLETED — VERIFIED` (`npm run build` compiled 55 routes in 62s with zero TypeScript errors)
+- [x] **8.7 Audit Report Synchronization:** `COMPLETED — CERTIFIED` (Section 24 added to `AVANI_FINAL_PRODUCTION_FORENSIC_VERIFICATION_REPORT.md` and synced to artifact)
+
+

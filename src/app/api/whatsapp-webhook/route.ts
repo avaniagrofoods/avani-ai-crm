@@ -30,33 +30,100 @@ export async function POST(request: Request) {
 
   try {
     const rawBody = await request.text();
-    const signatureHeader = request.headers.get('x-webhook-signature') || request.headers.get('x-hub-signature-256');
-    const chatmitraSecret = process.env.CHATMITRA_WEBHOOK_SECRET || process.env.CHATMITRA_SECRET;
+    const webhookSig = request.headers.get('x-webhook-signature');
+    const hubSig = request.headers.get('x-hub-signature-256');
+    const customSig = request.headers.get('x-signature');
+    const userAgent = request.headers.get('user-agent') || 'unknown';
 
-    // ChatMitra Webhook Signature Verification
-    if (signatureHeader && chatmitraSecret) {
-      const isValid = verifyChatMitraSignature(rawBody, signatureHeader, chatmitraSecret);
-      if (!isValid) {
-        log('[ChatMitra Security] Invalid Webhook Signature');
-        return NextResponse.json({ success: false, error: 'Invalid Webhook Signature' }, { status: 401 });
-      }
-      log('[ChatMitra Security] Signature verified successfully');
-    }
-
+    // Parse payload structure first to discriminate provider source safely
     let body: any;
     try {
       body = JSON.parse(rawBody);
     } catch {
+      log('[Webhook Security] Malformed JSON payload rejected');
       return NextResponse.json({ success: false, error: 'Invalid JSON payload' }, { status: 400 });
     }
+
+    const isMetaPayload = Boolean(body?.object === 'whatsapp_business_account' || Array.isArray(body?.entry));
+    const isChatMitraPayload = Boolean(
+      body?.event && typeof body.event === 'string' &&
+      (body.event.startsWith('message.') || body.event === 'message.received' || body.event === 'message.status.updated' || body.event === 'message.sent')
+    );
+    const isDirectDispatch = Boolean(
+      body.event === 'send_template' || (body.phone && !body.message && !body.text && !body.entry && !body.type && !body.interactive)
+    );
+
+    const chatmitraSecret = process.env.CHATMITRA_WEBHOOK_SECRET || 
+                           process.env.CHATMANTRA_WEBHOOK_SECRET || 
+                           process.env.CHATMITRA_SECRET || 
+                           process.env.CHATMANTRA_SECRET;
+    const metaAppSecret = process.env.META_APP_SECRET;
+
+    // 1. Explicit ChatMitra Signature Header (x-webhook-signature or x-signature)
+    if (webhookSig || customSig) {
+      const sigToVerify = (webhookSig || customSig)!;
+      if (!chatmitraSecret) {
+        log('[ChatMitra Security] Signature header received but CHATMITRA_WEBHOOK_SECRET not configured');
+        return NextResponse.json({ success: false, error: 'ChatMitra webhook secret not configured' }, { status: 401 });
+      }
+      const isValid = verifyChatMitraSignature(rawBody, sigToVerify, chatmitraSecret);
+      if (!isValid) {
+        log(`[ChatMitra Security] Invalid Webhook Signature on ${isChatMitraPayload ? 'ChatMitra' : 'unknown'} payload (UA: ${userAgent.slice(0, 40)})`);
+        return NextResponse.json({ success: false, error: 'Invalid Webhook Signature' }, { status: 401 });
+      }
+      log('[ChatMitra Security] Signature verified successfully via x-webhook-signature');
+    }
+    // 2. Shared/Meta Signature Header (x-hub-signature-256)
+    else if (hubSig) {
+      let verified = false;
+
+      // Check against Meta App Secret first if configured
+      if (metaAppSecret && verifyChatMitraSignature(rawBody, hubSig, metaAppSecret)) {
+        verified = true;
+        log('[Meta Security] Signature verified successfully via META_APP_SECRET');
+      }
+      // Check against ChatMitra Secret if configured
+      else if (chatmitraSecret && verifyChatMitraSignature(rawBody, hubSig, chatmitraSecret)) {
+        verified = true;
+        log('[ChatMitra Security] Signature verified successfully via x-hub-signature-256');
+      }
+
+      if (!verified) {
+        if (isChatMitraPayload && chatmitraSecret) {
+          log(`[ChatMitra Security] Invalid Webhook Signature for ChatMitra payload via x-hub-signature-256 (UA: ${userAgent.slice(0, 40)})`);
+          return NextResponse.json({ success: false, error: 'Invalid Webhook Signature' }, { status: 401 });
+        }
+        if (isMetaPayload) {
+          if (metaAppSecret) {
+            log(`[Meta Security] Invalid Webhook Signature for Meta WABA payload (UA: ${userAgent.slice(0, 40)})`);
+            return NextResponse.json({ success: false, error: 'Invalid Meta Webhook Signature' }, { status: 401 });
+          } else {
+            // META_APP_SECRET is not configured in Vercel; log safe diagnostic without breaking Meta WABA receipts
+            log(`[Meta Security] Received x-hub-signature-256 for Meta WABA payload, but META_APP_SECRET is not configured (UA: ${userAgent.slice(0, 40)}). Proceeding with Meta payload.`);
+          }
+        } else {
+          // Unrecognized payload structure with an unverified signature
+          if (chatmitraSecret) {
+            log(`[Webhook Security] Unknown payload rejected with invalid x-hub-signature-256 (UA: ${userAgent.slice(0, 40)})`);
+            return NextResponse.json({ success: false, error: 'Invalid Webhook Signature' }, { status: 401 });
+          }
+        }
+      }
+    }
+    // 3. Missing Signature on ChatMitra payload when secret is configured
+    else if (isChatMitraPayload && chatmitraSecret && !isDirectDispatch) {
+      log(`[ChatMitra Security] Missing required signature header on ChatMitra event: ${body.event} (UA: ${userAgent.slice(0, 40)})`);
+      return NextResponse.json({ success: false, error: 'Missing webhook signature' }, { status: 401 });
+    }
+
     log("Received Webhook Payload: " + JSON.stringify(body).substring(0, 300));
 
     // Support ChatMitra Official Webhook Events
     if (body.event && (body.event.startsWith('message.') || body.event === 'message.received' || body.event === 'message.status.updated' || body.event === 'message.sent')) {
       await connectToDatabase();
       if (mongoose.connection.readyState !== 1) {
-        log('[Webhook Fatal Error] DB unreachable. Returning 500 for retry.');
-        return NextResponse.json({ success: false, error: 'Database unavailable' }, { status: 500 });
+        log('[Webhook Fatal Error] DB unreachable. Returning 503 for retry.');
+        return NextResponse.json({ success: false, error: 'Database unavailable: retry scheduled' }, { status: 503 });
       }
 
       if (body.event === 'message.status.updated' || body.event === 'message.sent') {
@@ -195,8 +262,8 @@ export async function POST(request: Request) {
           if (statuses.length > 0) {
             await connectToDatabase();
             if (mongoose.connection.readyState !== 1) {
-              log(`[Webhook Fatal Error] DB unreachable. Returning 500 so Meta retries the delivery receipt.`);
-              return NextResponse.json({ success: false, error: 'Database unavailable' }, { status: 500 });
+              log(`[Webhook Fatal Error] DB unreachable. Returning 503 so Meta retries the delivery receipt.`);
+              return NextResponse.json({ success: false, error: 'Database unavailable: retry scheduled' }, { status: 503 });
             }
 
             for (const statusObj of statuses) {
@@ -266,8 +333,8 @@ export async function POST(request: Request) {
 
             await connectToDatabase();
             if (mongoose.connection.readyState !== 1) {
-              log(`[Webhook Fatal Error] DB unreachable. Returning 500 so Meta retries the inbound message.`);
-              return NextResponse.json({ success: false, error: 'Database unavailable' }, { status: 500 });
+              log(`[Webhook Fatal Error] DB unreachable. Returning 503 so Meta retries the inbound message.`);
+              return NextResponse.json({ success: false, error: 'Database unavailable: retry scheduled' }, { status: 503 });
             }
 
             try {
