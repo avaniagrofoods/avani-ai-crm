@@ -49,6 +49,18 @@ export async function POST(req: Request) {
       cleanPhone = digitsOnly.length === 10 ? '+91' + digitsOnly : '+' + digitsOnly;
     }
 
+    // MANDATORY SAFETY INVARIANT: Restrict live dispatch strictly to authorized test contact
+    if (process.env.PROVIDER_MODE === 'live' && digitsOnly !== '919175635165' && digitsOnly !== '9175635165') {
+      return NextResponse.json(
+        { 
+          success: false, 
+          error: 'LIVE_DISPATCH_RESTRICTED', 
+          message: 'Safety invariant: Live WhatsApp dispatch is strictly restricted to authorized test contact +91 91756 35165.' 
+        },
+        { status: 403 }
+      );
+    }
+
     // Check opt-out status across Lead and Contact
     const [existingLead, existingContact] = await Promise.all([
       Lead.findOne({ phone: { $in: [cleanPhone, cleanPhone.replace('+91', ''), cleanPhone.replace('+', '')] } }),

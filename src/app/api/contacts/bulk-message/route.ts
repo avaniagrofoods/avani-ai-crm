@@ -25,6 +25,18 @@ export async function POST(req: Request) {
       );
     }
 
+    // MANDATORY SAFETY INVARIANT: Bulk broadcasts are strictly forbidden in live mode
+    if (process.env.PROVIDER_MODE === 'live') {
+      return NextResponse.json(
+        { 
+          success: false, 
+          error: 'BROADCAST_DISABLED', 
+          message: 'Safety invariant: Bulk broadcast messaging is strictly disabled in production live mode to protect consumers.' 
+        },
+        { status: 403 }
+      );
+    }
+
     // Query active contacts
     let contactQuery: any = { optedIn: { $ne: false } };
     if (filter?.city) contactQuery.city = filter.city;

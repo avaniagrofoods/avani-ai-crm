@@ -118,6 +118,30 @@ runTest('Test 6.6: Human Escalation Routes to Sachin Shinde (+91 72491 08474)', 
   assert.strictEqual(advisor.name, 'Sachin Shinde', 'Advisor name must be Sachin Shinde');
 });
 
+runTest('Test 6.7: Single-Recipient Safety Clamp strictly blocks live dispatch to any unauthorized phone', () => {
+  const AUTHORIZED_TEST_PHONE_CANONICAL = '919175635165';
+  const unauthorizedPhones = ['919999988888', '919876543210', '917249108474', '918275486151'];
+
+  const evaluateLiveDispatchPermission = (providerMode, phone) => {
+    const clean = String(phone || '').replace(/[^0-9]/g, '');
+    const formatted = clean.length === 10 ? `91${clean}` : clean;
+    if (providerMode === 'live' && formatted !== AUTHORIZED_TEST_PHONE_CANONICAL) {
+      return { allowed: false, error: 'BLOCKED_UNAUTHORIZED_LIVE_RECIPIENT' };
+    }
+    return { allowed: true };
+  };
+
+  for (const phone of unauthorizedPhones) {
+    const check = evaluateLiveDispatchPermission('live', phone);
+    assert.strictEqual(check.allowed, false, `Live dispatch to ${phone} must be blocked`);
+    assert.strictEqual(check.error, 'BLOCKED_UNAUTHORIZED_LIVE_RECIPIENT');
+  }
+
+  // Verify authorized phone IS allowed
+  const authCheck = evaluateLiveDispatchPermission('live', '9175635165');
+  assert.strictEqual(authCheck.allowed, true, 'Authorized phone must be allowed');
+});
+
 console.log('\n============================================================');
 console.log(`RESULTS: ${passedTests} / ${totalTests} TESTS PASSED`);
 console.log('============================================================');

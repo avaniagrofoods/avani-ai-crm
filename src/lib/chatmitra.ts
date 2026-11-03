@@ -182,6 +182,19 @@ export async function sendChatMitraMessage(payload: ChatMitraPayload): Promise<C
     };
   }
 
+  // MANDATORY SAFETY INVARIANT: Single-recipient clamp for live testing
+  // Under NO circumstances can a live message be sent to any number other than the authorized test contact
+  const AUTHORIZED_TEST_PHONE_CANONICAL = '919175635165';
+  if (providerMode === 'live' && formattedPhone !== AUTHORIZED_TEST_PHONE_CANONICAL) {
+    console.error(`[ChatMitra Safety Clamp] Blocked live dispatch attempt to unauthorized recipient: ${formattedPhone}`);
+    return {
+      success: false,
+      provider: 'ChatMitra_SafetyClamp',
+      status: 'BLOCKED_UNAUTHORIZED_LIVE_RECIPIENT',
+      error: `Safety invariant: Live dispatch is strictly restricted to authorized test contact +91 91756 35165. Attempted dispatch to ${formattedPhone} was blocked.`
+    };
+  }
+
   try {
     let res: any;
     const idempotencyKey = payload.correlationId || `CM-${Date.now()}-${Math.random().toString(36).substring(7)}`;
