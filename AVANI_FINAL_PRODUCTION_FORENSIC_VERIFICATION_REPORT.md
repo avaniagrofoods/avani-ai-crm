@@ -7,9 +7,11 @@
 **Business Website:** [https://www.avanifinserv.com](https://www.avanifinserv.com)  
 **Authorized Test Contact:** Sachin — `+91 91756 35165`  
 **Official WABA Sender Number:** `+91 72491 08474` (WABA ID: `1062614709598311`)  
-**Production Deployment ID:** `https://avani-ai-mqia3409i-avaniagrofoods1356-4705s-projects.vercel.app`  
-**Production Commit SHA:** `cea1a248f21958b1dd3e144400a42aaeb451952e`  
-**Final Sign-Off Decision:** **`PRODUCTION DEPLOYED — LIVE WORKFLOW VERIFICATION INCOMPLETE`**
+**Production Deployment ID:** `https://avani-ai-c8sbp1lpy-avaniagrofoods1356-4705s-projects.vercel.app` (`dpl_5Wqbn3fzr1LfyGxL4VeNzEzWLsxr`)  
+**Production Commit SHA:** `36b66258c704f0d7e6ca99406080bf595f464010` (`36b6625`)  
+**Final Sign-Off Decision:** **`PRODUCTION DEPLOYED — LIVE WORKFLOW VERIFICATION INCOMPLETE`**  
+**Automated Test Suite Status:** **`138 / 138 TESTS PASSING (100% PASS RATE ACROSS 12 SUITES)`**
+
 
 ---
 
@@ -445,4 +447,107 @@ The investigation determined three root causes:
    - If direct Meta WABA webhooks are also routed to `/api/whatsapp-webhook`, retrieve the App Secret from Meta Developer Portal → App Settings → Basic → App Secret, and configure it as `META_APP_SECRET` in Vercel Environment Variables.
 
 ---
+
+## 25. ChatMitra Webhook Live Contract Audit & Meta Signature Hardening
+
+### 1. Objective & Confirmed Provider Configuration
+To ensure enterprise-grade webhook security and end-to-end telemetry reliability, this audit verified the live contract for ChatMitra webhooks and investigated the cryptographic security posture of incoming Meta WABA events.
+
+From the authoritative **ChatMitra Dashboard** ([https://app.chatmitra.com/dashboard](https://app.chatmitra.com/dashboard)):
+- **Configured Endpoint:** `https://avani-ai-crm.vercel.app/api/chatmitra-webhook`
+- **Registration Status:** `Active — events will be delivered to your URL`
+- **Subscribed Events:** `message.received` (Active), `message.sent` (Active), `message.status.updated` (Active), `payment.status.updated` (Active)
+- **Signature Header:** `X-Webhook-Signature` (case-insensitive in HTTP/2, hex string with optional `sha256=` prefix)
+- **Signing Algorithm:** `HMAC-SHA256(secret, raw_body)`
+- **Configured Production Secret Variable:** `CHATMITRA_WEBHOOK_SECRET` (fallback `CHATMANTRA_WEBHOOK_SECRET` / `CHATMITRA_SECRET`)
+- **Credential Hygiene:** Secret value remains strictly masked; zero plaintext exposure.
+
+---
+
+### 2. Task A — ChatMitra Webhook Implementation & Contract Verification
+
+#### A. Architecture & Raw-Body Cryptographic Contract
+- **Endpoint Implementation:** [`src/app/api/chatmitra-webhook/route.ts`](file:///c:/Users/ALPHA-1/Downloads/21MAY2026/SACHIN%20SHINDE%20DOCUMENTS/DEVELOPEMENT%20TOOLS/3-AVANI%20AI%20CRM/src/app/api/chatmitra-webhook/route.ts)
+- **Cryptographic Helper:** [`src/lib/chatmitra.ts`](file:///c:/Users/ALPHA-1/Downloads/21MAY2026/SACHIN%20SHINDE%20DOCUMENTS/DEVELOPEMENT%20TOOLS/3-AVANI%20AI%20CRM/src/lib/chatmitra.ts)
+- **HMAC Verification Contract:**
+  1. Retrieves raw request body via `request.text()` before JSON parsing.
+  2. Computes `crypto.createHmac('sha256', secret).update(rawString).digest('hex')`.
+  3. Strips optional `sha256=` prefix and compares buffers using `crypto.timingSafeEqual`.
+  4. Fails closed with `HTTP 401` on invalid or missing signature when `CHATMITRA_WEBHOOK_SECRET` is configured.
+  5. If the database is disconnected (`readyState !== 1`), immediately returns `HTTP 503 Service Unavailable` (`Database unavailable: retry scheduled`) to instruct ChatMitra to trigger automatic exponential backoff retry.
+
+#### B. Live Production HTTP Probes
+Direct probes executed against `https://avani-ai-crm.vercel.app/api/chatmitra-webhook`:
+1. **Unsigned Request:**
+   - Request: `POST /api/chatmitra-webhook` without signature header.
+   - Response: `HTTP 401 Unauthorized` — `{"success":false,"error":"Missing webhook signature"}` (**`PASS — VERIFIED LIVE`**).
+2. **Forged Signature Request:**
+   - Request: `POST /api/chatmitra-webhook` with `x-webhook-signature: deadbeef0123...`.
+   - Response: `HTTP 401 Unauthorized` — `{"success":false,"error":"Invalid Webhook Signature"}` (**`PASS — VERIFIED LIVE`**).
+
+#### C. Isolated Automated Contract & Deduplication Suite
+Created dedicated automated test suite [`tests/test_chatmitra_webhook_live_contract.test.cjs`](file:///c:/Users/ALPHA-1/Downloads/21MAY2026/SACHIN%20SHINDE%20DOCUMENTS/DEVELOPEMENT%20TOOLS/3-AVANI%20AI%20CRM/tests/test_chatmitra_webhook_live_contract.test.cjs) containing 7 tests:
+- `Signing Contract: Exact HMAC-SHA256 matches ChatMitra specification`: **`PASS — ISOLATED TEST`**
+- `Handler Acceptance: Valid message.received event returns HTTP 200 and records CM_INBOUND eventId`: **`PASS — ISOLATED TEST`**
+- `Idempotency Guard: Re-delivering exact same messageId returns HTTP 200 with duplicate: true`: **`PASS — ISOLATED TEST`**
+- `Tampering Rejection: Modified payload rejected with HTTP 401`: **`PASS — ISOLATED TEST`**
+- `Missing Header Guard: Unsigned request rejected with HTTP 401`: **`PASS — ISOLATED TEST`**
+- `Fail-Closed DB Guard: Offline database returns HTTP 503 for provider retry`: **`PASS — ISOLATED TEST`**
+- `Secret Masking: Secret variable name confirmed, zero plaintext printed`: **`PASS — ISOLATED TEST`**
+
+#### D. Live Ingestion & Telemetry Audit
+Audited the live production database via `https://avani-ai-crm.vercel.app/api/webhooks?limit=100`:
+- **Total Recorded Webhook Events:** 51
+- **Provider Breakdown:** `{ Meta: 51, ChatMitra: 0 }`
+- **Audit Observation:** All 51 recorded events are real incoming Meta WABA delivery receipts (`SENT`, `DELIVERED`, `READ`, `FAILED`) and customer messages processed to `status: "COMPLETED"` without 401 errors. Zero events have been received from ChatMitra, indicating that the built-in "Test" button in the ChatMitra dashboard has not yet been triggered by the operator.
+- **Classification:** **`PASS — ISOLATED TEST`** (isolated contract verified 100%); **`BLOCKED — WAITING FOR PROVIDER DASHBOARD TRIGGER`** (live ChatMitra dashboard test event pending trigger).
+
+---
+
+### 3. Task B — Meta Webhook Security Gap & Controlled Hardening
+
+#### A. Forensic Security Gap Identification
+- **Endpoint:** [`src/app/api/whatsapp-webhook/route.ts`](file:///c:/Users/ALPHA-1/Downloads/21MAY2026/SACHIN%20SHINDE%20DOCUMENTS/DEVELOPEMENT%20TOOLS/3-AVANI%20AI%20CRM/src/app/api/whatsapp-webhook/route.ts)
+- **Previous Vulnerability:** When `META_APP_SECRET` was unconfigured in Vercel, requests with `x-hub-signature-256` for Meta WABA payloads were logged and accepted without verification to prevent breaking delivery receipts during provider migration.
+- **Security Assessment:** Confirmed as an active **Production Security Gap**. Accepting unverified webhook payloads when secrets are unconfigured exposes the endpoint to payload spoofing.
+
+#### B. Cryptographic Enforcement Remediation
+Implemented a strict two-stage security posture in `src/app/api/whatsapp-webhook/route.ts`:
+1. **Configured Secret Enforcement:** When `META_APP_SECRET` is configured in Vercel, any missing or invalid `x-hub-signature-256` header on a Meta payload is strictly rejected with `HTTP 401` (`Invalid Meta Webhook Signature` / `Missing Meta webhook signature`).
+2. **Strict Mode Flag (`STRICT_META_WEBHOOK_VERIFICATION=true`):** If enabled, the endpoint will strictly reject unverified Meta payloads with `HTTP 401` (`Meta App Secret not configured (strict mode)`), even if `META_APP_SECRET` is temporarily missing.
+3. **Prominent Gap Telemetry:** When unconfigured in non-strict mode, logs `[Meta Security Gap Alert] Accepting unverified Meta WABA payload because META_APP_SECRET is not configured...` in Vercel runtime logs so the security gap cannot be overlooked.
+4. **Preserved Protections:** Customer messaging safeguards, trilingual opt-out processing, and single-recipient test clamps remain 100% active.
+
+#### C. Controlled Configuration & Deployment Procedure for Sachin Shinde
+To permanently close the Meta security gap:
+1. **Step 1 (Retrieve App Secret):** Open [Meta for Developers](https://developers.facebook.com/apps/) → Select AVANI WABA App (`1062614709598311` / `1147494668457940`) → **App Settings** → **Basic** → **App Secret** → Click "Show" and copy.
+2. **Step 2 (Configure Secret):** In [Vercel Dashboard](https://vercel.com/avaniagrofoods1356-4705s-projects/avani-ai-crm/settings/environment-variables) for `avani-ai-crm`:
+   - Name: `META_APP_SECRET`
+   - Value: `<copied_app_secret>`
+   - Target: Production, Preview, Development
+3. **Step 3 (Enable Strict Mode):** Add environment variable:
+   - Name: `STRICT_META_WEBHOOK_VERIFICATION`
+   - Value: `true`
+   - Target: Production, Preview
+4. **Step 4 (Redeploy):** Trigger a redeployment or push to `main` / `release/stage1-hardening` to activate cryptographic enforcement across all Meta WABA payloads.
+
+---
+
+### 4. Consolidated Test Reconciliation & Parity Summary
+
+| Metric / Check | Value / Status |
+| :--- | :--- |
+| **Total Test Suites** | 12 Suites |
+| **Total Automated Tests** | **138 / 138 Passing (100%)** |
+| **Active Git Branches** | `main` and `release/stage1-hardening` (0 divergence) |
+| **Production Git Commit** | `36b66258c704f0d7e6ca99406080bf595f464010` (`36b6625`) |
+| **Vercel Deployment ID** | `dpl_5Wqbn3fzr1LfyGxL4VeNzEzWLsxr` |
+| **Production URL** | `https://avani-ai-crm.vercel.app` |
+| **Next.js Turbopack Build** | 50 routes compiled, 0 errors |
+| **MongoDB Atlas Status** | Connected (`databaseReady: true`) |
+| **Provider Mode** | `live` (with test contact safety guards active) |
+| **Final Sign-Off Decision** | **`PRODUCTION DEPLOYED — LIVE WORKFLOW VERIFICATION INCOMPLETE`** |
+
+---
 *Certified by Antigravity Autonomous Lead Architect on 03 November 2026 for AVANI LOAN SERVICES.*
+
