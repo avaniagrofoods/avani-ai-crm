@@ -3,12 +3,19 @@ import connectToDatabase from '@/lib/db';
 import { Contact } from '@/models/Contact';
 import { Lead } from '@/models/Lead';
 
+import { getDatabaseLastError } from '@/lib/db';
+import mongoose from 'mongoose';
+
+export const dynamic = 'force-dynamic';
+
 export async function GET(req: Request) {
   try {
     const conn = await connectToDatabase();
-    if (!conn || conn.connection?.readyState !== 1) {
+    const readyState = mongoose.connection?.readyState ?? conn?.connection?.readyState;
+    if (!conn || readyState !== 1) {
+      const lastErr = getDatabaseLastError() || `readyState=${readyState}`;
       return NextResponse.json(
-        { success: false, error: 'DATABASE_UNAVAILABLE', message: 'Database offline.' },
+        { success: false, error: 'DATABASE_UNAVAILABLE', message: `Database offline: ${lastErr}` },
         { status: 503 }
       );
     }
@@ -100,9 +107,11 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const conn = await connectToDatabase();
-    if (!conn || conn.connection?.readyState !== 1) {
+    const readyState = mongoose.connection?.readyState ?? conn?.connection?.readyState;
+    if (!conn || readyState !== 1) {
+      const lastErr = getDatabaseLastError() || `readyState=${readyState}`;
       return NextResponse.json(
-        { success: false, error: 'DATABASE_UNAVAILABLE', message: 'Database offline.' },
+        { success: false, error: 'DATABASE_UNAVAILABLE', message: `Database offline: ${lastErr}` },
         { status: 503 }
       );
     }
@@ -174,9 +183,11 @@ export async function POST(req: Request) {
 export async function DELETE(req: Request) {
   try {
     const conn = await connectToDatabase();
-    if (!conn || conn.connection?.readyState !== 1) {
+    const readyState = mongoose.connection?.readyState ?? conn?.connection?.readyState;
+    if (!conn || readyState !== 1) {
+      const lastErr = getDatabaseLastError() || `readyState=${readyState}`;
       return NextResponse.json(
-        { success: false, error: 'DATABASE_UNAVAILABLE', message: 'Database offline.' },
+        { success: false, error: 'DATABASE_UNAVAILABLE', message: `Database offline: ${lastErr}` },
         { status: 503 }
       );
     }

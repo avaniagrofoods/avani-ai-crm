@@ -4,11 +4,15 @@ import { Contact } from '@/models/Contact';
 import { Lead } from '@/models/Lead';
 import { Message } from '@/models/Message';
 import { ProviderRouter } from '@/lib/provider-router';
+import mongoose from 'mongoose';
+
+export const dynamic = 'force-dynamic';
 
 export async function POST(req: Request) {
   try {
     const conn = await connectToDatabase();
-    if (!conn || conn.connection?.readyState !== 1) {
+    const readyState = mongoose.connection?.readyState ?? conn?.connection?.readyState;
+    if (!conn || readyState !== 1) {
       return NextResponse.json(
         { success: false, error: 'DATABASE_UNAVAILABLE', message: 'Database offline. Persistence unavailable.' },
         { status: 503 }
@@ -34,8 +38,15 @@ export async function POST(req: Request) {
 
     // Normalize phone number
     let cleanPhone = phone.trim().replace(/[^0-9+]/g, '');
+    const digitsOnly = cleanPhone.replace(/\D/g, '');
+    if (digitsOnly.length < 10) {
+      return NextResponse.json(
+        { success: false, error: 'INVALID_PHONE', message: 'Valid phone number with at least 10 digits is required.' },
+        { status: 400 }
+      );
+    }
     if (!cleanPhone.startsWith('+')) {
-      cleanPhone = cleanPhone.length === 10 ? '+91' + cleanPhone : '+' + cleanPhone;
+      cleanPhone = digitsOnly.length === 10 ? '+91' + digitsOnly : '+' + digitsOnly;
     }
 
     // Check opt-out status across Lead and Contact

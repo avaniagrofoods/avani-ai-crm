@@ -3,6 +3,9 @@ import connectToDatabase from '@/lib/db';
 import { Schedule } from '@/models/Schedule';
 import { Lead } from '@/models/Lead';
 import { ProviderRouter } from '@/lib/provider-router';
+import mongoose from 'mongoose';
+
+export const dynamic = 'force-dynamic';
 
 export async function GET(req: Request) {
   try {
@@ -15,7 +18,8 @@ export async function GET(req: Request) {
     }
 
     const conn = await connectToDatabase();
-    if (!conn || conn.connection?.readyState !== 1) {
+    const readyState = mongoose.connection?.readyState ?? conn?.connection?.readyState;
+    if (!conn || readyState !== 1) {
       return NextResponse.json(
         { success: false, error: 'DATABASE_UNAVAILABLE', message: 'Database offline.' },
         { status: 503 }
