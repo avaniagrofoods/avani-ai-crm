@@ -23,11 +23,13 @@ export interface IConversation extends Document {
     | 'REENGAGEMENT'
     | 'OPTED_OUT'
     | 'CLOSED';
+  currentState?: string;
   currentSubStage?: string;
   product?: string;
   language: string;
   lastInboundAt?: Date;
   lastOutboundAt?: Date;
+  lastInboundMessageId?: string;
   lastTemplate?: string;
   lastProviderMessageId?: string;
   qualificationStatus: 'PENDING' | 'QUALIFIED' | 'DISQUALIFIED';
@@ -74,11 +76,13 @@ const ConversationSchema: Schema = new Schema(
       default: 'NEW_LEAD',
       index: true
     },
+    currentState: { type: String, default: 'NEW_LEAD' },
     currentSubStage: { type: String, default: 'INIT' },
     product: { type: String, default: 'PERSONAL_LOAN' },
     language: { type: String, default: 'en' },
     lastInboundAt: { type: Date },
     lastOutboundAt: { type: Date },
+    lastInboundMessageId: { type: String },
     lastTemplate: { type: String },
     lastProviderMessageId: { type: String },
     qualificationStatus: { type: String, enum: ['PENDING', 'QUALIFIED', 'DISQUALIFIED'], default: 'PENDING' },

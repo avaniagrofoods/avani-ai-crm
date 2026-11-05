@@ -207,6 +207,7 @@ export async function POST(request: Request) {
             conversationId: `CONV-${Date.now()}-${Math.random().toString(36).substring(7)}`,
             leadId: leadId || 'UNKNOWN',
             customerPhone: fromPhone,
+            currentStage: 'NEW_LEAD',
             currentState: 'NEW_LEAD',
             language: 'en',
             context: {}
@@ -241,6 +242,7 @@ export async function POST(request: Request) {
           if (conversation) {
             conversation.optOutStatus = true;
             conversation.currentState = 'OPTED_OUT';
+            conversation.currentStage = 'OPTED_OUT';
             await conversation.save();
           }
 

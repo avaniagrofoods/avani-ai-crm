@@ -18,6 +18,7 @@ const testFiles = [
   { name: 'test_chatmitra_webhook_live_contract.test.cjs', type: 'ChatMitra Webhook Live Contract & Deduplication' },
   { name: 'test_inbound_message_persistence_and_crm_inbox.test.cjs', type: 'Inbound Message Persistence & CRM Inbox' },
   { name: 'test_cp21_automation_and_entitlements.test.cjs', type: 'CP-21 ChatMitra Pro Automation & Entitlements' },
+  { name: 'test_cp22_pre_pro_automation_readiness.test.cjs', type: 'CP-22 Pre-Pro Automation Readiness & Defect Repair' },
 ];
 
 console.log('================================================================================');
