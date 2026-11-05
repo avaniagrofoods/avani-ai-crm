@@ -42,7 +42,7 @@ export async function GET(request: Request) {
     },
     environment: {
       appMode: process.env.APP_MODE || 'production',
-      providerMode: process.env.PROVIDER_MODE || 'live'
+      providerMode: process.env.PROVIDER_MODE || 'mock'
     },
     integrations: {}
   };

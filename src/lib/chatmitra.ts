@@ -58,6 +58,12 @@ export interface PayloadValidationResult {
   profileName?: string;
 }
 
+export { 
+  normalizeMessageStatus, 
+  CANONICAL_MESSAGE_STATUSES, 
+  type CanonicalMessageStatus 
+} from './message-status';
+
 /**
  * Validates HMAC-SHA256 signature from ChatMitra / ChatMantra webhooks.
  * Official header: X-Webhook-Signature (plain hex or sha256= prefix).

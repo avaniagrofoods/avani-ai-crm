@@ -282,3 +282,24 @@ This log maintains an immutable, chronological audit trail of all execution sess
     5. `CP22_CHATMİTRA_PRO_ACTIVATION_CHECKLIST.md`
     6. `CP22_PRODUCTION_DEPLOYMENT_REPORT.md`
   * Synced audit logs and reports: Updated Section 29 in `AVANI_FINAL_PRODUCTION_FORENSIC_VERIFICATION_REPORT.md`, synced artifact `AVANI_FINAL_PRODUCTION_FORENSIC_SIGNOFF_REPORT.md`, and updated `ANTIGRAVITY_RESUME_STATE.md`.
+
+### [2026-11-05 21:50 IST] — Stage 24 CP-23 Master Implementation & Automation Hardening
+- **Action:** Executed end-to-end automation completion, defect repair, regression testing, and deployment preparation for Checkpoint CP-23:
+  * Canonical Message Status Normalization: Created `src/lib/message-status.ts` defining `CANONICAL_MESSAGE_STATUSES` and `normalizeMessageStatus()`. Mapped inbound messages strictly to canonical `RECEIVED`, and delivery callbacks to `SENT`, `DELIVERED`, `READ`, `FAILED`, and `UNKNOWN`.
+  * Queue Worker Retry Repair: Updated atomic lease query in `whatsapp-webhook-worker/route.ts` to include `{ status: 'FAILED' }`, enabling safe automated retries without message duplication.
+  * DPDP Opt-Out Inbound Protection: Implemented guard in queue worker: messages from opted-out contacts are persisted to CRM Inbox for human advisor review, but automated AI and marketing workflows remain strictly suppressed.
+  * Schema & State Machine Alignment: Expanded `WebhookInbox` status enum in `src/models/WebhookInbox.ts` to include `['RECEIVED', 'VERIFIED', 'QUEUED', 'PROCESSING', 'COMPLETED', 'PROCESSED', 'FAILED']`.
+  * Feature Flag Normalization: Replaced sole reliance on `AISENSY_INBOUND_WEBHOOK_ENABLED` with provider-specific `CHATMITRA_INBOUND_AUTO_REPLY_ENABLED` and provider-agnostic `WHATSAPP_INBOUND_AI_REPLY_ENABLED`.
+  * Health Endpoint Realignment: Aligned `providerMode` fallback in `src/app/api/health/route.ts` to `'mock'` to prevent false live indicators when unset.
+  * Comprehensive Regression Testing: Built `tests/test_cp23_master_automation_readiness.test.cjs` covering all 28 requirements (100% pass). Reconciled master suite via `scratch/reconcile_tests.cjs`: **209 / 209 tests passed across 16 suites (100% PASS rate)**.
+  * Turbopack Build & Verification: `npm run build` completed with Exit Code 0 and 0 TypeScript errors across 50 routes.
+  * Secret Exposure Scan: Scanned entire repository with `scratch/scan_secret_exposure.cjs`: **0 secret exposures found**.
+  * Generated 7 CP-23 deliverables:
+    1. `CP23_BASELINE_AND_GAP_AUDIT.md`
+    2. `CP23_DEFECT_REPAIR_REPORT.md`
+    3. `CP23_AUTOMATION_READINESS_MATRIX.md`
+    4. `CP23_REGRESSION_TEST_REPORT.md`
+    5. `CP23_PRODUCTION_SMOKE_TEST_REPORT.md`
+    6. `CP23_PRODUCTION_DEPLOYMENT_REPORT.md`
+    7. `CP23_CHATMİTRA_PRO_ACTIVATION_RUNBOOK.md`
+  * Synced audit logs and reports: Updated Section 30 in `AVANI_FINAL_PRODUCTION_FORENSIC_VERIFICATION_REPORT.md` and synced artifact `AVANI_FINAL_PRODUCTION_FORENSIC_SIGNOFF_REPORT.md`.

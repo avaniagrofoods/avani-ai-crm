@@ -12,6 +12,7 @@ import { WebhookInbox } from '@/models/WebhookInbox';
 import { Conversation } from '@/models/Conversation';
 import { AgentEngine } from '@/lib/ai-agent';
 import { OptOutEngine } from '@/lib/optout-engine';
+import { normalizeMessageStatus } from '@/lib/message-status';
 import mongoose from 'mongoose';
 
 export async function POST(request: Request) {
@@ -40,6 +41,7 @@ export async function POST(request: Request) {
         eventId, 
         $or: [
           { status: 'RECEIVED' },
+          { status: 'FAILED' },
           { status: 'PROCESSING', leaseExpiresAt: { $lt: new Date() } }
         ]
       },
@@ -66,13 +68,13 @@ export async function POST(request: Request) {
            console.warn(`[Worker] Missing msgId or statusStr for STATUS_UPDATE. Payload:`, payload);
            return NextResponse.json({ success: true, bypassed: true });
         }
-        const formattedStatus = statusStr.toUpperCase();
+        const formattedStatus = normalizeMessageStatus(statusStr, 'outbound');
         const updateData: any = { status: formattedStatus };
-        if (statusStr.toLowerCase() === 'delivered') updateData.deliveredAt = new Date();
-        else if (statusStr.toLowerCase() === 'read') updateData.readAt = new Date();
-        else if (statusStr.toLowerCase() === 'failed') {
+        if (formattedStatus === 'DELIVERED') updateData.deliveredAt = new Date();
+        else if (formattedStatus === 'READ') updateData.readAt = new Date();
+        else if (formattedStatus === 'FAILED') {
           updateData.failedAt = new Date();
-          updateData.failureReason = statusObj.errors?.[0]?.title || 'Unknown Meta Error';
+          updateData.failureReason = statusObj?.errors?.[0]?.title || statusObj?.failureReason || 'Provider Delivery Failure';
         }
 
         const updatedMsg = await Message.findOneAndUpdate(
@@ -261,14 +263,33 @@ export async function POST(request: Request) {
           return NextResponse.json({ success: true, optedOut: true });
         }
 
-        // FEATURE FLAG GUARD: In 3-month BASIC mode, inbound AI autoreply is disabled
-        const isInboundAiEnabled = process.env.AISENSY_INBOUND_WEBHOOK_ENABLED === 'true' || 
+        // DPDP Act Guard: If contact is ALREADY opted out, do NOT trigger automated AI replies or promotional workflows
+        const isCurrentlyOptedOut = conversation.optOutStatus === true || 
+                                    conversation.currentStage === 'OPTED_OUT' || 
+                                    conversation.currentState === 'OPTED_OUT' ||
+                                    lead?.isOptedOut === true ||
+                                    lead?.status === 'OPTED_OUT';
+
+        if (isCurrentlyOptedOut) {
+          console.log(`[Worker DPDP Guard] Contact ${fromPhone} is opted out. Inbound message persisted to CRM Inbox; automated AI replies suppressed.`);
+          await conversation.save();
+          await WebhookInbox.updateOne(
+            { eventId },
+            { $set: { status: 'COMPLETED', processedAt: new Date() }, $unset: { leaseExpiresAt: 1 } }
+          );
+          return NextResponse.json({ success: true, optedOutSuppressed: true });
+        }
+
+        // FEATURE FLAG GUARD: Inbound AI auto-reply control (supports ChatMitra, WhatsApp, AiSensy, and test event prefixes)
+        const isInboundAiEnabled = process.env.CHATMITRA_INBOUND_AUTO_REPLY_ENABLED === 'true' ||
+                                   process.env.WHATSAPP_INBOUND_AI_REPLY_ENABLED === 'true' ||
+                                   process.env.AISENSY_INBOUND_WEBHOOK_ENABLED === 'true' || 
                                    eventId.startsWith('SYNTHETIC_') || 
                                    eventId.startsWith('TEST_') || 
                                    eventId.startsWith('INTEGRATION_');
 
         if (!isInboundAiEnabled) {
-          console.log(`[Worker] Basic Plan Safe Operating Mode: Real Inbound AI is disabled (AISENSY_INBOUND_WEBHOOK_ENABLED=false). Preserved for Human Live Chat.`);
+          console.log(`[Worker] Safe Operating Mode: Inbound AI auto-reply is disabled (CHATMITRA_INBOUND_AUTO_REPLY_ENABLED=false / AISENSY_INBOUND_WEBHOOK_ENABLED=false). Preserved for Human Live Chat.`);
           if (lead) {
             await Lead.findByIdAndUpdate(lead._id, { 
               $set: { 

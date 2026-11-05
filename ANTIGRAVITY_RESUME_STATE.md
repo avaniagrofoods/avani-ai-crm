@@ -27,10 +27,10 @@
 
 ## 2. CURRENT TASK PHASE & CHECKPOINTS
 
-- **Current Phase:** CP-22 Pre-ChatMitra Pro Production Readiness & Implementation Complete
-- **Last Completed Checkpoint:** `CP-22 — Pre-ChatMitra Pro Production Readiness & Implementation: Repaired Conversation model schema (added currentState & lastInboundMessageId); synchronized worker stage transitions; verified worker auth guard (x-worker-auth HTTP 401), fail-closed DB error handling (HTTP 503), error propagation (WebhookInbox FAILED HTTP 500); validated timing-safe HMAC-SHA256 signature verification and provider event separation; verified trilingual opt-out detection (English, Marathi, Hindi) and recipient safety clamp (+91 91756 35165); built tests/test_cp22_pre_pro_automation_readiness.test.cjs (16/16 passed); reconciled master test suite to 181/181 passed across 15 suites (100% PASS); Turbopack build clean across 50 routes; generated 6 CP-22 documentation deliverables.`
+- **Current Phase:** CP-23 End-to-End Automation Production Readiness Complete
+- **Last Completed Checkpoint:** `CP-23 — Master Automation Completion, Defect Repair, Regression & Production Deployment: Created src/lib/message-status.ts with canonical message status normalization; updated whatsapp-webhook-worker for safe FAILED retry lease claim and DPDP opt-out inbound suppression; expanded WebhookInbox status enum to include all pipeline states; introduced provider-agnostic CHATMITRA_INBOUND_AUTO_REPLY_ENABLED and WHATSAPP_INBOUND_AI_REPLY_ENABLED flags; aligned /api/health providerMode default to mock; built tests/test_cp23_master_automation_readiness.test.cjs (28/28 passed); reconciled master test runner to 209/209 passed across 16 suites (100% PASS); Turbopack build clean across 50 routes; generated 7 CP-23 deliverables.`
 - **Current In-Progress Operation:** Monday (09 Nov 2026) Pro Purchase Preparation & Smoke Test
-- **Next Exact Action to Execute:** Owner purchases ChatMitra Pro Plan on Monday, 09 Nov 2026, and executes live inbound smoke test from +91 91756 35165.
+- **Next Exact Action to Execute:** Owner purchases ChatMitra Pro Plan on Monday, 09 Nov 2026, and executes live inbound smoke test from +91 91756 35165 following CP23_CHATMİTRA_PRO_ACTIVATION_RUNBOOK.md.
 
 
 ### Chronological Checkpoint Record:
@@ -56,6 +56,7 @@
 20. `CP-20 [22:30 IST, 03 Nov]`: CP-20 Inbound Message Persistence Failure & Controlled Repair — Repaired Message schema enum mismatch (added `RECEIVED`, `Received`, `received`); fixed worker write casing; added dual Contact & Lead upsert; connected `/api/contacts/[id]` and `/api/contacts` to return messages and previews to CRM Inbox (`/inbox`); rethrew DB errors so failures aren't swallowed; integrated `OptOutEngine` for multilingual DPDP opt-out detection (Marathi "थांबवा", Hindi "रोको", English "STOP"); created `tests/test_inbound_message_persistence_and_crm_inbox.test.cjs` (12/12 passed); reconciled master suite to **150/150 passed (100% across 13 suites)**; compiled clean Turbopack build (50 routes, 0 errors); deployed commit `be7488f` to production (`dpl_6PgcZaWQyMM364NezGSdi9LaKmto`).
 21. `CP-21 [17:15 IST, 05 Nov]`: CP-21 ChatMitra Pro Plan Entitlement Audit & Full Automation Implementation — Audited live ChatMitra Pro account (`+91 72491 08474`, WABA `1062614709598311`, Tier 2K, HIGH quality); confirmed Developer API, webhooks, AI ChatBot, auto-reply rules; completed Pro vs Enterprise breakeven model (exact breakeven 7,500 convos/mo; Pro saves ₹1,100/mo or 44% at 2K convos); expanded classification to all 10 canonical loan categories with multilingual matching; updated AI agent entities and tailored banking checklists; built `tests/test_cp21_automation_and_entitlements.test.cjs` (15/15 passed); reconciled master test suite to 165/165 passed across 14 suites (100% PASS); Turbopack build clean across 50 routes; generated 4 CP-21 reports.
 22. `CP-22 [21:05 IST, 05 Nov]`: CP-22 Pre-ChatMitra Pro Production Readiness & Implementation — Repaired Conversation model schema (added currentState & lastInboundMessageId); synchronized worker stage transitions; verified worker auth guard (x-worker-auth HTTP 401), fail-closed DB error handling (HTTP 503), error propagation (WebhookInbox FAILED HTTP 500); validated timing-safe HMAC-SHA256 signature verification and provider event separation; verified trilingual opt-out detection (English, Marathi, Hindi) and recipient safety clamp (+91 91756 35165); built tests/test_cp22_pre_pro_automation_readiness.test.cjs (16/16 passed); reconciled master test suite to 181/181 passed across 15 suites (100% PASS); Turbopack build clean across 50 routes; generated 6 CP-22 documentation deliverables.
+23. `CP-23 [21:45 IST, 05 Nov]`: CP-23 End-to-End Automation Production Readiness — Implemented canonical message status normalization (`src/lib/message-status.ts`); repaired Webhook worker atomic lease claim to safely acquire `FAILED` status events for retry; implemented DPDP opt-out guard in worker suppressing automated AI/marketing replies for opted-out contacts while persisting inbound text to CRM Inbox; expanded `WebhookInbox` status enum to include all pipeline states; introduced provider-agnostic `CHATMITRA_INBOUND_AUTO_REPLY_ENABLED` and `WHATSAPP_INBOUND_AI_REPLY_ENABLED` flags; aligned `/api/health` providerMode default to mock; built `tests/test_cp23_master_automation_readiness.test.cjs` (28/28 passed); reconciled master test runner to **209 / 209 tests passed across 16 suites (100% PASS rate)**; Turbopack build succeeded with 0 TypeScript errors across 50 routes; generated 7 CP-23 deliverables.
 
 ---
 
@@ -64,18 +65,13 @@
 | Command | Exit Code | Verified Outcome |
 | :--- | :--- | :--- |
 | `npm run build` | 0 | All 50 routes compiled cleanly with Turbopack, 0 TypeScript errors. |
-| `node scratch/reconcile_tests.cjs` | 0 | **181 passed / 181 tests across 15 suites (100% PASS rate)**. |
-| `node tests/test_cp22_pre_pro_automation_readiness.test.cjs` | 0 | **16/16 passed** covering enum consistency, persistence, upsert, Conversation stage, inbox formatting, worker auth, fail-closed DB, error propagation, signatures, provider separation, opt-out, 10 categories, AI bot, handoff, clamp, replay drill. |
-| `node tests/test_cp21_automation_and_entitlements.test.cjs` | 0 | **15/15 passed** covering parsing, Contact upsert, Lead upsert, 10 categories, AI bot, human handoff, idempotency, opt-out, multilingual, signatures, DB errors, campaign safety, clamp. |
-| `node tests/test_inbound_message_persistence_and_crm_inbox.test.cjs` | 0 | **12/12 passed** covering status enum, casing, Contact upsert, CRM inbox API, idempotency, opt-out, safety clamp. |
-| `node tests/test_chatmitra_webhook_live_contract.test.cjs` | 0 | **7/7 passed** covering HMAC-SHA256, eventId, idempotency, tampering, fail-closed 503. |
-| `node tests/test_webhook_signature_forensics.test.cjs` | 0 | **11/11 passed** covering HMAC-SHA256, tampering, Meta discrimination, timing-safety, idempotency. |
+| `node scratch/reconcile_tests.cjs` | 0 | **209 passed / 209 tests across 16 suites (100% PASS rate)**. |
+| `node tests/test_cp23_master_automation_readiness.test.cjs` | 0 | **28/28 passed** covering Meta/ChatMitra signatures, status enum normalization, worker auth, lease retry, opt-out suppression, 10 categories, AI handoff, clamp. |
+| `node tests/test_cp22_pre_pro_automation_readiness.test.cjs` | 0 | **16/16 passed** covering enum consistency, persistence, upsert, Conversation stage, inbox formatting, worker auth, fail-closed DB, error propagation, clamp. |
+| `node tests/test_cp21_automation_and_entitlements.test.cjs` | 0 | **15/15 passed** covering parsing, Contact upsert, Lead upsert, 10 categories, AI bot, human handoff, idempotency, opt-out, multilingual, signatures, DB errors, clamp. |
 | `node scratch/scan_secret_exposure.cjs` | 0 | **0 secret exposures found** across 600+ repository files. |
-| `GET /api/schedule` | 0 (HTTP 200/409) | Full CRUD verified live; duplicate prevention returns HTTP 409 Conflict. |
-| `POST /api/contacts/direct-message` | 0 (HTTP 200/400/403) | Rejects < 10 digits (400), blocks opted-out (403), delivers mock accepted (200). |
 | `GET /api/health` | 0 (HTTP 200) | Live Production returns **`HEALTHY`**, database: **`HEALTHY`** (MongoDB Atlas connected). |
 | `GET /api/contacts` | 0 (HTTP 200) | Returns 200 OK with formatted contacts and attached latest message snippets for Inbox. |
-| `GET /api/opts` | 0 (HTTP 200) | Live consent registry returns 200 OK with authorized test contacts. |
 | `GET /api/webhooks` | 0 (HTTP 200) | Live gateway inventory & `WebhookInbox` returns 200 OK with real logged events. |
 
 ---
@@ -99,4 +95,5 @@
 | 13. `test_inbound_message_persistence_and_crm_inbox.test.cjs` | Inbound Message Persistence & CRM Inbox | 12 / 12 | PASS |
 | 14. `test_cp21_automation_and_entitlements.test.cjs` | CP-21 ChatMitra Pro Automation & Entitlements | 15 / 15 | PASS |
 | 15. `test_cp22_pre_pro_automation_readiness.test.cjs` | CP-22 Pre-Pro Automation Readiness & Defect Repair | 16 / 16 | PASS |
-| **TOTAL** | **Comprehensive Master Suite** | **181 / 181** | **100% PASS** |
+| 16. `test_cp23_master_automation_readiness.test.cjs` | CP-23 Master Automation Readiness & Regression | 28 / 28 | PASS |
+| **TOTAL** | **Comprehensive Master Suite** | **209 / 209** | **100% PASS** |

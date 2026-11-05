@@ -8,7 +8,7 @@ const WebhookInboxSchema = new mongoose.Schema({
   payload: { type: mongoose.Schema.Types.Mixed },
   status: {
     type: String,
-    enum: ['RECEIVED', 'PROCESSING', 'COMPLETED', 'FAILED'],
+    enum: ['RECEIVED', 'VERIFIED', 'QUEUED', 'PROCESSING', 'COMPLETED', 'PROCESSED', 'FAILED'],
     default: 'RECEIVED'
   },
   receivedAt: { type: Date, default: Date.now },
