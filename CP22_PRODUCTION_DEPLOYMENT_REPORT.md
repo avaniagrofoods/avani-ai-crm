@@ -23,12 +23,12 @@ All 15 defect areas and 16 automated regression tests have been validated. Branc
 | Metric / Parameter | Production Value | Verification Method |
 | :--- | :--- | :--- |
 | **Git Remote** | `origin -> https://github.com/avaniagrofoods/avani-ai-crm.git` | Verified via `git remote -v` |
-| **Commit Target** | CP-22 Release Commit | Verified via `git log -n 1` |
+| **Commit Target** | `1561832` (`feat(cp22): complete pre-chatmitra pro automation readiness...`) | Verified via `git log -n 1` |
 | **Release Branch Parity** | `main` === `release/stage1-hardening` (0 ahead, 0 behind) | Verified via `git diff main release/stage1-hardening` |
 | **Next.js Turbopack Build** | Exit Code 0, 50/50 routes compiled | Verified via `npm run build` |
 | **Automated Test Results** | **181 / 181 Passed (100% across 15 suites)** | Verified via `scratch/reconcile_tests.cjs` |
 | **Secret Scanning** | **0 secret exposures** across 600+ repository files | Verified via `scratch/scan_secret_exposure.cjs` |
-| **Vercel Production Deployment** | Ready, Aliased to `https://avani-ai-crm.vercel.app` | Verified via `vercel inspect` / deployment output |
+| **Vercel Production Deployment** | `dpl_4FVCZeyZUGj9o5m5i8Z2hkrUBPFG` (`https://avani-ai-crm.vercel.app`) | Verified live via deployment output & `GET /api/health` |
 | **Production Health API** | HTTP 200 OK (`status: "HEALTHY"`, `databaseReady: true`) | Verified live via `GET /api/health` |
 | **ChatMitra Webhook Security** | HTTP 401 Unauthorized on unsigned requests | Verified live via `POST /api/chatmitra-webhook` |
 
