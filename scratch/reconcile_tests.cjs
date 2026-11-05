@@ -17,6 +17,7 @@ const testFiles = [
   { name: 'test_webhook_signature_forensics.test.cjs', type: 'Webhook Signature Forensics & Provider Discrimination' },
   { name: 'test_chatmitra_webhook_live_contract.test.cjs', type: 'ChatMitra Webhook Live Contract & Deduplication' },
   { name: 'test_inbound_message_persistence_and_crm_inbox.test.cjs', type: 'Inbound Message Persistence & CRM Inbox' },
+  { name: 'test_cp21_automation_and_entitlements.test.cjs', type: 'CP-21 ChatMitra Pro Automation & Entitlements' },
 ];
 
 console.log('================================================================================');

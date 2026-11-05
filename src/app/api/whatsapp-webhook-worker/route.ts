@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { sendAiSensyWhatsApp } from '@/lib/aisensy';
-import { sendChatMitraMessage } from '@/lib/chatmitra';
+import { sendChatMitraMessage, classifyLoanCategory } from '@/lib/chatmitra';
 import { FollowUpEngine } from '@/lib/followup-engine';
 import { normalizeIndianPhone } from '@/lib/phone';
 import connectToDatabase from '@/lib/db';
@@ -116,19 +116,28 @@ export async function POST(request: Request) {
 
         if (!incomingText) incomingText = "Namaste, I want to apply for a loan";
 
+        const classifiedLoan = classifyLoanCategory(incomingText);
         let leadId = null;
         let lead = null;
         try {
           lead = await Lead.findOneAndUpdate(
             { phone: fromPhone },
             { 
-              $set: { phone: fromPhone, lastInteractionAt: new Date() },
+              $set: { 
+                phone: fromPhone, 
+                lastInteractionAt: new Date(),
+                loanType: classifiedLoan.category
+              },
               $setOnInsert: { 
-                name: profileName, 
+                name: profileName || 'Customer', 
                 leadSource: 'WhatsApp Inbound', 
                 status: 'New',
                 leadId: `AVL-${new Date().toISOString().slice(0,10).replace(/-/g,'')}-${Math.floor(Math.random()*1000000).toString().padStart(6,'0')}`,
-                correlationId: correlationId
+                correlationId: correlationId,
+                consentStatus: 'GRANTED',
+                consentPurpose: 'LOAN_ELIGIBILITY_PROCESSING',
+                consentTimestamp: new Date(),
+                preferredLanguage: /[\u0900-\u097F]/.test(incomingText) ? (incomingText.includes('आहे') ? 'Marathi' : 'Hindi') : 'English'
               }
             },
             { new: true, upsert: true }

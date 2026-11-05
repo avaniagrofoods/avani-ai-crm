@@ -109,47 +109,67 @@ export const formatChatMantraPhone = formatChatMitraPhone;
 
 /**
  * Identifies and classifies loan products from customer inbound messages
- * Supporting AVANI LOAN SERVICES 8 canonical categories.
+ * Supporting AVANI LOAN SERVICES 10 canonical categories (Workflow 2):
+ * 1. Personal Loan
+ * 2. Business Loan
+ * 3. Doctor Loan
+ * 4. CA Professional Loan
+ * 5. Home Loan
+ * 6. Mortgage Loan / LAP
+ * 7. Education Loan — India
+ * 8. Education Loan — Global Studies
+ * 9. School Funding
+ * 10. College Funding
  */
 export function classifyLoanCategory(text: string): InboundLoanClassification {
   const lower = (text || '').toLowerCase().trim();
 
   // 1. Doctor Loan
-  if (/(\bdoctor\b|\bmbbs\b|\bclinic\b|\bhospital\b|\bmedical practice\b|\bpharma\b|\bmd\b|\bdr\b)/i.test(lower)) {
+  if (/(\bdoctor\b|\bmbbs\b|\bclinic\b|\bhospital\b|\bmedical practice\b|\bpharma\b|\bmd\b|\bdr\b|\bbds\b|\bbams\b|\bbhms\b|डॉक्टर|दवाखाना|रुग्णालय)/i.test(lower)) {
     return { category: 'Doctor Loan', template: 'doctor_loan_offer', confidence: 0.95 };
   }
 
-  // 2. Education Loan — Global Studies
-  if (/(\babroad\b|\boverseas\b|\busa\b|\buk\b|\bcanada\b|\bgermany\b|\baustralia\b|\bms abroad\b|\bgre\b|\bielts\b)/i.test(lower)) {
+  // 2. CA Professional Loan
+  if (/(\bca\b|\bchartered accountant\b|\bicai\b|\bcop\b|\baudit firm\b|\btax audit\b|\bca loan\b|\bca professional\b|चार्टर्ड अकाउंटंट|सीए)/i.test(lower)) {
+    return { category: 'CA Professional Loan', template: 'ca_professional_loan_welcome', confidence: 0.95 };
+  }
+
+  // 3. Education Loan — Global Studies
+  if (/(\babroad\b|\boverseas\b|\busa\b|\buk\b|\bcanada\b|\bgermany\b|\baustralia\b|\bms abroad\b|\bgre\b|\bielts\b|\btoefl\b|परदेशात शिक्षण|विदेश पढ़ाई)/i.test(lower)) {
     return { category: 'Education Loan — Global Studies', template: 'education_loan_abroad_welcome', confidence: 0.93 };
   }
 
-  // 3. Education Loan — India
-  if (/(\btuition\b|\bcollege fees\b|\bengineering\b|\bmba\b|\buniversity\b|\bstudy\b|\beducation\b)/i.test(lower)) {
+  // 4. Education Loan — India
+  if (/(\btuition\b|\beducation loan\b|\bstudent loan\b|\bcollege fees\b|\bengineering fees\b|\bmba fees\b|\buniversity fees\b|\bstudy\b|\beducation\b|\bneet\b|\bjee\b|\biim\b|\biit\b|शिक्षण कर्ज|एजुकेशन लोन)/i.test(lower)) {
     return { category: 'Education Loan — India', template: 'education_loan_india_welcome', confidence: 0.90 };
   }
 
-  // 4. School and College Owners Funding
-  if (/(\bschool\b|\bcollege\b|\binstitute\b|\beducational trust\b|\bcampus\b|\bhostel\b|\binstitutional\b)/i.test(lower)) {
-    return { category: 'School and College Owners Funding', template: 'school_owner_funding_welcome', confidence: 0.92 };
+  // 5. School Funding
+  if (/(\bschool\b|\bschool funding\b|\bschool loan\b|\bcbse school\b|\bicse school\b|\bschool campus\b|\bk-12\b|\btrust school\b|शाळा|स्कूल)/i.test(lower)) {
+    return { category: 'School Funding', template: 'school_owner_funding_welcome', confidence: 0.94 };
   }
 
-  // 5. Mortgage Loan / Loan Against Property (LAP)
-  if (/(\blap\b|\bmortgage\b|\bproperty\b|\bagainst property\b|\bcommercial property\b|\bplot\b)/i.test(lower)) {
-    return { category: 'Mortgage Loan / Loan Against Property', template: 'lap_loan_welcome', confidence: 0.91 };
+  // 6. College Funding
+  if (/(\bcollege\b|\bcollege funding\b|\bcollege loan\b|\buniversity campus\b|\bengineering college\b|\bmedical college\b|\bpolytechnic\b|\baicte\b|\bugc\b|महाविद्यालय|कॉलेज)/i.test(lower)) {
+    return { category: 'College Funding', template: 'college_funding_welcome', confidence: 0.94 };
   }
 
-  // 6. Home Loan
-  if (/(\bhome\b|\bflat\b|\bhouse\b|\bconstruction\b|\bresidential\b|\bplot purchase\b|\bapartment\b)/i.test(lower)) {
+  // 7. Mortgage Loan / LAP
+  if (/(\blap\b|\bmortgage\b|\bproperty\b|\bagainst property\b|\bcommercial property\b|\bplot\b|मॉर्गिज|प्रॉपर्टी कर्ज)/i.test(lower)) {
+    return { category: 'Mortgage Loan / LAP', template: 'lap_loan_welcome', confidence: 0.91 };
+  }
+
+  // 8. Home Loan
+  if (/(\bhome\b|\bflat\b|\bhouse\b|\bconstruction\b|\bresidential\b|\bplot purchase\b|\bapartment\b|गृहकर्ज|घर खरेदी|होम लोन)/i.test(lower)) {
     return { category: 'Home Loan', template: 'home_loan_welcome', confidence: 0.90 };
   }
 
-  // 7. Business Loan
-  if (/(\bbusiness\b|\bmsme\b|\bgst\b|\bworking capital\b|\bod\b|\bcc\b|\bmachinery\b|\bfirm\b|\btrade\b|\bpvt ltd\b)/i.test(lower)) {
+  // 9. Business Loan
+  if (/(\bbusiness\b|\bmsme\b|\bgst\b|\bworking capital\b|\bod\b|\bcc\b|\bmachinery\b|\bfirm\b|\btrade\b|\bpvt ltd\b|व्यापार कर्ज|बिझनेस)/i.test(lower)) {
     return { category: 'Business Loan', template: 'business_loan_welcome', confidence: 0.88 };
   }
 
-  // 8. Default: Personal Loan
+  // 10. Default: Personal Loan
   return { category: 'Personal Loan', template: 'Avani_Loan_Welcome', confidence: 0.75 };
 }
 
