@@ -24,12 +24,14 @@ All 6 confirmed defects have been repaired, 28 regression tests have been added 
 | Metric / Parameter | Production Value | Verification Method |
 | :--- | :--- | :--- |
 | **Git Remote** | `origin -> https://github.com/avaniagrofoods/avani-ai-crm.git` | Verified via `git remote -v` |
-| **Target Commit** | CP-23 Release Commit | Verified via `git log -n 1` |
+| **Target Commit** | `a8b621a` (CP-23 Master Implementation) | Verified via `git log -n 1` |
 | **Release Branch Parity** | `main` === `release/stage1-hardening` (0 ahead, 0 behind) | Verified via `git diff main release/stage1-hardening` |
 | **Next.js Turbopack Build** | Exit Code 0, 50/50 routes compiled | Verified via `npm run build` |
 | **Automated Test Results** | **209 / 209 Passed (100% across 16 suites)** | Verified via `scratch/reconcile_tests.cjs` |
 | **Secret Scanning** | **0 secret exposures** across 600+ repository files | Verified via `scratch/scan_secret_exposure.cjs` |
-| **Vercel Production Deployment** | Ready, Aliased to `https://avani-ai-crm.vercel.app` | Verified via Vercel CLI & live probes |
+| **Vercel Production Deployment** | `dpl_GEDfiPYZfnSsGS4eCMLyPWnGJQEy` (READY) | Verified via Vercel CLI (`27s` build) |
+| **Deployment URL** | `https://avani-ai-gonh5j7ha-avaniagrofoods1356-4705s-projects.vercel.app` | Verified via Vercel CLI |
+| **Aliased Production URL** | `https://avani-ai-crm.vercel.app` | HTTP 200 OK verified via `curl.exe` |
 | **Production Health API** | HTTP 200 OK (`status: "HEALTHY"`, `databaseReady: true`) | Verified live via `GET /api/health` |
 | **ChatMitra Webhook Security** | HTTP 401 Unauthorized on unsigned requests | Verified live via `POST /api/chatmitra-webhook` |
 | **Meta Webhook Security** | HTTP 401 Unauthorized on unsigned requests | Verified live via `POST /api/whatsapp-webhook` |
