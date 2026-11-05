@@ -19,8 +19,8 @@ The master regression reconciliation runner (`scratch/reconcile_tests.cjs`) exec
 | **Total Test Suites Executed** | **16 / 16** |
 | **Passed Suites** | **16 (100.0%)** |
 | **Failed Suites** | **0 (0.0%)** |
-| **Total Unit & Integration Tests Run** | **209** |
-| **Total Tests Passed** | **209 (100.0%)** |
+| **Total Unit & Integration Tests Run** | **211** |
+| **Total Tests Passed** | **211 (100.0%)** |
 | **Total Tests Failed** | **0** |
 | **Total Tests Skipped** | **0** |
 | **Master Pass Rate** | **100.0%** |
@@ -48,7 +48,7 @@ The master regression reconciliation runner (`scratch/reconcile_tests.cjs`) exec
 | **13** | `test_inbound_message_persistence_and_crm_inbox.test.cjs`| Inbound Message Persistence & CRM Inbox | 12 | 0 | 12 | 🟢 **PASS** |
 | **14** | `test_cp21_automation_and_entitlements.test.cjs` | CP-21 ChatMitra Pro Automation & Entitlements | 15 | 0 | 15 | 🟢 **PASS** |
 | **15** | `test_cp22_pre_pro_automation_readiness.test.cjs` | CP-22 Pre-Pro Automation Readiness & Defect Repair | 16 | 0 | 16 | 🟢 **PASS** |
-| **16** | `test_cp23_master_automation_readiness.test.cjs` | CP-23 Master Automation Readiness & Regression | 28 | 0 | 28 | 🟢 **PASS** |
+| **16** | `test_cp23_master_automation_readiness.test.cjs` | CP-23 Master Automation Readiness & Regression | 30 | 0 | 30 | 🟢 **PASS** |
 
 ---
 

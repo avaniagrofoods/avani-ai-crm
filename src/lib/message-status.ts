@@ -110,3 +110,45 @@ export function normalizeMessageStatus(
     }
   }
 }
+
+export const STATUS_DELIVERY_RANK: Record<string, number> = {
+  'QUEUED': 1,
+  'PROCESSING': 2,
+  'DISPATCHED': 3,
+  'PROVIDER_REQUESTED': 4,
+  'PROVIDER_ACCEPTED': 5,
+  'API_ACCEPTED': 6,
+  'SENT': 10,
+  'DELIVERED': 20,
+  'READ': 30,
+  'CUSTOMER_REPLIED': 40,
+  'FAILED': 50
+};
+
+/**
+ * Determines whether a message can transition from currentStatus to newStatus,
+ * preventing out-of-order delivery receipts from downgrading a higher state (e.g. READ -> DELIVERED).
+ */
+export function canTransitionStatus(currentStatus?: string, newStatus?: string): boolean {
+  if (!currentStatus) return true;
+  if (!newStatus) return false;
+
+  const currentUpper = currentStatus.trim().toUpperCase();
+  const newUpper = newStatus.trim().toUpperCase();
+
+  if (currentUpper === newUpper) return true;
+
+  const currentRank = STATUS_DELIVERY_RANK[currentUpper] || 0;
+  const newRank = STATUS_DELIVERY_RANK[newUpper] || 0;
+
+  // Prevent downgrades in the delivery receipt progression:
+  // If already READ (30), do not downgrade to DELIVERED (20) or SENT (10)
+  // If already DELIVERED (20), do not downgrade to SENT (10)
+  // If already CUSTOMER_REPLIED (40), do not downgrade to delivery callbacks
+  if (currentRank > 0 && newRank > 0 && newRank < currentRank) {
+    return false;
+  }
+
+  return true;
+}
+

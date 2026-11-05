@@ -60,6 +60,8 @@ export interface PayloadValidationResult {
 
 export { 
   normalizeMessageStatus, 
+  canTransitionStatus,
+  STATUS_DELIVERY_RANK,
   CANONICAL_MESSAGE_STATUSES, 
   type CanonicalMessageStatus 
 } from './message-status';
@@ -171,7 +173,7 @@ export function classifyLoanCategory(text: string): InboundLoanClassification {
   }
 
   // 9. Business Loan
-  if (/(\bbusiness\b|\bmsme\b|\bgst\b|\bworking capital\b|\bod\b|\bcc\b|\bmachinery\b|\bfirm\b|\btrade\b|\bpvt ltd\b|व्यापार कर्ज|बिझनेस)/i.test(lower)) {
+  if (/(\bbusiness\b|\bmsme\b|\bgst\b|\bworking capital\b|\bod\b|\bcc\b|\bmachinery\b|\bfirm\b|\btrade\b|\bpvt ltd\b|व्यापार कर्ज|व्यापार|बिझनेस|बिजनेस|धंधा)/i.test(lower)) {
     return { category: 'Business Loan', template: 'business_loan_welcome', confidence: 0.88 };
   }
 

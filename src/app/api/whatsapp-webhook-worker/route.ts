@@ -12,7 +12,7 @@ import { WebhookInbox } from '@/models/WebhookInbox';
 import { Conversation } from '@/models/Conversation';
 import { AgentEngine } from '@/lib/ai-agent';
 import { OptOutEngine } from '@/lib/optout-engine';
-import { normalizeMessageStatus } from '@/lib/message-status';
+import { normalizeMessageStatus, canTransitionStatus } from '@/lib/message-status';
 import mongoose from 'mongoose';
 
 export async function POST(request: Request) {
@@ -69,10 +69,19 @@ export async function POST(request: Request) {
            return NextResponse.json({ success: true, bypassed: true });
         }
         const formattedStatus = normalizeMessageStatus(statusStr, 'outbound');
-        const updateData: any = { status: formattedStatus };
-        if (formattedStatus === 'DELIVERED') updateData.deliveredAt = new Date();
-        else if (formattedStatus === 'READ') updateData.readAt = new Date();
-        else if (formattedStatus === 'FAILED') {
+        const existingMsg = await Message.findOne({ providerMessageId: msgId });
+
+        const updateData: any = {};
+        // Guard against out-of-order delivery callback downgrades (e.g. READ -> DELIVERED)
+        if (!existingMsg || canTransitionStatus(existingMsg.status, formattedStatus)) {
+          updateData.status = formattedStatus;
+        }
+
+        if (formattedStatus === 'DELIVERED') {
+          if (!existingMsg?.deliveredAt) updateData.deliveredAt = new Date();
+        } else if (formattedStatus === 'READ') {
+          if (!existingMsg?.readAt) updateData.readAt = new Date();
+        } else if (formattedStatus === 'FAILED') {
           updateData.failedAt = new Date();
           updateData.failureReason = statusObj?.errors?.[0]?.title || statusObj?.failureReason || 'Provider Delivery Failure';
         }
