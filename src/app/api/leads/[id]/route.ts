@@ -32,17 +32,34 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     const body = await req.json();
     const resolvedParams = await params;
     
-    // Prevent id manipulation
     delete body._id;
     body.updatedAt = new Date();
 
+    const currentLead = await Lead.findById(resolvedParams.id);
+    if (!currentLead) return NextResponse.json({ success: false, error: 'Lead not found' }, { status: 404 });
+
+    // If stage is changing, record stageHistory audit
+    if (body.stage && body.stage !== currentLead.stage) {
+      if (!currentLead.stageHistory) currentLead.stageHistory = [];
+      currentLead.stageHistory.push({
+        stage: body.stage,
+        changedBy: body.changedBy || 'Sachin Shinde',
+        changedAt: new Date(),
+        reason: body.stageChangeReason || 'Manual stage transition',
+        notes: body.stageNotes || ''
+      });
+      // Also sync legacy status
+      body.status = body.stage;
+    }
+
     const lead = await Lead.findByIdAndUpdate(
       resolvedParams.id,
-      { $set: body },
+      { 
+        $set: body,
+        ...(currentLead.stageHistory ? { $set: { stageHistory: currentLead.stageHistory } } : {})
+      },
       { new: true }
     );
-
-    if (!lead) return NextResponse.json({ success: false, error: 'Lead not found' }, { status: 404 });
 
     return NextResponse.json({ success: true, lead });
   } catch (error: any) {

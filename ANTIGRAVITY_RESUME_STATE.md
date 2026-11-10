@@ -1,21 +1,33 @@
 # ANTIGRAVITY RESUME STATE — AVANI LOAN SERVICES (`3-AVANI AI CRM`)
 
-- **Current Checkpoint:** `CP-25.3.3 — Outbound Delivery Evidence & Deployment Reconciliation`
-- **Status:** `COMPLETED & CERTIFIED (DECISION 1: CONTROLLED CHATMITRA PRODUCTION OPERATIONS APPROVED)`
+- **Current Checkpoint:** `CP-26 — Lead-to-Revenue Operations, CRM Automation & Conversion Management`
+- **Status:** `COMPLETED & CERTIFIED`
 - **Business Entity:** `AVANI LOAN SERVICES` (`https://www.avanifinserv.com/`)
-- **Owner & Founder:** `Sachin Shinde`
+- **Owner & Founder / Chief Loan Advisor:** `Sachin Shinde` (`enquiry@avanifinserv.com`)
 - **Production Alias:** `https://avani-ai-crm.vercel.app`
 - **CRM Inbox:** `https://avani-ai-crm.vercel.app/inbox`
-- **Active Deployment ID:** `dpl_GNqXYSJPvzUSpx3fjikrfbM2RwbM` (Source Commit `c72ab79`)
-- **Automated Regression Suite:** `20 / 20 Suites Passed` (`305 / 305 Tests Passed — 100.0%`)
+- **Leads Pipeline:** `https://avani-ai-crm.vercel.app/leads`
+- **Executive Dashboard:** `https://avani-ai-crm.vercel.app/crm`
+- **Active Deployment ID:** `PENDING_DEPLOYMENT_SYNC`
+- **Automated Regression Suite:** `21 / 21 Suites Passed` (`325 / 325 Tests Passed — 100.0%`)
 - **Secret Exposure Scan:** `0 Exposures`
 - **Operating Architecture:**
+  - **20 Canonical Stages Lifecycle:** `RAW_ENQUIRY` through `DISBURSED`, with complete legacy status compatibility.
+  - **Qualification Engine:** 0–100 transparent scoring algorithm across 7 dimensions with automatic tier recommendations (`HOT_PRIORITY`, `WARM_OPPORTUNITY`, `NEEDS_FURTHER_INFO`, `LOW_PRIORITY`).
+  - **Follow-Up Automation:** D0 to D30 structured cadence with dynamic overdue status detection.
+  - **Document Checklists:** 9 loan product tailored checklists with mandatory vs. optional flag verification.
+  - **Multi-Lender Ecosystem:** Partner bank and NBFC directory (HDFC, Bajaj Finserv, SBI, ICICI, Poonawalla, Avanse).
+  - **Downstream Financial Controller:** Application Submission, Sanction Issuance, Disbursement Tracking, and Commission Settlement with outstanding balance reconciliation.
+  - **Executive Conversion Dashboard:** 7-stage visual funnel, conversion percentages, and revenue totals.
   - **Live WhatsApp Chatbot:** Handled natively by ChatMitra AI Platform over official WABA `+91 72491 08474` (WABA ID: `1062614709598311`).
-  - **Inbound Lead Ingestion & Webhooks:** Handled by AVANI AI CRM (`/api/meta-webhook` and `/api/chatmitra-webhook`), saving leads, messages, and conversation history to MongoDB Atlas.
-  - **CRM AI Auto-Reply:** Intentionally kept dormant (`CHATMITRA_INBOUND_AUTO_REPLY_ENABLED=false`) to prevent conflicting messages with ChatMitra bot.
-  - **Safety Mode:** `PROVIDER_MODE=mock`, `BULK_BROADCAST_ENABLED=false`, single-recipient clamp enforced (`919175635165`).
-  - **Human Advisor Workflow:** Inbound leads marked `CUSTOMER_REPLIED_HUMAN_FOLLOWUP` for advisor follow-up in CRM Inbox.
-- **Reports:**
-  - `CP25_3_3_OUTBOUND_DELIVERY_AND_DEPLOYMENT_RECONCILIATION.md`
-  - `CP25_3_2_LIVE_WHATSAPP_ACCEPTANCE_REPORT.md`
-  - `CP25_3_1_PRODUCTION_FORENSIC_AUDIT_REPORT.md`
+  - **Safety Mode:** `PROVIDER_MODE=mock`, `CHATMITRA_INBOUND_AUTO_REPLY_ENABLED=false`, `BULK_BROADCAST_ENABLED=false`, single-recipient clamp enforced (`919175635165`).
+- **Milestone Deliverables:**
+  - `CP26_IMPLEMENTATION_PLAN.md`
+  - `CP26_1_LEAD_MANAGEMENT_REPORT.md`
+  - `CP26_2_QUALIFICATION_FOLLOWUP_REPORT.md`
+  - `CP26_3_DOCUMENT_LENDER_REPORT.md`
+  - `CP26_4_SANCTION_REVENUE_REPORT.md`
+  - `CP26_5_PRODUCTION_SIGNOFF_REPORT.md`
+  - `CP26_DATABASE_SCHEMA_CHANGELOG.md`
+  - `CP26_TEST_EVIDENCE.md`
+  - `CP26_ROLLBACK_PLAN.md`

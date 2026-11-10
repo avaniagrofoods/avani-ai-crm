@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import connectToDatabase from '@/lib/db';
 import { Lead } from '@/models/Lead';
 import { Contact } from '@/models/Contact';
+import { mapLegacyStatusToStage } from '@/config/pipeline';
+import { FollowUpTaskEngine } from '@/lib/followup-task-engine';
 
 function normalizeIndianPhone(input: string): { formatted: string; raw10: string } | null {
   if (!input) return null;
@@ -18,14 +20,16 @@ function normalizeIndianPhone(input: string): { formatted: string; raw10: string
 
 function normalizeLoanCategory(loanType: string): string {
   const norm = String(loanType || '').toUpperCase().replace(/[^A-Z]/g, '');
-  if (norm.includes('DOCTOR') || norm.includes('MEDIC')) return 'DOCTOR_LOAN';
-  if (norm.includes('BUSIN') || norm.includes('COMMERC') || norm.includes('MSME')) return 'BUSINESS_LOAN';
-  if (norm.includes('MORTG') || norm.includes('LAP') || norm.includes('AGAINSTPROP')) return 'MORTGAGE_LOAN';
-  if (norm.includes('HOME') || norm.includes('HOUS')) return 'HOME_LOAN';
-  if (norm.includes('GLOBAL') || norm.includes('ABROAD') || norm.includes('OVERSEA')) return 'EDUCATION_LOAN_GLOBAL';
-  if (norm.includes('EDU') || norm.includes('STUD')) return 'EDUCATION_LOAN_INDIA';
-  if (norm.includes('SCHOOL') || norm.includes('COLLEGE') || norm.includes('INSTITUT')) return 'SCHOOL_COLLEGE_FUNDING';
-  return 'PERSONAL_LOAN';
+  if (norm.includes('DOCTOR') || norm.includes('MEDIC')) return 'Doctor Loan';
+  if (norm.includes('BUSIN') || norm.includes('COMMERC') || norm.includes('MSME')) return 'Business Loan';
+  if (norm.includes('MORTG') || norm.includes('LAP') || norm.includes('AGAINSTPROP')) return 'Mortgage Loan / LAP';
+  if (norm.includes('HOME') || norm.includes('HOUS')) return 'Home Loan';
+  if (norm.includes('GLOBAL') || norm.includes('ABROAD') || norm.includes('OVERSEA')) return 'Education Loan — Global Studies';
+  if (norm.includes('EDU') || norm.includes('STUD')) return 'Education Loan — India';
+  if (norm.includes('SCHOOL')) return 'School Funding';
+  if (norm.includes('COLLEGE')) return 'College Funding';
+  if (norm.includes('CA') || norm.includes('CHARTERED')) return 'CA Professional Loan';
+  return 'Personal Loan';
 }
 
 function generateCanonicalLeadId(): string {
@@ -45,24 +49,82 @@ export async function GET(req: Request) {
     }
     const { searchParams } = new URL(req.url);
     const phone = searchParams.get('phone');
+    const stage = searchParams.get('stage');
+    const product = searchParams.get('product');
+    const advisor = searchParams.get('advisor');
+    const city = searchParams.get('city');
+    const q = searchParams.get('q');
+    const followUpDue = searchParams.get('followUpDue');
     
     let query: any = {};
+
     if (phone) {
       const parsed = normalizeIndianPhone(phone);
       if (parsed) {
-        query = {
-          $or: [
-            { phone: parsed.formatted },
-            { phone: parsed.raw10 },
-            { normalizedMobile: parsed.raw10 }
-          ]
-        };
+        query.$or = [
+          { phone: parsed.formatted },
+          { phone: parsed.raw10 },
+          { normalizedMobile: parsed.raw10 }
+        ];
       } else {
-        query = { phone };
+        query.phone = phone;
       }
     }
 
-    const leads = await Lead.find(query).sort({ createdAt: -1 }).limit(200);
+    if (stage) {
+      query.$or = [
+        { stage: stage },
+        { status: stage }
+      ];
+    }
+
+    if (product) {
+      query.loanType = { $regex: product, $options: 'i' };
+    }
+
+    if (advisor) {
+      query.$or = [
+        { 'assignedAdvisor.name': { $regex: advisor, $options: 'i' } },
+        { 'assignedAgent.name': { $regex: advisor, $options: 'i' } }
+      ];
+    }
+
+    if (city) {
+      query.city = { $regex: city, $options: 'i' };
+    }
+
+    if (q) {
+      const cleanQ = q.trim();
+      query.$or = [
+        { name: { $regex: cleanQ, $options: 'i' } },
+        { phone: { $regex: cleanQ } },
+        { leadId: { $regex: cleanQ, $options: 'i' } },
+        { email: { $regex: cleanQ, $options: 'i' } }
+      ];
+    }
+
+    if (followUpDue === 'true' || followUpDue === 'today') {
+      const todayEnd = new Date();
+      todayEnd.setHours(23, 59, 59, 999);
+      query['followUpTasks'] = {
+        $elemMatch: {
+          status: { $in: ['PENDING', 'OVERDUE'] },
+          dueDate: { $lte: todayEnd }
+        }
+      };
+    }
+
+    const rawLeads = await Lead.find(query).sort({ createdAt: -1 }).limit(300);
+
+    // Map and guarantee canonical stage on output
+    const leads = rawLeads.map((l: any) => {
+      const obj = l.toObject ? l.toObject() : l;
+      if (!obj.stage) {
+        obj.stage = mapLegacyStatusToStage(obj.status);
+      }
+      return obj;
+    });
+
     return NextResponse.json({ success: true, count: leads.length, leads });
   } catch (error: any) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
@@ -90,7 +152,7 @@ export async function POST(req: Request) {
         {
           success: false,
           error: 'DATABASE_UNAVAILABLE',
-          message: 'Database persistence unavailable: connection failed or MONGODB_URI is unconfigured. Lead intake cannot guarantee durable persistence.'
+          message: 'Database persistence unavailable: connection failed or MONGODB_URI is unconfigured.'
         },
         { status: 503 }
       );
@@ -121,7 +183,14 @@ export async function POST(req: Request) {
       consentPurpose,
       consentTimestamp,
       isOptedOut,
-      idempotencyKey
+      idempotencyKey,
+      stage,
+      doctorLoanDetails,
+      businessLoanDetails,
+      homeLoanDetails,
+      lapDetails,
+      educationLoanDetails,
+      institutionalFundingDetails
     } = body;
 
     // Validate mandatory fields
@@ -165,17 +234,21 @@ export async function POST(req: Request) {
     });
 
     const leadId = existingLead?.leadId || body.leadId || generateCanonicalLeadId();
+    const initialStage = stage || (existingLead ? (existingLead.stage || mapLegacyStatusToStage(existingLead.status)) : 'NEW_ENQUIRY');
 
     const updatePayload: any = {
       name,
       phone: normalizedPhoneFormatted,
       normalizedMobile: normalizedMobileDigits,
       loanType: canonicalLoanCategory,
+      stage: initialStage,
       updatedAt: new Date(),
-      assignedAgent: {
+      assignedAdvisor: {
         name: 'Sachin Shinde',
         email: 'enquiry@avanifinserv.com',
-        status: 'ACTIVE'
+        phone: '+91 72491 08474',
+        role: 'CHIEF_LOAN_ADVISOR',
+        assignedAt: new Date()
       }
     };
 
@@ -196,61 +269,83 @@ export async function POST(req: Request) {
     if (preferredLanguage) updatePayload.preferredLanguage = preferredLanguage;
     if (idempotencyKey) updatePayload.idempotencyKey = idempotencyKey;
 
+    // Sub-details if provided
+    if (doctorLoanDetails) updatePayload.doctorLoanDetails = doctorLoanDetails;
+    if (businessLoanDetails) updatePayload.businessLoanDetails = businessLoanDetails;
+    if (homeLoanDetails) updatePayload.homeLoanDetails = homeLoanDetails;
+    if (lapDetails) updatePayload.lapDetails = lapDetails;
+    if (educationLoanDetails) updatePayload.educationLoanDetails = educationLoanDetails;
+    if (institutionalFundingDetails) updatePayload.institutionalFundingDetails = institutionalFundingDetails;
+
     // Consent fields
     updatePayload.consentStatus = consentStatus || 'GRANTED';
     updatePayload.consentPurpose = consentPurpose || 'LOAN_ELIGIBILITY_PROCESSING';
     updatePayload.consentTimestamp = consentTimestamp ? new Date(consentTimestamp) : new Date();
+    updatePayload.isOptedOut = !!isOptedOut;
 
-    // Opt-out handling
-    if (isOptedOut || body.optOutRequested) {
-      updatePayload.isOptedOut = true;
-      updatePayload.optedOutAt = new Date();
-      updatePayload.status = 'OPTED_OUT';
-    } else if (!existingLead) {
-      updatePayload.status = 'NEW';
-      updatePayload.leadId = leadId;
-      updatePayload.createdAt = new Date();
+    // Stage history initialization
+    if (!existingLead) {
+      updatePayload.stageHistory = [{
+        stage: initialStage,
+        changedBy: 'SYSTEM_INTAKE',
+        changedAt: new Date(),
+        reason: 'New enquiry registered',
+        notes: `Source: ${updatePayload.leadSource}`
+      }];
+      // Initialize default follow-up tasks
+      updatePayload.followUpTasks = FollowUpTaskEngine.generateInitialTasks(leadId, 'Sachin Shinde');
     }
 
-    // Upsert Lead
     const lead = await Lead.findOneAndUpdate(
       {
         $or: [
           { phone: normalizedPhoneFormatted },
-          { normalizedMobile: normalizedMobileDigits }
+          { phone: normalizedMobileDigits },
+          { normalizedMobile: normalizedMobileDigits },
+          ...(idempotencyKey ? [{ idempotencyKey }] : [])
         ]
       },
-      { $set: updatePayload },
-      { new: true, upsert: true }
+      {
+        $set: updatePayload,
+        $setOnInsert: {
+          leadId,
+          createdAt: new Date(),
+          status: 'NEW'
+        }
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
     );
 
-    // Synchronize to Contact book
+    // Synchronize Contact entry
     await Contact.findOneAndUpdate(
-      { phone: normalizedPhoneFormatted },
+      {
+        $or: [
+          { phone: normalizedPhoneFormatted },
+          { phone: normalizedMobileDigits }
+        ]
+      },
       {
         $set: {
           name,
           phone: normalizedPhoneFormatted,
-          email: email || '',
-          city: city || '',
-          leadId: lead._id,
           updatedAt: new Date()
+        },
+        $setOnInsert: {
+          leadId: lead._id,
+          optedIn: !isOptedOut,
+          createdAt: new Date()
         }
       },
-      { new: true, upsert: true }
-    );
+      { upsert: true, new: true }
+    ).catch(() => {});
 
     return NextResponse.json({
       success: true,
-      leadId: lead.leadId || leadId,
-      status: lead.status,
-      assignedAdvisor: lead.assignedAgent?.name || 'Sachin Shinde',
-      idempotencyHit: !!existingLead,
-      productCategory: canonicalLoanCategory,
-      acknowledged: true
+      leadId: lead.leadId,
+      stage: lead.stage,
+      lead
     });
   } catch (error: any) {
-    console.error('[CRM Leads API] Error:', error);
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }

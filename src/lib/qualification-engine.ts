@@ -1,191 +1,181 @@
-import connectToDatabase from '@/lib/db';
-import { Lead } from '@/models/Lead';
-import { Conversation } from '@/models/Conversation';
+/**
+ * AVANI LOAN SERVICES — Transparent Lead Qualification Engine (CP-26.2)
+ * 
+ * Computes a deterministic 0–100 score based on 7 transparent factors:
+ * 1. Applicant contactability (max 15)
+ * 2. Loan requirement clarity (max 15)
+ * 3. Required amount and purpose (max 15)
+ * 4. Income / business financials (max 20)
+ * 5. Document readiness (max 15)
+ * 6. Applicant interest & responsiveness (max 10)
+ * 7. Follow-up engagement (max 10)
+ * 
+ * DISCLAIMER: This score is an internal CRM prioritization metric.
+ * It is NOT a bank credit decision, CIBIL score, or guarantee of loan approval.
+ */
 
-export interface StructuredFact {
-  field: string;
-  value: any;
-  confidence: number; // e.g. 0.95
+export interface QualificationFactors {
+  contactability: number;     // max 15
+  clarity: number;           // max 15
+  amountPurpose: number;     // max 15
+  incomeFinancials: number;  // max 20
+  docReadiness: number;      // max 15
+  responsiveness: number;    // max 10
+  followUpEngagement: number;// max 10
+  notes: string;
 }
 
 export interface QualificationResult {
-  leadId: string;
-  product: string;
-  qualificationStatus: 'QUALIFIED' | 'DISQUALIFIED' | 'PENDING';
-  leadScore: number;
-  extractedFacts: StructuredFact[];
-  missingFields: string[];
-  documentChecklist: string[];
-  nextAction: string;
-  nextQuestion?: string;
+  score: number;
+  tier: 'HIGH_PRIORITY' | 'QUALIFIED' | 'NEEDS_FURTHER_INFO' | 'LOW_PRIORITY';
+  tierLabel: string;
+  breakdown: QualificationFactors;
+  reasoning: string[];
 }
 
-export class StructuredQualificationEngine {
-  static getDocumentChecklistForProduct(product: string, profession?: string): string[] {
-    switch (product) {
-      case 'DOCTOR_LOAN':
-        return [
-          'Medical Degree / Registration Certificate',
-          'PAN Card',
-          'Aadhaar Card',
-          'Last 2 Years Income Tax Returns (ITR)',
-          'Last 12 Months Bank Statements'
-        ];
-      case 'CA_LOAN':
-        return [
-          'ICAI COP / Membership Certificate',
-          'PAN Card',
-          'Aadhaar Card',
-          'Last 2 Years Audited Financials & ITR',
-          'Last 12 Months Bank Statements'
-        ];
-      case 'BUSINESS_LOAN':
-        return [
-          'GST Registration & Returns (12 Months)',
-          'Business PAN & Aadhaar of Promoter',
-          'Last 2 Years Audited Financials & ITR',
-          'Last 12 Months Bank Statements',
-          'Shop Act / Udhyam Certificate'
-        ];
-      case 'HOME_LOAN':
-      case 'MORTGAGE_LOAN':
-        return [
-          'Property Sale Agreement / Title Deeds',
-          'PAN & Aadhaar Card',
-          'Salary Slips (3 Mth) or ITR (2 Yrs)',
-          'Last 12 Months Bank Statements',
-          'Approved Construction Plan / NOC'
-        ];
-      case 'EDUCATION_LOAN_GLOBAL':
-      case 'EDUCATION_LOAN_INDIA':
-        return [
-          'Admission Offer Letter / I-20 Form',
-          'Student & Co-Applicant Academic Records',
-          'Co-Applicant PAN & Aadhaar Card',
-          'Co-Applicant Income Proof (ITR / Bank Stmt)',
-          'GRE / TOEFL / IELTS Scorecard'
-        ];
-      case 'SCHOOL_FUNDING':
-      case 'COLLEGE_FUNDING':
-        return [
-          'Trust / Society Registration Certificate',
-          'Affiliation & Recognition License',
-          '3 Years Audited Financials & Balance Sheet',
-          'Bank Statements (12 Months)',
-          'Property Title Deeds / Land License'
-        ];
-      case 'PERSONAL_LOAN':
-      default:
-        return [
-          'PAN Card',
-          'Aadhaar Card',
-          'Last 3 Months Salary Slips',
-          'Last 6 Months Bank Statements'
-        ];
+export class QualificationEngine {
+  public static calculateScore(lead: any, conversation?: any, docs?: any): QualificationResult {
+    const breakdown: QualificationFactors = {
+      contactability: 0,
+      clarity: 0,
+      amountPurpose: 0,
+      incomeFinancials: 0,
+      docReadiness: 0,
+      responsiveness: 0,
+      followUpEngagement: 0,
+      notes: ''
+    };
+
+    const reasoning: string[] = [];
+
+    // 1. Applicant contactability (max 15)
+    // Valid phone (+10), name (+3), email/city (+2)
+    if (lead.phone && lead.phone.length >= 10) {
+      breakdown.contactability += 10;
+      reasoning.push('Valid verified mobile number (+10)');
     }
-  }
+    if (lead.name && lead.name !== 'Customer') {
+      breakdown.contactability += 3;
+      reasoning.push('Applicant full name provided (+3)');
+    }
+    if (lead.city || lead.email) {
+      breakdown.contactability += 2;
+      reasoning.push('Location/Email identified (+2)');
+    }
+    breakdown.contactability = Math.min(15, breakdown.contactability);
 
-  static calculateLeadScore(data: any): number {
-    let score = 50; // Base score
+    // 2. Loan requirement clarity (max 15)
+    // Product identified (+10), specific tenure or loan subtype (+5)
+    if (lead.loanType) {
+      breakdown.clarity += 10;
+      reasoning.push(`Specific loan category identified: ${lead.loanType} (+10)`);
+    }
+    if (lead.preferredTenure || lead.preferredTenureYears || lead.employmentType) {
+      breakdown.clarity += 5;
+      reasoning.push('Tenure or employment profile clarified (+5)');
+    }
+    breakdown.clarity = Math.min(15, breakdown.clarity);
 
-    if (data.profession === 'Doctor' || data.profession === 'CA') score += 20;
-    if (data.monthlyIncomeRange?.includes('1,00,000') || data.monthlyIncomeRange?.includes('75,000')) score += 15;
-    if (data.creditScoreRange?.includes('750')) score += 15;
-    if (data.propertyOwned) score += 10;
+    // 3. Required amount and purpose (max 15)
+    const amount = Number(lead.requiredLoanAmount) || parseFloat(String(lead.requestedAmount || '').replace(/[^0-9.]/g, '')) || 0;
+    if (amount > 0) {
+      breakdown.amountPurpose += 10;
+      reasoning.push(`Loan requirement amount specified: ₹${amount.toLocaleString('en-IN')} (+10)`);
+    }
+    if (lead.loanPurpose || (conversation?.history && conversation.history.some((h: any) => /purpose|clinic|equipment|flat|house|business|study/i.test(h.text || '')))) {
+      breakdown.amountPurpose += 5;
+      reasoning.push('Loan purpose clarified (+5)');
+    }
+    breakdown.amountPurpose = Math.min(15, breakdown.amountPurpose);
 
-    return Math.min(100, Math.max(0, score));
-  }
+    // 4. Income / business financials (max 20)
+    const income = Number(lead.monthlyIncome) || Number(lead.annualIncome) || 0;
+    if (income > 0 || lead.monthlyIncomeRange) {
+      breakdown.incomeFinancials += 12;
+      reasoning.push('Monthly income / turnover disclosed (+12)');
+    }
+    if (lead.cibilScore && lead.cibilScore >= 650) {
+      breakdown.incomeFinancials += 8;
+      reasoning.push(`Healthy reported CIBIL score: ${lead.cibilScore} (+8)`);
+    } else if (lead.employmentType === 'Doctor / Medical Professional' || lead.employmentType === 'Chartered Accountant') {
+      breakdown.incomeFinancials += 8;
+      reasoning.push('High-credit profile professional (+8)');
+    } else if (income > 50000) {
+      breakdown.incomeFinancials += 8;
+      reasoning.push('Strong disposable income tier (+8)');
+    }
+    breakdown.incomeFinancials = Math.min(20, breakdown.incomeFinancials);
 
-  static async evaluateQualification(leadId: string, textInput: string, existingContext: any = {}): Promise<QualificationResult> {
-    await connectToDatabase();
+    // 5. Document readiness (max 15)
+    const receivedDocs = docs?.receivedDocuments?.length || (lead.documentsReceived ? 3 : 0);
+    if (receivedDocs >= 3) {
+      breakdown.docReadiness += 15;
+      reasoning.push('Core KYC and financial documents received (+15)');
+    } else if (receivedDocs > 0) {
+      breakdown.docReadiness += 8;
+      reasoning.push('Partial documents submitted (+8)');
+    } else if (lead.documentStatus === 'DOCUMENTS_READY') {
+      breakdown.docReadiness += 5;
+      reasoning.push('Applicant confirmed documents are ready (+5)');
+    }
+    breakdown.docReadiness = Math.min(15, breakdown.docReadiness);
 
-    const lower = textInput.toLowerCase();
-    const extractedFacts: StructuredFact[] = [];
-    const updatedContext = { ...existingContext };
+    // 6. Applicant interest & responsiveness (max 10)
+    const historyCount = conversation?.history?.length || 0;
+    if (historyCount >= 3) {
+      breakdown.responsiveness += 10;
+      reasoning.push('High engagement: multiple conversational interactions (+10)');
+    } else if (historyCount >= 1) {
+      breakdown.responsiveness += 6;
+      reasoning.push('Direct response received from applicant (+6)');
+    }
+    breakdown.responsiveness = Math.min(10, breakdown.responsiveness);
 
-    // Extract Product
-    let product = updatedContext.product || 'PERSONAL_LOAN';
-    if (lower.includes('doctor') || lower.includes('mbbs') || lower.includes('clinic')) {
-      product = 'DOCTOR_LOAN';
-      extractedFacts.push({ field: 'product', value: 'DOCTOR_LOAN', confidence: 0.98 });
-      extractedFacts.push({ field: 'profession', value: 'Doctor', confidence: 0.98 });
-      updatedContext.product = 'DOCTOR_LOAN';
-      updatedContext.profession = 'Doctor';
-    } else if (lower.includes('ca') || lower.includes('chartered') || lower.includes('audit')) {
-      product = 'CA_LOAN';
-      extractedFacts.push({ field: 'product', value: 'CA_LOAN', confidence: 0.96 });
-      extractedFacts.push({ field: 'profession', value: 'Chartered Accountant', confidence: 0.96 });
-      updatedContext.product = 'CA_LOAN';
-      updatedContext.profession = 'Chartered Accountant';
-    } else if (lower.includes('business') || lower.includes('gst') || lower.includes('firm')) {
-      product = 'BUSINESS_LOAN';
-      extractedFacts.push({ field: 'product', value: 'BUSINESS_LOAN', confidence: 0.95 });
-      updatedContext.product = 'BUSINESS_LOAN';
-    } else if (lower.includes('abroad') || lower.includes('usa') || lower.includes('uk') || lower.includes('masters')) {
-      product = 'EDUCATION_LOAN_GLOBAL';
-      extractedFacts.push({ field: 'product', value: 'EDUCATION_LOAN_GLOBAL', confidence: 0.95 });
-      updatedContext.product = 'EDUCATION_LOAN_GLOBAL';
+    // 7. Follow-up engagement (max 10)
+    const followUps = lead.followUpTasks || [];
+    const completedFollowUps = followUps.filter((t: any) => t.status === 'COMPLETED').length;
+    if (completedFollowUps >= 1) {
+      breakdown.followUpEngagement += 10;
+      reasoning.push('Advisor follow-up interaction successfully conducted (+10)');
+    } else if (lead.status === 'CUSTOMER_REPLIED_HUMAN_FOLLOWUP' || lead.stage === 'CONTACTED') {
+      breakdown.followUpEngagement += 5;
+      reasoning.push('Active lead in follow-up queue (+5)');
+    }
+    breakdown.followUpEngagement = Math.min(10, breakdown.followUpEngagement);
+
+    // Total Score
+    const totalScore = Math.min(100, Math.max(0, 
+      breakdown.contactability +
+      breakdown.clarity +
+      breakdown.amountPurpose +
+      breakdown.incomeFinancials +
+      breakdown.docReadiness +
+      breakdown.responsiveness +
+      breakdown.followUpEngagement
+    ));
+
+    let tier: QualificationResult['tier'] = 'LOW_PRIORITY';
+    let tierLabel = 'Incomplete / Low-Priority Lead';
+
+    if (totalScore >= 80) {
+      tier = 'HIGH_PRIORITY';
+      tierLabel = 'High-Priority Lead';
+    } else if (totalScore >= 60) {
+      tier = 'QUALIFIED';
+      tierLabel = 'Qualified Lead';
+    } else if (totalScore >= 40) {
+      tier = 'NEEDS_FURTHER_INFO';
+      tierLabel = 'Needs Further Information';
     }
 
-    // Extract City
-    if (lower.includes('pune')) {
-      extractedFacts.push({ field: 'city', value: 'Pune', confidence: 0.95 });
-      updatedContext.city = 'Pune';
-    } else if (lower.includes('mumbai')) {
-      extractedFacts.push({ field: 'city', value: 'Mumbai', confidence: 0.95 });
-      updatedContext.city = 'Mumbai';
-    }
-
-    // Extract Income
-    if (lower.includes('lakh') || lower.includes('50k') || lower.includes('1k') || lower.includes('100000')) {
-      extractedFacts.push({ field: 'monthlyIncomeRange', value: '₹75,000–₹1,50,000', confidence: 0.92 });
-      updatedContext.monthlyIncomeRange = '₹75,000–₹1,50,000';
-    }
-
-    const leadScore = this.calculateLeadScore(updatedContext);
-    const documentChecklist = this.getDocumentChecklistForProduct(product, updatedContext.profession);
-
-    const isQualified = leadScore >= 60;
-    const qualificationStatus = isQualified ? 'QUALIFIED' : 'PENDING';
-    const nextAction = isQualified ? 'COLLECT_DOCUMENTS' : 'COLLECT_MORE_INFO';
-
-    // Persist to Database
-    await Lead.updateOne(
-      { leadId },
-      {
-        $set: {
-          loanType: product,
-          profession: updatedContext.profession,
-          city: updatedContext.city,
-          leadScore,
-          updatedAt: new Date()
-        }
-      }
-    );
-
-    const convId = `CONV_${leadId}`;
-    await Conversation.updateOne(
-      { conversationId: convId },
-      {
-        $set: {
-          product,
-          qualificationStatus,
-          leadScore,
-          context: updatedContext,
-          updatedAt: new Date()
-        }
-      }
-    );
+    breakdown.notes = reasoning.join(' | ');
 
     return {
-      leadId,
-      product,
-      qualificationStatus,
-      leadScore,
-      extractedFacts,
-      missingFields: updatedContext.city ? [] : ['city'],
-      documentChecklist,
-      nextAction
+      score: totalScore,
+      tier,
+      tierLabel,
+      breakdown,
+      reasoning
     };
   }
 }

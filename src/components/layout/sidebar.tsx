@@ -6,7 +6,7 @@ import {
   FileText, ClipboardList, Tag, Columns, Settings2, Globe, 
   Image as ImageIcon, HelpCircle, MessageSquare, Bot, GitMerge, 
   Folder, CheckCircle, Settings, Book, Code, Phone, Users, Smartphone,
-  Megaphone, Calendar
+  Megaphone, Calendar, Layers
 } from 'lucide-react';
 
 export function Sidebar({ className = "" }: { className?: string }) {
@@ -16,6 +16,8 @@ export function Sidebar({ className = "" }: { className?: string }) {
     {
       title: "MAIN",
       items: [
+        { name: "Dashboard", icon: Layers, href: "/crm" },
+        { name: "Leads Pipeline", icon: FileText, href: "/leads" },
         { name: "Contacts", icon: Users, href: "/contacts" },
         { name: "Inbox", icon: MessageSquare, href: "/inbox" },
         { name: "Broadcasts", icon: Megaphone, href: "/broadcasts" },

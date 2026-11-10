@@ -4,6 +4,7 @@ import { Lead } from '@/models/Lead';
 import { Message } from '@/models/Message';
 import { DocumentModel } from '@/models/Document';
 import { WebhookInbox } from '@/models/WebhookInbox';
+import { CANONICAL_LEAD_STAGES, mapLegacyStatusToStage } from '@/config/pipeline';
 import mongoose from 'mongoose';
 
 export const dynamic = 'force-dynamic';
@@ -15,6 +16,7 @@ export interface DashboardFilterParams {
   city?: string | null;
   applicantCategory?: string | null;
   leadStatus?: string | null;
+  stage?: string | null;
   assignedAdvisor?: string | null;
   source?: string | null;
 }
@@ -44,6 +46,10 @@ export function buildLeadFilterQuery(params: DashboardFilterParams): Record<stri
     query.status = params.leadStatus;
   }
 
+  if (params.stage && params.stage !== 'ALL') {
+    query.stage = params.stage;
+  }
+
   if (params.assignedAdvisor && params.assignedAdvisor !== 'ALL') {
     query['assignedAgent.name'] = new RegExp(params.assignedAdvisor, 'i');
   }
@@ -67,118 +73,118 @@ export async function GET(request: Request) {
     city: searchParams.get('city'),
     applicantCategory: searchParams.get('applicantCategory'),
     leadStatus: searchParams.get('leadStatus'),
+    stage: searchParams.get('stage'),
     assignedAdvisor: searchParams.get('assignedAdvisor'),
     source: searchParams.get('source')
   };
 
   const baseFilter = buildLeadFilterQuery(filterParams);
 
-  const emptyMetrics = {
-    success: true,
-    databaseOnline: false,
-    appliedFilters: filterParams,
-    kpis: {
-      totalLeads: 0,
-      newLeadsToday: 0,
-      leadsByLoanCategory: {} as Record<string, number>,
-      leadsByApplicantCategory: {} as Record<string, number>,
-      leadsByCity: {} as Record<string, number>,
-      qualifiedLeads: 0,
-      unqualifiedLeads: 0,
-      documentsPending: 0,
-      humanHandoffs: 0,
-      followUpsDue: 0,
-      callsCompleted: 0,
-      whatsappMessagesSent: 0,
-      deliveryFailures: 0,
-      optOuts: 0,
-      integrationFailures: 0
-    }
-  };
-
   try {
     const conn = await connectToDatabase();
     if (!conn || mongoose.connection.readyState !== 1) {
-      return NextResponse.json(emptyMetrics, { status: 200 });
+      return NextResponse.json({ success: false, databaseOnline: false, error: 'Database unavailable' }, { status: 503 });
     }
 
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
 
-    const leads = await Lead.find(baseFilter)
-      .select(
-        'loanType employmentType city status aiAgentStatus isOptedOut callId followUpStatus createdAt assignedAgent leadSource'
-      )
-      .lean();
+    const leads = await Lead.find(baseFilter).lean();
+
+    // 20 Canonical Stages Counts
+    const stageCounts: Record<string, number> = {};
+    for (const s of CANONICAL_LEAD_STAGES) {
+      stageCounts[s] = 0;
+    }
 
     const leadsByLoanCategory: Record<string, number> = {};
-    const leadsByApplicantCategory: Record<string, number> = {};
     const leadsByCity: Record<string, number> = {};
+    const revenueByProduct: Record<string, number> = {};
+    const revenueByAdvisor: Record<string, number> = {};
 
     let newLeadsToday = 0;
-    let qualifiedLeads = 0;
-    let unqualifiedLeads = 0;
-    let documentsPending = 0;
-    let humanHandoffs = 0;
-    let followUpsDue = 0;
-    let callsCompleted = 0;
-    let optOuts = 0;
+    let totalDisbursedAmount = 0;
+    let totalExpectedRevenue = 0;
+    let totalActualRevenueReceived = 0;
+    let totalOutstandingAmount = 0;
+    let pendingFollowUpsCount = 0;
+
+    // Funnel counters (Section 12)
+    let funnelEnquiries = 0;
+    let funnelContacted = 0;
+    let funnelQualified = 0;
+    let funnelDocsReceived = 0;
+    let funnelAppSubmitted = 0;
+    let funnelSanctioned = 0;
+    let funnelDisbursed = 0;
+    let funnelClosedLost = 0;
 
     for (const l of leads as any[]) {
+      const resolvedStage = l.stage || mapLegacyStatusToStage(l.status);
+      stageCounts[resolvedStage] = (stageCounts[resolvedStage] || 0) + 1;
+
       const cat = l.loanType || 'Personal Loan';
       leadsByLoanCategory[cat] = (leadsByLoanCategory[cat] || 0) + 1;
 
-      const appCat = l.employmentType || 'Salaried';
-      leadsByApplicantCategory[appCat] = (leadsByApplicantCategory[appCat] || 0) + 1;
-
-      const city = l.city || 'Unspecified';
+      const city = l.city || 'Latur';
       leadsByCity[city] = (leadsByCity[city] || 0) + 1;
 
       if (l.createdAt && new Date(l.createdAt) >= startOfToday) {
         newLeadsToday++;
       }
 
-      if (
-        ['Qualified', 'QUALIFIED_HUMAN', 'Documents Pending', 'Documents Complete', 'Approved', 'Disbursed'].includes(l.status) ||
-        l.aiAgentStatus === 'LEAD_QUALIFIED' ||
-        l.aiAgentStatus === 'DOCUMENTS_PENDING'
-      ) {
-        qualifiedLeads++;
-      } else if (['Not Interested', 'Invalid Lead', 'Rejected', 'REJECTED'].includes(l.status) || l.aiAgentStatus === 'CUSTOMER_DECLINED') {
-        unqualifiedLeads++;
+      // Funnel mapping
+      funnelEnquiries++;
+      if (resolvedStage !== 'NEW_ENQUIRY') funnelContacted++;
+      if (['QUALIFIED', 'DOCUMENTS_PENDING', 'DOCUMENTS_RECEIVED', 'DOCUMENT_VERIFICATION', 'LENDER_MATCHING', 'APPLICATION_PREPARATION', 'APPLICATION_SUBMITTED', 'LENDER_PROCESSING', 'ADDITIONAL_DOCUMENTS_REQUIRED', 'SANCTIONED', 'DISBURSEMENT_PENDING', 'DISBURSED'].includes(resolvedStage)) {
+        funnelQualified++;
+      }
+      if (['DOCUMENTS_RECEIVED', 'DOCUMENT_VERIFICATION', 'LENDER_MATCHING', 'APPLICATION_PREPARATION', 'APPLICATION_SUBMITTED', 'LENDER_PROCESSING', 'ADDITIONAL_DOCUMENTS_REQUIRED', 'SANCTIONED', 'DISBURSEMENT_PENDING', 'DISBURSED'].includes(resolvedStage)) {
+        funnelDocsReceived++;
+      }
+      if (['APPLICATION_SUBMITTED', 'LENDER_PROCESSING', 'ADDITIONAL_DOCUMENTS_REQUIRED', 'SANCTIONED', 'DISBURSEMENT_PENDING', 'DISBURSED'].includes(resolvedStage) || l.application?.status === 'SUBMITTED') {
+        funnelAppSubmitted++;
+      }
+      if (['SANCTIONED', 'DISBURSEMENT_PENDING', 'DISBURSED'].includes(resolvedStage) || l.sanction?.status === 'SANCTIONED') {
+        funnelSanctioned++;
+      }
+      if (resolvedStage === 'DISBURSED' || l.disbursement?.status === 'DISBURSED') {
+        funnelDisbursed++;
+      }
+      if (['NOT_ELIGIBLE', 'CUSTOMER_NOT_INTERESTED', 'CLOSED_LOST'].includes(resolvedStage)) {
+        funnelClosedLost++;
       }
 
-      if (l.status === 'Documents Pending' || l.aiAgentStatus === 'DOCUMENTS_PENDING' || l.documentStatus === 'PENDING') {
-        documentsPending++;
+      // Check tasks for pending followups
+      const tasks = l.followUpTasks || [];
+      if (tasks.some((t: any) => t.status === 'PENDING' || t.status === 'OVERDUE')) {
+        pendingFollowUpsCount++;
       }
 
-      if (
-        l.aiAgentStatus === 'HUMAN_HANDOFF' ||
-        l.status === 'CUSTOMER_REPLIED_HUMAN_FOLLOWUP' ||
-        l.status === 'QUALIFIED_HUMAN'
-      ) {
-        humanHandoffs++;
-      }
+      // Revenue accumulations
+      const disbursed = l.disbursement?.disbursedAmount || 0;
+      totalDisbursedAmount += disbursed;
 
-      if (l.followUpStatus === 'PENDING' || l.status === 'Call Back') {
-        followUpsDue++;
-      }
+      const expected = l.revenue?.expectedRevenue || 0;
+      totalExpectedRevenue += expected;
 
-      if (l.callId) {
-        callsCompleted++;
-      }
+      const received = l.revenue?.actualRevenueReceived || 0;
+      totalActualRevenueReceived += received;
 
-      if (l.isOptedOut || l.status === 'OPTED_OUT') {
-        optOuts++;
+      const outstanding = l.revenue?.outstandingAmount || (expected - received > 0 ? expected - received : 0);
+      totalOutstandingAmount += outstanding;
+
+      if (received > 0) {
+        revenueByProduct[cat] = (revenueByProduct[cat] || 0) + received;
+        const advisorName = l.assignedAdvisor?.name || l.assignedAgent?.name || 'Sachin Shinde';
+        revenueByAdvisor[advisorName] = (revenueByAdvisor[advisorName] || 0) + received;
       }
     }
 
-    const [whatsappMessagesSent, deliveryFailures, integrationFailures, docPendingCount] = await Promise.all([
-      Message.countDocuments({ direction: { $in: ['OUTBOUND', 'outbound'] } }),
-      Message.countDocuments({ status: { $in: ['FAILED', 'API_FAILED'] } }),
-      WebhookInbox.countDocuments({ status: 'FAILED' }),
-      DocumentModel.countDocuments({ status: { $in: ['CHECKLIST_GENERATED', 'DOCUMENTS_PENDING', 'PARTIAL'] } })
-    ]);
+    // Conversion rate calculations
+    const leadToAppConversionPct = funnelEnquiries > 0 ? Math.round((funnelAppSubmitted / funnelEnquiries) * 100) : 0;
+    const appToSanctionConversionPct = funnelAppSubmitted > 0 ? Math.round((funnelSanctioned / funnelAppSubmitted) * 100) : 0;
+    const sanctionToDisbursedConversionPct = funnelSanctioned > 0 ? Math.round((funnelDisbursed / funnelSanctioned) * 100) : 0;
 
     return NextResponse.json({
       success: true,
@@ -187,22 +193,36 @@ export async function GET(request: Request) {
       kpis: {
         totalLeads: leads.length,
         newLeadsToday,
+        pendingFollowUpsCount,
         leadsByLoanCategory,
-        leadsByApplicantCategory,
         leadsByCity,
-        qualifiedLeads,
-        unqualifiedLeads,
-        documentsPending: Math.max(documentsPending, docPendingCount),
-        humanHandoffs,
-        followUpsDue,
-        callsCompleted,
-        whatsappMessagesSent,
-        deliveryFailures,
-        optOuts,
-        integrationFailures
+        stageCounts
+      },
+      funnel: {
+        enquiries: funnelEnquiries,
+        contacted: funnelContacted,
+        qualified: funnelQualified,
+        documentsReceived: funnelDocsReceived,
+        applicationsSubmitted: funnelAppSubmitted,
+        sanctioned: funnelSanctioned,
+        disbursed: funnelDisbursed,
+        closedLost: funnelClosedLost
+      },
+      conversions: {
+        leadToAppPct: leadToAppConversionPct,
+        appToSanctionPct: appToSanctionConversionPct,
+        sanctionToDisbursedPct: sanctionToDisbursedConversionPct
+      },
+      revenue: {
+        totalDisbursedAmount,
+        totalExpectedRevenue,
+        totalActualRevenueReceived,
+        totalOutstandingAmount,
+        revenueByProduct,
+        revenueByAdvisor
       }
     });
-  } catch {
-    return NextResponse.json(emptyMetrics, { status: 200 });
+  } catch (error: any) {
+    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }
