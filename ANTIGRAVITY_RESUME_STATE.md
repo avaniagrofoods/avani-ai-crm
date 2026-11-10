@@ -8,7 +8,7 @@
 - **CRM Inbox:** `https://avani-ai-crm.vercel.app/inbox`
 - **Leads Pipeline:** `https://avani-ai-crm.vercel.app/leads`
 - **Executive Dashboard:** `https://avani-ai-crm.vercel.app/crm`
-- **Active Deployment ID:** `PENDING_DEPLOYMENT_SYNC`
+- **Active Deployment ID:** `dpl_GDfWEEHmJ78BiPLNa9oMTjerLByP` (Source Commit `be39524`)
 - **Automated Regression Suite:** `21 / 21 Suites Passed` (`325 / 325 Tests Passed — 100.0%`)
 - **Secret Exposure Scan:** `0 Exposures`
 - **Operating Architecture:**
