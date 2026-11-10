@@ -1,24 +1,21 @@
 # ANTIGRAVITY RESUME STATE — AVANI LOAN SERVICES (`3-AVANI AI CRM`)
 
-- **Current Checkpoint:** `CP-25.3.2 — Final Live WhatsApp End-to-End Acceptance Test`
-- **Status:** `COMPLETED & VERIFIED (DECISION B: LIVE CHATMITRA RESPONSE VERIFIED — CRM AI AGENT NOT VERIFIED)`
+- **Current Checkpoint:** `CP-25.3.3 — Outbound Delivery Evidence & Deployment Reconciliation`
+- **Status:** `COMPLETED & CERTIFIED (DECISION 1: CONTROLLED CHATMITRA PRODUCTION OPERATIONS APPROVED)`
 - **Business Entity:** `AVANI LOAN SERVICES` (`https://www.avanifinserv.com/`)
 - **Owner & Founder:** `Sachin Shinde`
 - **Production Alias:** `https://avani-ai-crm.vercel.app`
 - **CRM Inbox:** `https://avani-ai-crm.vercel.app/inbox`
-- **Active Deployment ID:** `dpl_G99j7Vw5gF7kAPerZMFqRukZFMdw` (Source Commit `9a376b6`)
+- **Active Deployment ID:** `dpl_GNqXYSJPvzUSpx3fjikrfbM2RwbM` (Source Commit `c72ab79`)
 - **Automated Regression Suite:** `20 / 20 Suites Passed` (`305 / 305 Tests Passed — 100.0%`)
 - **Secret Exposure Scan:** `0 Exposures`
-- **Safety Flags Preserved:**
-  - `PROVIDER_MODE=mock`
-  - `BULK_BROADCAST_ENABLED=false`
-  - `CHATMITRA_INBOUND_AUTO_REPLY_ENABLED=false` (CRM AI agent operates in safe mode; ChatMitra visual chatbot handles live interactive chat)
-  - `OMNIDM_LIVE_ENABLED=false`
-  - `AUTHORIZED_LIVE_TEST_RECIPIENT=919175635165`
-- **Key Forensic Findings in CP-25.3.2:**
-  - Inbound WhatsApp message `"Hi, need doctor loan in latur"` from `+91 91756 35165` to `+91 72491 08474` triggered live 5-point Doctor Loan qualification questionnaire.
-  - Test contact follow-up `"Personal,25L, 5yrs no 789"` persisted with Meta message ID `wamid.HBgMOTE5MTc1NjM1MTY1FQIAEhggQTU4N0VFQUNFNzIwNEREMUEyNzVENURCMzZCNDg3NUYA`.
-  - Inbound messages persisted to MongoDB Atlas and visible in CRM Inbox at `https://avani-ai-crm.vercel.app/inbox`.
-  - ChatMitra Visual Chatbot is confirmed as the live reply generation engine; CRM AI Agent is intentionally suppressed under `CHATMITRA_INBOUND_AUTO_REPLY_ENABLED=false` to prevent conflicting messages.
-  - Production logo asset loads with HTTP 200 at `/logo.svg`.
-  - Complete report generated at `CP25_3_2_LIVE_WHATSAPP_ACCEPTANCE_REPORT.md`.
+- **Operating Architecture:**
+  - **Live WhatsApp Chatbot:** Handled natively by ChatMitra AI Platform over official WABA `+91 72491 08474` (WABA ID: `1062614709598311`).
+  - **Inbound Lead Ingestion & Webhooks:** Handled by AVANI AI CRM (`/api/meta-webhook` and `/api/chatmitra-webhook`), saving leads, messages, and conversation history to MongoDB Atlas.
+  - **CRM AI Auto-Reply:** Intentionally kept dormant (`CHATMITRA_INBOUND_AUTO_REPLY_ENABLED=false`) to prevent conflicting messages with ChatMitra bot.
+  - **Safety Mode:** `PROVIDER_MODE=mock`, `BULK_BROADCAST_ENABLED=false`, single-recipient clamp enforced (`919175635165`).
+  - **Human Advisor Workflow:** Inbound leads marked `CUSTOMER_REPLIED_HUMAN_FOLLOWUP` for advisor follow-up in CRM Inbox.
+- **Reports:**
+  - `CP25_3_3_OUTBOUND_DELIVERY_AND_DEPLOYMENT_RECONCILIATION.md`
+  - `CP25_3_2_LIVE_WHATSAPP_ACCEPTANCE_REPORT.md`
+  - `CP25_3_1_PRODUCTION_FORENSIC_AUDIT_REPORT.md`
