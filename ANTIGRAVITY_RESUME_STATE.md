@@ -1,15 +1,15 @@
 # ANTIGRAVITY RESUME STATE — AVANI LOAN SERVICES (`3-AVANI AI CRM`)
 
-- **Current Checkpoint:** `CP-26 — Lead-to-Revenue Operations, CRM Automation & Conversion Management`
-- **Status:** `COMPLETED & CERTIFIED`
+- **Current Checkpoint:** `CP-26.1 — Production Deployment Recovery & Forensic Acceptance`
+- **Status:** `COMPLETED & CERTIFIED (DECISION A — PRODUCTION SIGN-OFF APPROVED)`
 - **Business Entity:** `AVANI LOAN SERVICES` (`https://www.avanifinserv.com/`)
 - **Owner & Founder / Chief Loan Advisor:** `Sachin Shinde` (`enquiry@avanifinserv.com`)
 - **Production Alias:** `https://avani-ai-crm.vercel.app`
 - **CRM Inbox:** `https://avani-ai-crm.vercel.app/inbox`
 - **Leads Pipeline:** `https://avani-ai-crm.vercel.app/leads`
 - **Executive Dashboard:** `https://avani-ai-crm.vercel.app/crm`
-- **Active Deployment ID:** `dpl_GDfWEEHmJ78BiPLNa9oMTjerLByP` (Source Commit `be39524`)
-- **Automated Regression Suite:** `21 / 21 Suites Passed` (`325 / 325 Tests Passed — 100.0%`)
+- **Active Deployment ID:** `dpl_DcuccV2oC1uDjMc2y8es6tvBEard` (Source Commit `8bdb416`)
+- **Automated Regression Suite:** `22 / 22 Suites Passed` (`335 / 335 Tests Passed — 100.0%`)
 - **Secret Exposure Scan:** `0 Exposures`
 - **Operating Architecture:**
   - **20 Canonical Stages Lifecycle:** `RAW_ENQUIRY` through `DISBURSED`, with complete legacy status compatibility.
@@ -22,6 +22,11 @@
   - **Live WhatsApp Chatbot:** Handled natively by ChatMitra AI Platform over official WABA `+91 72491 08474` (WABA ID: `1062614709598311`).
   - **Safety Mode:** `PROVIDER_MODE=mock`, `CHATMITRA_INBOUND_AUTO_REPLY_ENABLED=false`, `BULK_BROADCAST_ENABLED=false`, single-recipient clamp enforced (`919175635165`).
 - **Milestone Deliverables:**
+  - `CP26_1_GIT_RECONCILIATION.md`
+  - `CP26_1_DEPLOYMENT_FAILURE_ROOT_CAUSE.md`
+  - `CP26_1_DATABASE_ACCEPTANCE.md`
+  - `CP26_1_PRODUCTION_SMOKE_TEST.md`
+  - `CP26_1_PRODUCTION_FORENSIC_SIGNOFF.md`
   - `CP26_IMPLEMENTATION_PLAN.md`
   - `CP26_1_LEAD_MANAGEMENT_REPORT.md`
   - `CP26_2_QUALIFICATION_FOLLOWUP_REPORT.md`
