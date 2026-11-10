@@ -1,10 +1,12 @@
 # ANTIGRAVITY RESUME STATE — AVANI LOAN SERVICES (`3-AVANI AI CRM`)
 
 - **Current Checkpoint:** `CP-25.2 — CRM Inbox Send Button Failure Repair, Outbound Pipeline, Phone Normalization & Live Safety`
-- **Status:** `COMPLETED & VERIFIED`
+- **Status:** `COMPLETED & PRODUCTION DEPLOYED (READY)`
 - **Business Entity:** `AVANI LOAN SERVICES` (`https://www.avanifinserv.com/`)
 - **Owner & Founder:** `Sachin Shinde`
 - **Production Alias:** `https://avani-ai-crm.vercel.app`
+- **Active Deployment ID:** `dpl_9UGCZqQwantC9WMhFA8bMJvMVSMY` (`READY`)
+- **Git Commit:** `4b07017`
 - **Automated Regression Suite:** `18 / 18 Suites Passed` (`271 / 271 Tests Passed — 100.0%`)
 - **Secret Exposure Scan:** `0 Exposures`
 - **Safety Flags Preserved:**
