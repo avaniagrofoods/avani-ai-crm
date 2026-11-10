@@ -1,24 +1,24 @@
 # ANTIGRAVITY RESUME STATE — AVANI LOAN SERVICES (`3-AVANI AI CRM`)
 
-- **Current Checkpoint:** `CP-25.3.1 — Production Forensic Audit, Branding Correction & Deployment Ownership Verification`
-- **Status:** `COMPLETED & VERIFIED (DECISION A: PRODUCTION UI AND CODE READY — LIVE WHATSAPP BLOCKED)`
+- **Current Checkpoint:** `CP-25.3.2 — Final Live WhatsApp End-to-End Acceptance Test`
+- **Status:** `COMPLETED & VERIFIED (DECISION B: LIVE CHATMITRA RESPONSE VERIFIED — CRM AI AGENT NOT VERIFIED)`
 - **Business Entity:** `AVANI LOAN SERVICES` (`https://www.avanifinserv.com/`)
 - **Owner & Founder:** `Sachin Shinde`
 - **Production Alias:** `https://avani-ai-crm.vercel.app`
-- **Active Deployment ID:** `dpl_9gev9vJDyYKk3qdzLXJ9GYYHD76S` (Commit `3c9b00c`)
-- **Automated Regression Suite:** `19 / 19 Suites Passed` (`293 / 293 Tests Passed — 100.0%`)
+- **CRM Inbox:** `https://avani-ai-crm.vercel.app/inbox`
+- **Active Deployment ID:** `dpl_G99j7Vw5gF7kAPerZMFqRukZFMdw` (Source Commit `9a376b6`)
+- **Automated Regression Suite:** `20 / 20 Suites Passed` (`305 / 305 Tests Passed — 100.0%`)
 - **Secret Exposure Scan:** `0 Exposures`
 - **Safety Flags Preserved:**
   - `PROVIDER_MODE=mock`
   - `BULK_BROADCAST_ENABLED=false`
-  - `CHATMITRA_INBOUND_AUTO_REPLY_ENABLED=false`
+  - `CHATMITRA_INBOUND_AUTO_REPLY_ENABLED=false` (CRM AI agent operates in safe mode; ChatMitra visual chatbot handles live interactive chat)
   - `OMNIDM_LIVE_ENABLED=false`
   - `AUTHORIZED_LIVE_TEST_RECIPIENT=919175635165`
-- **Key Deliverables in CP-25.3.1:**
-  - Copied official `logo.svg` to root `public/` and implemented SVG fallback in `sidebar.tsx`.
-  - Created centralized business configuration `src/config/business.ts` (`AVANI_BUSINESS_CONFIG`).
-  - Disambiguated Official WABA (`+91 72491 08474`) from Authorized Test Recipient (`+91 91756 35165`).
-  - Corrected AI Auto-Reply status in Inbox UI to display `MOCK MODE` or `DISABLED` (never misleading Active).
-  - Cleaned external Vercel team URL references in `vapi-webhook/route.ts`.
-  - Created `tests/test_cp25_3_1_production_audit_and_branding.test.cjs` (22/22 tests PASS).
-  - Executed full read-only database audit (15 contacts, 24 leads, 52 messages, 0 duplicate contacts).
+- **Key Forensic Findings in CP-25.3.2:**
+  - Inbound WhatsApp message `"Hi, need doctor loan in latur"` from `+91 91756 35165` to `+91 72491 08474` triggered live 5-point Doctor Loan qualification questionnaire.
+  - Test contact follow-up `"Personal,25L, 5yrs no 789"` persisted with Meta message ID `wamid.HBgMOTE5MTc1NjM1MTY1FQIAEhggQTU4N0VFQUNFNzIwNEREMUEyNzVENURCMzZCNDg3NUYA`.
+  - Inbound messages persisted to MongoDB Atlas and visible in CRM Inbox at `https://avani-ai-crm.vercel.app/inbox`.
+  - ChatMitra Visual Chatbot is confirmed as the live reply generation engine; CRM AI Agent is intentionally suppressed under `CHATMITRA_INBOUND_AUTO_REPLY_ENABLED=false` to prevent conflicting messages.
+  - Production logo asset loads with HTTP 200 at `/logo.svg`.
+  - Complete report generated at `CP25_3_2_LIVE_WHATSAPP_ACCEPTANCE_REPORT.md`.
