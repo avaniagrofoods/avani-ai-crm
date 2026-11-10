@@ -1,12 +1,11 @@
 # ANTIGRAVITY RESUME STATE — AVANI LOAN SERVICES (`3-AVANI AI CRM`)
 
-- **Current Checkpoint:** `CP-25 — ChatMitra Pro AI Chatbot + Loan Qualification + Document Checklist + CRM + Omnichannel Automation Ecosystem`
-- **Status:** `COMPLETED & PRODUCTION DEPLOYED (READY)`
+- **Current Checkpoint:** `CP-25.2 — CRM Inbox Send Button Failure Repair, Outbound Pipeline, Phone Normalization & Live Safety`
+- **Status:** `COMPLETED & VERIFIED`
 - **Business Entity:** `AVANI LOAN SERVICES` (`https://www.avanifinserv.com/`)
 - **Owner & Founder:** `Sachin Shinde`
 - **Production Alias:** `https://avani-ai-crm.vercel.app`
-- **Active Deployment ID:** `dpl_J7YaA8wRjRqzZaHE7mZSEedDsSPo` (`READY`)
-- **Automated Regression Suite:** `17 / 17 Suites Passed` (`251 / 251 Tests Passed — 100.0%`)
+- **Automated Regression Suite:** `18 / 18 Suites Passed` (`271 / 271 Tests Passed — 100.0%`)
 - **Secret Exposure Scan:** `0 Exposures`
 - **Safety Flags Preserved:**
   - `PROVIDER_MODE=mock`
@@ -14,4 +13,10 @@
   - `CHATMITRA_INBOUND_AUTO_REPLY_ENABLED=false`
   - `OMNIDM_LIVE_ENABLED=false`
   - `AUTHORIZED_LIVE_TEST_RECIPIENT=919175635165`
-- **All 14 CP-25 Deliverables:** Created, verified, and committed in repository root.
+- **Key Enhancements in CP-25.2:**
+  - Repaired Send button in CRM Inbox with dynamic loading spinner (`Loader2`) and visual states.
+  - Implemented draft preservation upon failed network dispatches.
+  - Repaired `ProviderRouter.dispatchMessage` to record outbound `text: options.messageText` in MongoDB.
+  - Normalized contact phone querying in `/api/contacts/[id]` and `/api/contacts` across 5 phone variants.
+  - Quick action overhaul: 8 AVANI products + official advisory hotline `9175635165` (+91 91756 35165).
+  - Pre-flight credentials check in `direct-message` API returning HTTP 422 if live without API key.

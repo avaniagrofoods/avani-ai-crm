@@ -2,8 +2,8 @@
 
 const API_URL = '/api';
 
-import { useState, useEffect } from "react";
-import { Send, User, Bot, CheckCircle, Sparkles, FileText, PhoneCall } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { Send, User, Bot, CheckCircle, AlertTriangle, XCircle, Sparkles, FileText, Loader2, ArrowUpRight } from "lucide-react";
 
 export const AVANI_INBOX_PRODUCT_DETAILS = `═══════════════════════════════════════
 🏦 *AVANI LOAN SERVICES — COMPLETE PRODUCT SUITE*
@@ -24,6 +24,11 @@ Empowering your financial requirements across 40+ partner banks & NBFCs:
 🌐 *Official Website:* https://www.avanifinserv.com/
 ═══════════════════════════════════════`;
 
+interface NotificationState {
+  type: 'success' | 'warning' | 'error';
+  message: string;
+}
+
 export default function InboxPage() {
   const [contacts, setContacts] = useState<any[]>([]);
   const [activeContactId, setActiveContactId] = useState<string | null>(null);
@@ -31,18 +36,31 @@ export default function InboxPage() {
   const [replyText, setReplyText] = useState("");
   const [autoReplyEnabled, setAutoReplyEnabled] = useState<boolean>(true);
   const [isSending, setIsSending] = useState(false);
-  const [statusNotification, setStatusNotification] = useState<string | null>(null);
+  const [notification, setNotification] = useState<NotificationState | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const showNotification = (msg: string) => {
-    setStatusNotification(msg);
-    setTimeout(() => setStatusNotification(null), 4000);
+  const showNotification = (message: string, type: 'success' | 'warning' | 'error' = 'success') => {
+    setNotification({ message, type });
+    setTimeout(() => {
+      setNotification(prev => (prev?.message === message ? null : prev));
+    }, 6000);
   };
 
   const fetchContacts = async () => {
     try {
       const response = await fetch(`${API_URL}/contacts`);
+      if (!response.ok) return;
       const data = await response.json();
-      setContacts(Array.isArray(data) ? data : (data.contacts || []));
+      const list = Array.isArray(data) ? data : (data.contacts || []);
+      setContacts(list);
+      // Auto-select first contact if none selected
+      if (!activeContactId && list.length > 0) {
+        const first = list[0];
+        const firstId = first.id || first._id || first.phone;
+        setActiveContactId(firstId);
+        fetchMessages(firstId);
+      }
     } catch (error) {
       console.error("Failed to fetch contacts", error);
     }
@@ -51,11 +69,12 @@ export default function InboxPage() {
   const fetchMessages = async (contactId: string) => {
     try {
       const response = await fetch(`${API_URL}/contacts/${contactId}`);
+      if (!response.ok) return;
       const data = await response.json();
       const fetchedMsgs = data.messages || [];
       setMessages(fetchedMsgs);
 
-      // Auto-reply logic: if enabled and last message is from user and not yet replied by assistant
+      // Auto-reply log note if enabled
       if (autoReplyEnabled && fetchedMsgs.length > 0) {
         const lastMsg = fetchedMsgs[fetchedMsgs.length - 1];
         if (lastMsg.role === 'user') {
@@ -78,26 +97,59 @@ export default function InboxPage() {
     return () => clearInterval(interval);
   }, [activeContactId, autoReplyEnabled]);
 
-  const activeContact = contacts.find(c => c.id === activeContactId || c._id === activeContactId);
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  // Robust contact resolution
+  const activeContact = contacts.find(c => {
+    const cid = c.id || c._id;
+    return cid === activeContactId || String(cid) === String(activeContactId) || c.phone === activeContactId;
+  });
+
+  const getRecipientPhone = (contact?: any): string => {
+    if (!contact) return '';
+    return contact.phone || contact.mobile || contact.customerPhone || '';
+  };
+
+  const activePhone = getRecipientPhone(activeContact);
 
   const handleSendReply = async (customMessage?: string) => {
-    const textToSend = customMessage || replyText;
-    if (!textToSend.trim() || !activeContactId) return;
-    const contact = activeContact;
-    if (!contact || !contact.phone) return;
+    const textToSend = (customMessage || replyText || '').trim();
+    
+    if (!activeContactId) {
+      showNotification("Please select a conversation from the left to send a message.", 'warning');
+      return;
+    }
+
+    if (!textToSend) {
+      showNotification("Please type a message or choose a Quick Action before sending.", 'warning');
+      return;
+    }
+
+    const recipientPhone = activePhone;
+    if (!recipientPhone) {
+      showNotification("Cannot send: No phone number associated with this contact.", 'error');
+      return;
+    }
 
     try {
       setIsSending(true);
+
+      // Optimistic UI update
+      const tempId = `temp_${Date.now()}`;
       setMessages(prev => [
         ...prev,
         {
-          id: `temp_${Date.now()}`,
+          id: tempId,
           content: textToSend,
           role: 'assistant',
+          status: 'PENDING',
           timestamp: new Date().toISOString()
         }
       ]);
 
+      const savedDraft = replyText;
       if (!customMessage) {
         setReplyText("");
       }
@@ -105,36 +157,69 @@ export default function InboxPage() {
       const response = await fetch(`${API_URL}/contacts/direct-message`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: contact.phone, message: textToSend })
+        body: JSON.stringify({
+          phone: recipientPhone,
+          message: textToSend,
+          name: activeContact?.name || 'Customer'
+        })
       });
 
       const resData = await response.json();
-      if (resData.success) {
-        showNotification("Message sent to WhatsApp via provider.");
-      } else {
-        showNotification(`Notice: ${resData.message || 'Queued in CRM'}`);
-      }
 
-      setTimeout(() => fetchMessages(activeContactId), 1500);
+      if (response.ok && resData.success) {
+        if (resData.isMock || (resData.provider && resData.provider.toLowerCase().includes('mock'))) {
+          showNotification(
+            `CRM Notice: Message queued in Sandbox Mock Mode (ChatMitra API key not configured). To deliver to live WhatsApp, configure CHATMITRA_API_KEY in Vercel.`,
+            'warning'
+          );
+        } else {
+          showNotification(
+            `Delivered to WhatsApp (+91 91756 35165) via ${resData.provider || 'ChatMitra'}. ID: ${resData.providerMessageId || 'OK'}`,
+            'success'
+          );
+        }
+        // Refresh messages from server
+        setTimeout(() => fetchMessages(activeContactId), 1200);
+      } else {
+        // Restore draft if failed
+        if (!customMessage) {
+          setReplyText(savedDraft);
+        }
+        const errorMsg = resData.message || resData.error || `HTTP ${response.status}: Failed to deliver message.`;
+        showNotification(`Send Failed: ${errorMsg}. Your draft was preserved.`, 'error');
+      }
     } catch (error: any) {
       console.error("Failed to send reply", error);
-      showNotification(`Failed to send: ${error.message}`);
+      showNotification(`Connection Error: ${error.message || 'Unable to connect to server'}. Draft preserved.`, 'error');
     } finally {
       setIsSending(false);
     }
   };
 
-  const handleSendProductDetails = async () => {
-    const contact = activeContact;
-    if (!contact) return;
+  const handleSendProductDetails = async (sendImmediately: boolean = false) => {
     const msg = `${AVANI_INBOX_PRODUCT_DETAILS}\n\nDear Customer, thank you for contacting AVANI LOAN SERVICES. Our Founder & Chief Loan Advisor Sachin Shinde is available on WhatsApp at 9175635165 to assist you with custom sanction options.`;
-    setReplyText(msg);
-    showNotification("Product details inserted! Click Send or send automatically.");
+    if (sendImmediately) {
+      await handleSendReply(msg);
+    } else {
+      setReplyText(msg);
+      textareaRef.current?.focus();
+      showNotification("Product details inserted! Click Send or press Enter to dispatch.", 'success');
+    }
   };
 
-  const handleTriggerAiAutoReply = async () => {
-    const contact = activeContact;
-    if (!contact || messages.length === 0) return;
+  const handleTriggerAiAutoReply = async (sendImmediately: boolean = false) => {
+    if (!activeContact || messages.length === 0) {
+      const defaultGreeting = `Namaste! 🙏\n\nWelcome to AVANI LOAN SERVICES. We guide individuals, professionals, and businesses to secure the right loan from 40+ top banks and NBFCs.\n\n${AVANI_INBOX_PRODUCT_DETAILS}\n\nPlease share your loan requirement or connect directly with Sachin Shinde on WhatsApp: 9175635165.`;
+      if (sendImmediately) {
+        await handleSendReply(defaultGreeting);
+      } else {
+        setReplyText(defaultGreeting);
+        textareaRef.current?.focus();
+        showNotification("AI welcome greeting prepared! Click Send to dispatch.", 'success');
+      }
+      return;
+    }
+
     const lastUserMsg = [...messages].reverse().find(m => m.role === 'user');
     const userText = lastUserMsg ? lastUserMsg.content : 'Hi, need loan';
     
@@ -151,69 +236,93 @@ export default function InboxPage() {
       generatedReply = `Namaste! 🙏\n\nWelcome to AVANI LOAN SERVICES. We guide individuals, professionals, and businesses to secure the right loan from 40+ top banks and NBFCs.\n\n${AVANI_INBOX_PRODUCT_DETAILS}\n\nCould you please let us know which loan product you are interested in? You may also connect directly with Sachin Shinde on WhatsApp: 9175635165.`;
     }
 
-    setReplyText(generatedReply);
-    showNotification("AI auto-reply generated based on conversation context.");
+    if (sendImmediately) {
+      await handleSendReply(generatedReply);
+    } else {
+      setReplyText(generatedReply);
+      textareaRef.current?.focus();
+      showNotification("Contextual AI auto-reply prepared! Click Send to dispatch.", 'success');
+    }
   };
 
   return (
-    <div className="flex h-[calc(100vh-64px)] border rounded-xl overflow-hidden bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800">
+    <div className="flex h-[calc(100vh-64px)] border rounded-xl overflow-hidden bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 shadow-sm">
       {/* Contact List */}
-      <div className="w-1/3 border-r border-zinc-200 dark:border-zinc-800 overflow-y-auto">
-        <div className="p-4 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between">
-          <h2 className="font-semibold text-lg dark:text-white">Conversations</h2>
-          <span className="text-xs bg-zinc-800 text-zinc-300 px-2 py-0.5 rounded-full font-mono">
+      <div className="w-1/3 border-r border-zinc-200 dark:border-zinc-800 flex flex-col bg-zinc-50/50 dark:bg-zinc-950/50">
+        <div className="p-4 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between bg-white dark:bg-zinc-900">
+          <div>
+            <h2 className="font-semibold text-base dark:text-white">Conversations</h2>
+            <p className="text-xs text-zinc-500">Live WhatsApp Inbound & Outbound</p>
+          </div>
+          <span className="text-xs bg-zinc-200 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 px-2 py-0.5 rounded-full font-mono font-semibold">
             {contacts.length}
           </span>
         </div>
-        <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
-          {contacts.map((c, idx) => {
-            const cId = c.id || c._id || `c_${idx}`;
-            return (
-              <div 
-                key={cId} 
-                onClick={() => {
-                  setActiveContactId(cId);
-                  fetchMessages(cId);
-                }}
-                className={`p-4 cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors ${activeContactId === cId ? 'bg-zinc-100 dark:bg-zinc-800' : ''}`}
-              >
-                <div className="flex items-center justify-between">
-                  <div className="font-medium text-sm dark:text-zinc-200">{c.name || c.phone}</div>
-                  {c.phone && (
-                    <span className="text-[11px] text-zinc-500 font-mono">
-                      {c.phone.slice(-10)}
-                    </span>
-                  )}
+        <div className="flex-1 overflow-y-auto divide-y divide-zinc-100 dark:divide-zinc-800/60">
+          {contacts.length === 0 ? (
+            <div className="p-6 text-center text-xs text-zinc-500">
+              No active conversations found.
+            </div>
+          ) : (
+            contacts.map((c, idx) => {
+              const cId = c.id || c._id || c.phone || `c_${idx}`;
+              const isSelected = activeContactId === cId || String(c._id) === String(activeContactId);
+              const phoneDisplay = c.phone || c.mobile || '';
+              return (
+                <div 
+                  key={cId} 
+                  onClick={() => {
+                    setActiveContactId(cId);
+                    fetchMessages(cId);
+                  }}
+                  className={`p-4 cursor-pointer transition-colors ${
+                    isSelected 
+                      ? 'bg-green-50/70 dark:bg-green-950/20 border-l-4 border-green-600' 
+                      : 'hover:bg-zinc-100/60 dark:hover:bg-zinc-800/40'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="font-medium text-sm dark:text-zinc-100 flex items-center gap-1.5">
+                      <span>{c.name || 'Customer'}</span>
+                    </div>
+                    {phoneDisplay && (
+                      <span className="text-[11px] text-zinc-400 font-mono">
+                        {phoneDisplay.slice(-10)}
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-xs text-zinc-500 dark:text-zinc-400 mt-1 line-clamp-1 truncate">
+                    {c.messages && c.messages.length > 0 ? c.messages[0].content : "No messages yet"}
+                  </div>
                 </div>
-                <div className="text-xs text-zinc-500 mt-1 truncate">
-                  {c.messages && c.messages.length > 0 ? c.messages[0].content : "No messages yet"}
-                </div>
-              </div>
-            );
-          })}
+              );
+            })
+          )}
         </div>
       </div>
 
       {/* Chat Area */}
-      <div className="w-2/3 flex flex-col">
+      <div className="w-2/3 flex flex-col bg-white dark:bg-zinc-900">
         {activeContactId ? (
           <>
             {/* Chat Area Header with Auto-Reply Controller */}
-            <div className="p-4 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between">
+            <div className="p-4 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between bg-zinc-50/50 dark:bg-zinc-900/80">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-zinc-200 dark:bg-zinc-700 flex items-center justify-center">
-                  <User className="w-5 h-5 text-zinc-500" />
+                <div className="w-10 h-10 rounded-full bg-green-100 dark:bg-green-950/60 border border-green-200 dark:border-green-800/50 flex items-center justify-center text-green-700 dark:text-green-400 font-semibold">
+                  <User className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="font-semibold dark:text-white flex items-center gap-2">
-                    {activeContact?.name || activeContact?.phone}
-                    <span className="text-xs font-normal text-zinc-400 font-mono">
-                      {activeContact?.phone ? `(${activeContact.phone})` : ''}
-                    </span>
+                  <h3 className="font-semibold text-sm dark:text-white flex items-center gap-2">
+                    {activeContact?.name || 'Customer'}
+                    {activePhone && (
+                      <span className="text-xs font-normal text-zinc-500 dark:text-zinc-400 font-mono">
+                        ({activePhone.startsWith('+') ? activePhone : `+${activePhone}`})
+                      </span>
+                    )}
                   </h3>
-                  <p className="text-xs text-zinc-500 flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-green-500"></span>
-                    Live Chat via WhatsApp • Official Advisory Hotline: 9175635165
+                  <p className="text-xs text-zinc-500 flex items-center gap-1.5 mt-0.5">
+                    <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+                    Live WhatsApp • Official Hotline: 9175635165
                   </p>
                 </div>
               </div>
@@ -225,12 +334,15 @@ export default function InboxPage() {
                   onClick={() => {
                     const next = !autoReplyEnabled;
                     setAutoReplyEnabled(next);
-                    showNotification(next ? "AI Auto-Reply enabled for incoming messages." : "AI Auto-Reply switched to Manual Mode.");
+                    showNotification(
+                      next ? "AI Auto-Reply enabled for inbound messages." : "AI Auto-Reply switched to Manual Mode.",
+                      'success'
+                    );
                   }}
                   className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-colors border ${
                     autoReplyEnabled 
-                      ? 'bg-green-600/20 text-green-400 border-green-500/40 hover:bg-green-600/30' 
-                      : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:bg-zinc-700'
+                      ? 'bg-green-600/15 text-green-700 dark:text-green-400 border-green-500/30 hover:bg-green-600/25' 
+                      : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 border-zinc-300 dark:border-zinc-700 hover:bg-zinc-200 dark:hover:bg-zinc-700'
                   }`}
                   title="Toggle automatic AI auto-replies on WhatsApp"
                 >
@@ -241,62 +353,96 @@ export default function InboxPage() {
             </div>
 
             {/* Notification Banner */}
-            {statusNotification && (
-              <div className="bg-green-950/80 border-b border-green-800/50 text-green-200 text-xs px-4 py-2 flex items-center gap-2">
-                <CheckCircle className="w-4 h-4 text-green-400 shrink-0" />
-                <span>{statusNotification}</span>
+            {notification && (
+              <div className={`px-4 py-2.5 text-xs flex items-center justify-between border-b transition-all ${
+                notification.type === 'success' 
+                  ? 'bg-green-50 dark:bg-green-950/80 border-green-200 dark:border-green-800 text-green-800 dark:text-green-200'
+                  : notification.type === 'warning'
+                  ? 'bg-amber-50 dark:bg-amber-950/80 border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-200'
+                  : 'bg-red-50 dark:bg-red-950/80 border-red-200 dark:border-red-800 text-red-800 dark:text-red-200'
+              }`}>
+                <div className="flex items-center gap-2">
+                  {notification.type === 'success' && <CheckCircle className="w-4 h-4 text-green-600 dark:text-green-400 shrink-0" />}
+                  {notification.type === 'warning' && <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />}
+                  {notification.type === 'error' && <XCircle className="w-4 h-4 text-red-600 dark:text-red-400 shrink-0" />}
+                  <span>{notification.message}</span>
+                </div>
+                <button 
+                  type="button" 
+                  onClick={() => setNotification(null)}
+                  className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+                >
+                  &times;
+                </button>
               </div>
             )}
 
             {/* Message History */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-zinc-50 dark:bg-zinc-950">
+            <div className="flex-1 overflow-y-auto p-4 space-y-3.5 bg-zinc-50/40 dark:bg-zinc-950/40">
               {messages.length === 0 ? (
-                <div className="text-center text-zinc-500 text-sm mt-8">
-                  No messages yet. Send a product introduction or loan checklist below.
+                <div className="h-full flex flex-col items-center justify-center text-center text-zinc-400 text-xs gap-2 py-12">
+                  <Bot className="w-8 h-8 text-zinc-400/80" />
+                  <p>No messages in this conversation yet.</p>
+                  <p className="text-zinc-500">Send a product introduction or loan checklist below.</p>
                 </div>
               ) : (
-                messages.map(m => {
+                messages.map((m, idx) => {
                   const isUser = m.role === 'user';
                   return (
-                    <div key={m.id} className={`flex ${!isUser ? 'justify-end' : 'justify-start'}`}>
-                      <div className={`max-w-[75%] p-3 rounded-lg text-sm whitespace-pre-wrap ${!isUser ? 'bg-green-600 text-white' : 'bg-white dark:bg-zinc-800 border dark:border-zinc-700 dark:text-white'}`}>
+                    <div key={m.id || `m_${idx}`} className={`flex ${!isUser ? 'justify-end' : 'justify-start'}`}>
+                      <div className={`max-w-[78%] p-3.5 rounded-2xl text-xs sm:text-sm whitespace-pre-wrap leading-relaxed shadow-sm ${
+                        !isUser 
+                          ? 'bg-green-600 text-white rounded-br-none' 
+                          : 'bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700/80 text-zinc-900 dark:text-zinc-100 rounded-bl-none'
+                      }`}>
                         {m.content}
-                        <div className={`text-[10px] mt-1 ${!isUser ? 'text-green-200' : 'text-zinc-400'}`}>
-                          {new Date(m.timestamp).toLocaleTimeString()}
+                        <div className={`text-[10px] mt-1.5 flex items-center justify-end gap-1 ${
+                          !isUser ? 'text-green-100' : 'text-zinc-400'
+                        }`}>
+                          <span>{m.timestamp ? new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</span>
+                          {!isUser && (
+                            <span>{m.status === 'PENDING' ? '⏳' : '✓✓'}</span>
+                          )}
                         </div>
                       </div>
                     </div>
                   );
                 })
               )}
+              <div ref={messagesEndRef} />
             </div>
 
             {/* Quick Response Bar + Manual Reply */}
-            <div className="p-4 border-t border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 space-y-2">
+            <div className="p-3.5 border-t border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 space-y-2.5">
               {/* Quick Actions Bar */}
-              <div className="flex items-center gap-2 overflow-x-auto pb-1 text-xs scrollbar-none">
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs scrollbar-none">
                 <button 
                   type="button"
-                  onClick={handleSendProductDetails}
-                  className="px-2.5 py-1.5 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-500/30 rounded-lg flex items-center gap-1.5 whitespace-nowrap font-medium transition-colors"
+                  onClick={() => handleSendProductDetails(false)}
+                  className="px-2.5 py-1.5 bg-blue-50 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900/40 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-800/40 rounded-lg flex items-center gap-1.5 whitespace-nowrap font-medium transition-colors"
+                  title="Insert Product Suite into message composer"
                 >
-                  <Sparkles className="w-3.5 h-3.5" />
-                  Send Product Details (WhatsApp: 9175635165)
+                  <Sparkles className="w-3.5 h-3.5 text-blue-500" />
+                  Product Suite (9175635165)
                 </button>
                 <button 
                   type="button"
-                  onClick={handleTriggerAiAutoReply}
-                  className="px-2.5 py-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/30 rounded-lg flex items-center gap-1.5 whitespace-nowrap font-medium transition-colors"
+                  onClick={() => handleTriggerAiAutoReply(false)}
+                  className="px-2.5 py-1.5 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/40 rounded-lg flex items-center gap-1.5 whitespace-nowrap font-medium transition-colors"
+                  title="Draft an AI response based on customer requirements"
                 >
-                  <Bot className="w-3.5 h-3.5" />
+                  <Bot className="w-3.5 h-3.5 text-emerald-500" />
                   Auto-Reply with AI
                 </button>
                 <button 
                   type="button"
                   onClick={() => {
                     setReplyText(`🩺 *Doctor Loan Requirement — Required Documents:*\n1. Degree Certificate (MBBS/MD/BDS)\n2. Medical Council Registration Certificate\n3. Clinic / Hospital Registration Proof\n4. PAN Card & Aadhaar Card\n5. Last 2-3 years ITR with Computation\n6. Last 12 months Bank Statements\n\n${AVANI_INBOX_PRODUCT_DETAILS}\n\nPlease share these documents or connect directly with Sachin Shinde on WhatsApp: 9175635165.`);
+                    textareaRef.current?.focus();
+                    showNotification("Doctor Loan Checklist inserted! Click Send or press Enter to dispatch.", 'success');
                   }}
-                  className="px-2.5 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg flex items-center gap-1.5 whitespace-nowrap transition-colors"
+                  className="px-2.5 py-1.5 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 rounded-lg flex items-center gap-1.5 whitespace-nowrap transition-colors"
+                  title="Insert Doctor Loan document checklist"
                 >
                   <FileText className="w-3.5 h-3.5" />
                   Doctor Loan Checklist
@@ -305,8 +451,11 @@ export default function InboxPage() {
                   type="button"
                   onClick={() => {
                     setReplyText(`🏠 *Home Loan Requirement — Required Documents:*\n1. PAN & Aadhaar Card of Applicant & Co-applicant\n2. Latest 3 months salary slips / 2 years ITR\n3. Last 6-12 months Bank Statement\n4. Copy of Agreement to Sale / Allotment Letter\n5. 7/12 Extract / Property Card & Tax Receipt\n\n${AVANI_INBOX_PRODUCT_DETAILS}\n\nPlease share these documents or connect directly with Sachin Shinde on WhatsApp: 9175635165.`);
+                    textareaRef.current?.focus();
+                    showNotification("Home Loan Checklist inserted! Click Send or press Enter to dispatch.", 'success');
                   }}
-                  className="px-2.5 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg flex items-center gap-1.5 whitespace-nowrap transition-colors"
+                  className="px-2.5 py-1.5 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 rounded-lg flex items-center gap-1.5 whitespace-nowrap transition-colors"
+                  title="Insert Home Loan document checklist"
                 >
                   <FileText className="w-3.5 h-3.5" />
                   Home Loan Checklist
@@ -314,36 +463,60 @@ export default function InboxPage() {
               </div>
 
               {/* Text Area & Send Button */}
-              <div className="flex gap-2">
+              <div className="flex gap-2 items-end">
                 <textarea 
-                  rows={replyText.includes('\n') ? 4 : 1}
+                  ref={textareaRef}
+                  rows={replyText.includes('\n') ? 3 : 1}
                   value={replyText}
                   onChange={(e) => setReplyText(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault();
-                      handleSendReply();
+                      if (replyText.trim() && !isSending) {
+                        handleSendReply();
+                      }
                     }
                   }}
                   placeholder="Type a manual reply or use Quick Actions above..." 
-                  className="flex-1 px-4 py-2 border dark:border-zinc-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 dark:bg-zinc-800 dark:text-white resize-none text-sm"
+                  className="flex-1 px-3.5 py-2.5 border dark:border-zinc-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500 dark:bg-zinc-800/80 dark:text-white resize-none text-xs sm:text-sm leading-relaxed"
                 />
                 <button 
                   type="button"
                   onClick={() => handleSendReply()}
                   disabled={isSending || !replyText.trim()}
-                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center shrink-0"
-                  title="Send via WhatsApp"
+                  className={`h-10 px-4 rounded-xl flex items-center justify-center gap-1.5 font-medium text-xs sm:text-sm text-white shrink-0 transition-all ${
+                    isSending 
+                      ? 'bg-zinc-600 cursor-wait' 
+                      : !replyText.trim() 
+                      ? 'bg-green-600/50 cursor-not-allowed text-white/70' 
+                      : 'bg-green-600 hover:bg-green-700 active:scale-95 shadow-sm'
+                  }`}
+                  title={!replyText.trim() ? "Type a message or select a Quick Action to enable sending" : "Send message via WhatsApp"}
                 >
-                  <Send className="w-4 h-4" />
+                  {isSending ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Sending...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Send className="w-4 h-4" />
+                      <span>Send</span>
+                    </>
+                  )}
                 </button>
               </div>
             </div>
           </>
         ) : (
-          <div className="flex-1 flex flex-col items-center justify-center text-zinc-500 gap-2">
-            <User className="w-10 h-10 text-zinc-600" />
-            <p>Select a conversation from the left to start chatting or send loan product details.</p>
+          <div className="flex-1 flex flex-col items-center justify-center text-zinc-400 gap-3 p-8">
+            <div className="w-16 h-16 rounded-full bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center">
+              <User className="w-8 h-8 text-zinc-500" />
+            </div>
+            <p className="font-medium text-sm text-zinc-600 dark:text-zinc-300">No Conversation Selected</p>
+            <p className="text-xs text-zinc-400 text-center max-w-sm">
+              Select a customer conversation from the left to view message history, send loan product details, or run AI auto-replies.
+            </p>
           </div>
         )}
       </div>

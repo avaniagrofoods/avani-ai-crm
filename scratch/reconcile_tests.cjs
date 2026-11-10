@@ -21,6 +21,7 @@ const testFiles = [
   { name: 'test_cp22_pre_pro_automation_readiness.test.cjs', type: 'CP-22 Pre-Pro Automation Readiness & Defect Repair' },
   { name: 'test_cp23_master_automation_readiness.test.cjs', type: 'CP-23 Master Automation Readiness & Regression' },
   { name: 'test_cp25_master_chatbot_and_integrations.test.cjs', type: 'CP-25 Master Chatbot, Checklists, Privacy & Omnichannel Integrations' },
+  { name: 'test_cp25_2_inbox_send_pipeline.test.cjs', type: 'CP-25.2 Inbox Send Button Failure Repair, Outbound Pipeline & Live Safety' },
 ];
 
 console.log('================================================================================');

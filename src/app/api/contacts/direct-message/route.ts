@@ -61,6 +61,18 @@ export async function POST(req: Request) {
       );
     }
 
+    // MANDATORY PRE-FLIGHT: If in live provider mode, check that API key is present
+    if (process.env.PROVIDER_MODE === 'live' && !process.env.CHATMITRA_API_KEY && !process.env.CHATMANTRA_API_KEY) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'CHATMITRA_API_KEY_NOT_CONFIGURED',
+          message: 'ChatMitra API key is missing in environment. Please configure CHATMITRA_API_KEY in Vercel environment variables.'
+        },
+        { status: 422 }
+      );
+    }
+
     // Check opt-out status across Lead and Contact
     const [existingLead, existingContact] = await Promise.all([
       Lead.findOne({ phone: { $in: [cleanPhone, cleanPhone.replace('+91', ''), cleanPhone.replace('+', '')] } }),
@@ -105,13 +117,23 @@ export async function POST(req: Request) {
       );
     }
 
+    const isMock = Boolean(
+      (dispatchRes.provider && dispatchRes.provider.toLowerCase().includes('mock')) ||
+      (process.env.PROVIDER_MODE !== 'live')
+    );
+
     return NextResponse.json({
       success: dispatchRes.success,
-      message: dispatchRes.success ? 'Message sent successfully.' : 'Failed to deliver message via WhatsApp provider.',
+      message: dispatchRes.success
+        ? (isMock
+            ? 'Message simulated in CRM Sandbox (ChatMitra Mock mode). Configure CHATMITRA_API_KEY in Vercel for live WhatsApp delivery.'
+            : 'Message dispatched to WhatsApp successfully.')
+        : (dispatchRes.error || 'Failed to deliver message via WhatsApp provider.'),
       provider: dispatchRes.provider,
       providerMessageId: dispatchRes.providerMessageId,
       status: dispatchRes.status,
-      idempotencyKey: dispatchRes.idempotencyKey
+      idempotencyKey: dispatchRes.idempotencyKey,
+      isMock
     });
 
   } catch (error: any) {

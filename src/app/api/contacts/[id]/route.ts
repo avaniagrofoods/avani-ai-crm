@@ -17,25 +17,40 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     const contact = await Contact.findById(resolvedParams.id);
     if (!contact) return NextResponse.json({ success: false, error: 'Contact not found' }, { status: 404 });
 
+    // Generate normalized phone variants for robust message matching
+    const contactPhone = contact.phone || '';
+    const rawDigits = contactPhone.replace(/\D/g, '');
+    const last10 = rawDigits.slice(-10);
+    const phoneVariants = Array.from(new Set([
+      contactPhone,
+      last10,
+      `+91${last10}`,
+      `91${last10}`,
+      `0${last10}`
+    ].filter(Boolean)));
+
     // Fetch message history for CRM Inbox conversation panel
     const rawMessages = await Message.find({
       $or: [
-        { phone: contact.phone },
-        { senderPhone: contact.phone },
-        { recipientPhone: contact.phone }
+        { phone: { $in: phoneVariants } },
+        { senderPhone: { $in: phoneVariants } },
+        { recipientPhone: { $in: phoneVariants } }
       ]
     }).sort({ createdAt: 1 });
 
     let messages = rawMessages.map(m => ({
-      id: m._id?.toString() || m.messageId || m.providerMessageId,
-      content: m.text || '',
-      role: m.direction === 'inbound' ? 'user' : 'assistant',
+      id: m._id?.toString() || m.messageId || m.providerMessageId || `msg_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+      content: m.text || (m.templateName ? `[WhatsApp Template: ${m.templateName}]` : ''),
+      role: (m.direction === 'inbound' || m.direction === 'INBOUND' || m.direction === 'received' || m.direction === 'Received') ? 'user' : 'assistant',
+      status: m.status || 'SENT',
       timestamp: m.createdAt || new Date()
     }));
 
     // Fallback to conversation history if Message collection is empty
     if (messages.length === 0) {
-      const conv = await Conversation.findOne({ customerPhone: contact.phone });
+      const conv = await Conversation.findOne({ 
+        customerPhone: { $in: phoneVariants } 
+      });
       if (conv && Array.isArray(conv.history)) {
         messages = conv.history.map((h: any, i: number) => ({
           id: `conv_${i}`,

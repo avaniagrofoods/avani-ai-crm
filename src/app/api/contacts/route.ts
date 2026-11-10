@@ -20,24 +20,42 @@ export async function GET(req: Request) {
 
     const contacts = await Contact.find(query).sort({ updatedAt: -1, createdAt: -1 }).limit(200).lean();
 
-    // Attach latest message snippet for Inbox UI compatibility
+    // Attach latest message snippet for Inbox UI compatibility using normalized variants
     const contactsWithMessages = await Promise.all(
       contacts.map(async (c: any) => {
+        const cPhone = c.phone || c.mobile || c.customerPhone || '';
+        const rawDigits = cPhone.replace(/\D/g, '');
+        const last10 = rawDigits.slice(-10);
+        const phoneVariants = Array.from(new Set([
+          cPhone,
+          last10,
+          `+91${last10}`,
+          `91${last10}`,
+          `0${last10}`
+        ].filter(Boolean)));
+
         const lastMsg = await Message.findOne({
           $or: [
-            { phone: c.phone },
-            { senderPhone: c.phone },
-            { recipientPhone: c.phone }
+            { phone: { $in: phoneVariants } },
+            { senderPhone: { $in: phoneVariants } },
+            { recipientPhone: { $in: phoneVariants } }
           ]
         }).sort({ createdAt: -1 });
 
         if (lastMsg) {
           return {
             ...c,
-            messages: [{ content: lastMsg.text || '' }]
+            phone: c.phone || last10,
+            messages: [{ 
+              content: lastMsg.text || (lastMsg.templateName ? `[${lastMsg.templateName}]` : ''),
+              timestamp: lastMsg.createdAt
+            }]
           };
         }
-        return c;
+        return {
+          ...c,
+          phone: c.phone || last10
+        };
       })
     );
 

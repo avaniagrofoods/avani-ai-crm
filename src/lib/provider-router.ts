@@ -81,10 +81,14 @@ export class ProviderRouter {
           idempotencyKey,
           leadId: options.leadId,
           phone: cleanPhone,
+          recipientPhone: cleanPhone,
+          senderPhone: 'AVANI_OFFICIAL',
           direction: 'OUTBOUND',
+          channel: 'WhatsApp',
           provider: 'AiSensy',
           providerMessageId: res.messageId,
           templateName: effectiveTemplate,
+          text: options.messageText || (options.templateName ? `[Template: ${options.templateName}]` : ''),
           status: 'API_ACCEPTED'
         }).catch(e => console.warn(`Message record error: ${e.message}`));
 
@@ -144,10 +148,14 @@ export class ProviderRouter {
           idempotencyKey,
           leadId: options.leadId,
           phone: cleanPhone,
+          recipientPhone: cleanPhone,
+          senderPhone: 'AVANI_OFFICIAL',
           direction: 'OUTBOUND',
+          channel: 'WhatsApp',
           provider: 'ChatMitra',
           providerMessageId: res.messageId,
           templateName: effectiveTemplate,
+          text: options.messageText || (options.templateName ? `[Template: ${options.templateName}]` : ''),
           status: 'API_ACCEPTED'
         }).catch((e: any) => console.warn(`Message record error: ${e.message}`));
 
@@ -175,9 +183,13 @@ export class ProviderRouter {
         idempotencyKey,
         leadId: options.leadId,
         phone: cleanPhone,
+        recipientPhone: cleanPhone,
+        senderPhone: 'AVANI_OFFICIAL',
         direction: 'OUTBOUND',
+        channel: 'WhatsApp',
         provider: 'ChatMitra',
         templateName: effectiveTemplate,
+        text: options.messageText || (options.templateName ? `[Template: ${options.templateName}]` : ''),
         status: 'API_FAILED',
         failureReason
       }).catch(() => {});
@@ -198,10 +210,14 @@ export class ProviderRouter {
           idempotencyKey,
           leadId: options.leadId,
           phone: cleanPhone,
+          recipientPhone: cleanPhone,
+          senderPhone: 'AVANI_OFFICIAL',
           direction: 'OUTBOUND',
+          channel: 'WhatsApp',
           provider: 'MetaCloud_Mock',
           providerMessageId: mockWamid,
           templateName: effectiveTemplate,
+          text: options.messageText || (options.templateName ? `[Template: ${options.templateName}]` : ''),
           status: 'API_ACCEPTED'
         }).catch(() => {});
 
