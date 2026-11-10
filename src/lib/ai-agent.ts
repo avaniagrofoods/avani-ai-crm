@@ -46,7 +46,7 @@ export class AgentEngine {
     if (extraction.intent === 'HUMAN_HANDOFF') {
       conversation.currentState = 'HUMAN_HANDOFF';
       const msg = await this.translateText(
-        `I am handing your request over to our Founder & Chief Loan Advisor, Sachin Shinde (+91 72491 08474 / WhatsApp: 9175635165). He will connect with you shortly for personalized consultation.\n\n${AVANI_PRODUCT_DETAILS_MESSAGE}\n\nYou can also visit www.avanifinserv.com.`,
+        `I am handing your request over to our Founder & Chief Loan Advisor, Sachin Shinde (+91 72491 08474). He will connect with you shortly for personalized consultation.\n\n${AVANI_PRODUCT_DETAILS_MESSAGE}\n\nYou can also visit www.avanifinserv.com.`,
         conversation.language
       );
       return { nextQuestion: msg, updatedState: 'HUMAN_HANDOFF' };
@@ -94,7 +94,7 @@ export class AgentEngine {
       
       const docListString = docList.map((d: string) => "- " + d).join('\n');
       nextQuestion = await this.translateText(
-        `Thank you! Based on your profile for ${conversation.context.loanProduct || 'a loan'}, here is the standard document checklist:\n\n${docListString}\n\n${ADVISORY_DISCLAIMER}\n\n${AVANI_PRODUCT_DETAILS_MESSAGE}\n\nPlease share these documents here, or reply "ADVISOR" to connect directly with Sachin Shinde (+91 72491 08474 / WhatsApp: 9175635165).`, 
+        `Thank you! Based on your profile for ${conversation.context.loanProduct || 'a loan'}, here is the standard document checklist:\n\n${docListString}\n\n${ADVISORY_DISCLAIMER}\n\n${AVANI_PRODUCT_DETAILS_MESSAGE}\n\nPlease share these documents here, or reply "ADVISOR" to connect directly with Sachin Shinde (+91 72491 08474).`, 
         conversation.language
       );
     } else if (nextState === 'DOCUMENTS_PENDING') {

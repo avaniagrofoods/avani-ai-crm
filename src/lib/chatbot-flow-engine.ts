@@ -92,7 +92,7 @@ export const AVANI_PRODUCT_DETAILS_MESSAGE = [
   '7. 🎓 *Education Loan (India & Global Studies)* — Higher education in India or overseas (USA, UK, Canada, Germany, Australia).',
   '8. 🏫 *School & College Institutional Funding* — Trust, society & educational institution campus development & expansion.',
   '',
-  '📲 *Direct WhatsApp Advisory:* 9175635165 (+91 91756 35165)',
+  '📲 *Official WhatsApp Business:* +91 72491 08474',
   '👤 *Chief Loan Advisor:* Sachin Shinde',
   '🌐 *Official Website:* https://www.avanifinserv.com/',
   '═══════════════════════════════════════'
@@ -340,7 +340,7 @@ export function evaluateChatbotFlowStep(params: {
     ctx.handoffDecision = 'HUMAN_ADVISOR_HANDOFF';
     ctx.currentState = 'HUMAN_HANDOFF';
     const handoffReply =
-      `I am connecting your inquiry with our Founder & Chief Loan Advisor, Sachin Shinde (+91 72491 08474 / WhatsApp: 9175635165). Our advisor will review your requirement and assist you via ChatMitra Live Chat or phone.\n\n${AVANI_PRODUCT_DETAILS_MESSAGE}\n\n_${NON_LENDER_ADVISORY_DISCLAIMER}_`;
+      `I am connecting your inquiry with our Founder & Chief Loan Advisor, Sachin Shinde (+91 72491 08474). Our advisor will review your requirement and assist you via ChatMitra Live Chat or phone.\n\n${AVANI_PRODUCT_DETAILS_MESSAGE}\n\n_${NON_LENDER_ADVISORY_DISCLAIMER}_`;
     return {
       replyText: handoffReply,
       nextStep: 'HUMAN_ADVISOR_HANDOFF',
@@ -593,7 +593,7 @@ export function evaluateChatbotFlowStep(params: {
     '',
     AVANI_PRODUCT_DETAILS_MESSAGE,
     '',
-    'Reply *ADVISOR* anytime to speak with Sachin Shinde (+91 72491 08474 / WhatsApp: 9175635165).'
+    'Reply *ADVISOR* anytime to speak with Sachin Shinde (+91 72491 08474).'
   ].join('\n');
 
   return {

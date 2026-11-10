@@ -78,7 +78,7 @@ export async function POST(request: Request) {
     const endedReason = call?.endedReason || '';
     const isMissedCall = ['customer-did-not-answer', 'customer-busy', 'voicemail', 'failed', 'silence', 'customer-ended-call', 'hangup', 'silence-timed-out'].includes(endedReason.toLowerCase()) || endedReason.toLowerCase().includes('error') || endedReason.toLowerCase().includes('failed') || endedReason.toLowerCase().includes('silence');
 
-    const loanAgentsUrl = process.env.LOAN_AGENTS_URL || 'https://avani-loan-agents-67xaww674-avaniagrofoods1356-4705s-projects.vercel.app';
+    const loanAgentsUrl = process.env.LOAN_AGENTS_URL || 'https://avani-loan-agents.vercel.app';
 
     if (isMissedCall) {
       lead.status = 'Missed Call';

@@ -3,26 +3,10 @@
 const API_URL = '/api';
 
 import { useState, useEffect, useRef } from "react";
-import { Send, User, Bot, CheckCircle, AlertTriangle, XCircle, Sparkles, FileText, Loader2, ArrowUpRight } from "lucide-react";
+import { Send, User, Bot, CheckCircle, AlertTriangle, XCircle, Sparkles, FileText, Loader2, ShieldCheck, PhoneCall } from "lucide-react";
+import { AVANI_BUSINESS_CONFIG, AVANI_OFFICIAL_PRODUCT_SUITE, isAuthorizedTestRecipient } from "@/config/business";
 
-export const AVANI_INBOX_PRODUCT_DETAILS = `═══════════════════════════════════════
-🏦 *AVANI LOAN SERVICES — COMPLETE PRODUCT SUITE*
-═══════════════════════════════════════
-Empowering your financial requirements across 40+ partner banks & NBFCs:
-
-1. 🩺 *Doctor Professional Loan* — Clinic setup, medical equipment & expansion funding up to ₹50 Lakhs (No collateral options).
-2. 💼 *Personal Loan* — Instant personal loans for salaried & self-employed individuals up to ₹50 Lakhs.
-3. 🏢 *Business Loan & MSME Working Capital* — Secured & unsecured business expansion, machinery & trade funding.
-4. 📊 *CA Professional Loan* — Specialized funding for Chartered Accountants, COP holders & audit firms.
-5. 🏠 *Home Loan & Construction Funding* — New flats, row houses, plot purchase & balance transfer with top-up.
-6. 🏬 *Mortgage Loan / Loan Against Property (LAP)* — Loans against residential, commercial & industrial property.
-7. 🎓 *Education Loan (India & Global Studies)* — Higher education in India or overseas (USA, UK, Canada, Germany, Australia).
-8. 🏫 *School & College Institutional Funding* — Trust, society & educational institution campus development & expansion.
-
-📲 *Direct WhatsApp Advisory:* 9175635165 (+91 91756 35165)
-👤 *Chief Loan Advisor:* Sachin Shinde
-🌐 *Official Website:* https://www.avanifinserv.com/
-═══════════════════════════════════════`;
+export const AVANI_INBOX_PRODUCT_DETAILS = AVANI_OFFICIAL_PRODUCT_SUITE;
 
 interface NotificationState {
   type: 'success' | 'warning' | 'error';
@@ -74,11 +58,11 @@ export default function InboxPage() {
       const fetchedMsgs = data.messages || [];
       setMessages(fetchedMsgs);
 
-      // Auto-reply log note if enabled
+      // Auto-reply simulation log note if enabled in mock mode
       if (autoReplyEnabled && fetchedMsgs.length > 0) {
         const lastMsg = fetchedMsgs[fetchedMsgs.length - 1];
         if (lastMsg.role === 'user') {
-          console.log('[AutoReply] Inbound message waiting for reply:', lastMsg.content);
+          console.log('[AutoReply:Mock] Inbound message waiting for review:', lastMsg.content);
         }
       }
     } catch (error) {
@@ -113,6 +97,7 @@ export default function InboxPage() {
   };
 
   const activePhone = getRecipientPhone(activeContact);
+  const isTestContact = isAuthorizedTestRecipient(activePhone);
 
   const handleSendReply = async (customMessage?: string) => {
     const textToSend = (customMessage || replyText || '').trim();
@@ -169,12 +154,12 @@ export default function InboxPage() {
       if (response.ok && resData.success) {
         if (resData.isMock || (resData.provider && resData.provider.toLowerCase().includes('mock'))) {
           showNotification(
-            `CRM Notice: Message queued in Sandbox Mock Mode (ChatMitra API key not configured). To deliver to live WhatsApp, configure CHATMITRA_API_KEY in Vercel.`,
+            `CRM Sandbox Notice: Message queued in Mock Sandbox (Provider mode is mock). To deliver to live WhatsApp, owner approval & live provider mode required.`,
             'warning'
           );
         } else {
           showNotification(
-            `Delivered to WhatsApp (+91 91756 35165) via ${resData.provider || 'ChatMitra'}. ID: ${resData.providerMessageId || 'OK'}`,
+            `Delivered to WhatsApp (${recipientPhone}) via ${resData.provider || 'ChatMitra'}. ID: ${resData.providerMessageId || 'OK'}`,
             'success'
           );
         }
@@ -196,27 +181,19 @@ export default function InboxPage() {
     }
   };
 
-  const handleSendProductDetails = async (sendImmediately: boolean = false) => {
-    const msg = `${AVANI_INBOX_PRODUCT_DETAILS}\n\nDear Customer, thank you for contacting AVANI LOAN SERVICES. Our Founder & Chief Loan Advisor Sachin Shinde is available on WhatsApp at 9175635165 to assist you with custom sanction options.`;
-    if (sendImmediately) {
-      await handleSendReply(msg);
-    } else {
-      setReplyText(msg);
-      textareaRef.current?.focus();
-      showNotification("Product details inserted! Click Send or press Enter to dispatch.", 'success');
-    }
+  const handleInsertProductDetails = () => {
+    const msg = `${AVANI_OFFICIAL_PRODUCT_SUITE}\n\nDear Customer, thank you for contacting ${AVANI_BUSINESS_CONFIG.name}. Our Founder & Chief Loan Advisor Sachin Shinde is available on WhatsApp at ${AVANI_BUSINESS_CONFIG.whatsapp.officialWabaFormatted} to assist you with custom sanction options.`;
+    setReplyText(msg);
+    textareaRef.current?.focus();
+    showNotification("Product details inserted! Please review message and click Send.", 'success');
   };
 
-  const handleTriggerAiAutoReply = async (sendImmediately: boolean = false) => {
+  const handleGenerateAiResponse = () => {
     if (!activeContact || messages.length === 0) {
-      const defaultGreeting = `Namaste! 🙏\n\nWelcome to AVANI LOAN SERVICES. We guide individuals, professionals, and businesses to secure the right loan from 40+ top banks and NBFCs.\n\n${AVANI_INBOX_PRODUCT_DETAILS}\n\nPlease share your loan requirement or connect directly with Sachin Shinde on WhatsApp: 9175635165.`;
-      if (sendImmediately) {
-        await handleSendReply(defaultGreeting);
-      } else {
-        setReplyText(defaultGreeting);
-        textareaRef.current?.focus();
-        showNotification("AI welcome greeting prepared! Click Send to dispatch.", 'success');
-      }
+      const defaultGreeting = `Namaste! 🙏\n\nWelcome to ${AVANI_BUSINESS_CONFIG.name}. We guide individuals, professionals, and businesses to secure the right loan from 40+ top banks and NBFCs.\n\n${AVANI_OFFICIAL_PRODUCT_SUITE}\n\nPlease share your loan requirement or connect directly with ${AVANI_BUSINESS_CONFIG.founder.name} on WhatsApp: ${AVANI_BUSINESS_CONFIG.whatsapp.officialWabaFormatted}.`;
+      setReplyText(defaultGreeting);
+      textareaRef.current?.focus();
+      showNotification("AI welcome greeting prepared! Review and click Send.", 'success');
       return;
     }
 
@@ -227,22 +204,18 @@ export default function InboxPage() {
     const lower = userText.toLowerCase();
 
     if (lower.includes('doctor') || userText.includes('डॉक्टर')) {
-      generatedReply = `Namaste! 🙏\n\nThank you for your inquiry regarding *Doctor Professional Loans* in Latur.\n\nAVANI LOAN SERVICES offers specialized funding for Medical Professionals:\n• Up to ₹50 Lakhs unsecured (No collateral required)\n• Competitive interest rates across 40+ partner banks & NBFCs\n• Minimal documentation: Degree (MBBS/MD/BDS), Medical Council Registration, last 2 years ITR, and 12 months bank statement.\n\n${AVANI_INBOX_PRODUCT_DETAILS}\n\nReply with your required loan amount or connect directly with Chief Loan Advisor Sachin Shinde on WhatsApp: 9175635165.`;
+      generatedReply = `Namaste! 🙏\n\nThank you for your inquiry regarding *Doctor Professional Loans* in Latur.\n\n${AVANI_BUSINESS_CONFIG.name} offers specialized funding for Medical Professionals:\n• Up to ₹50 Lakhs unsecured (No collateral required)\n• Competitive interest rates across 40+ partner banks & NBFCs\n• Minimal documentation: Degree (MBBS/MD/BDS), Medical Council Registration, last 2 years ITR, and 12 months bank statement.\n\n${AVANI_OFFICIAL_PRODUCT_SUITE}\n\nReply with your required loan amount or connect directly with Chief Loan Advisor Sachin Shinde on WhatsApp: ${AVANI_BUSINESS_CONFIG.whatsapp.officialWabaFormatted}.`;
     } else if (lower.includes('home') || userText.includes('घर') || userText.includes('गृहकर्ज')) {
-      generatedReply = `Namaste! 🙏\n\nThank you for reaching out regarding *Home Loans*.\n\nAVANI LOAN SERVICES secures the best housing finance rates across 40+ banks & NBFCs:\n• Purchase, construction, plot loan, and balance transfer with top-up\n• Tenure up to 30 years with lowest EMI\n• Doorstep document pick-up and personalized guidance\n\n${AVANI_INBOX_PRODUCT_DETAILS}\n\nReply with your city and loan requirement, or connect with Sachin Shinde on WhatsApp: 9175635165.`;
+      generatedReply = `Namaste! 🙏\n\nThank you for reaching out regarding *Home Loans*.\n\n${AVANI_BUSINESS_CONFIG.name} secures the best housing finance rates across 40+ banks & NBFCs:\n• Purchase, construction, plot loan, and balance transfer with top-up\n• Tenure up to 30 years with lowest EMI\n• Doorstep document pick-up and personalized guidance\n\n${AVANI_OFFICIAL_PRODUCT_SUITE}\n\nReply with your city and loan requirement, or connect with Sachin Shinde on WhatsApp: ${AVANI_BUSINESS_CONFIG.whatsapp.officialWabaFormatted}.`;
     } else if (lower.includes('business') || userText.includes('व्यापार') || userText.includes('बिझनेस')) {
-      generatedReply = `Namaste! 🙏\n\nThank you for inquiring about *Business & MSME Loans*.\n\nWe provide working capital, term loans, and machinery finance:\n• Unsecured business loans up to ₹75 Lakhs\n• Fast sanction based on GST returns and banking turnover\n\n${AVANI_INBOX_PRODUCT_DETAILS}\n\nPlease share your business turnover or connect with Sachin Shinde directly on WhatsApp: 9175635165.`;
+      generatedReply = `Namaste! 🙏\n\nThank you for inquiring about *Business & MSME Loans*.\n\nWe provide working capital, term loans, and machinery finance:\n• Unsecured business loans up to ₹75 Lakhs\n• Fast sanction based on GST returns and banking turnover\n\n${AVANI_OFFICIAL_PRODUCT_SUITE}\n\nPlease share your business turnover or connect with Sachin Shinde directly on WhatsApp: ${AVANI_BUSINESS_CONFIG.whatsapp.officialWabaFormatted}.`;
     } else {
-      generatedReply = `Namaste! 🙏\n\nWelcome to AVANI LOAN SERVICES. We guide individuals, professionals, and businesses to secure the right loan from 40+ top banks and NBFCs.\n\n${AVANI_INBOX_PRODUCT_DETAILS}\n\nCould you please let us know which loan product you are interested in? You may also connect directly with Sachin Shinde on WhatsApp: 9175635165.`;
+      generatedReply = `Namaste! 🙏\n\nWelcome to ${AVANI_BUSINESS_CONFIG.name}. We guide individuals, professionals, and businesses to secure the right loan from 40+ top banks and NBFCs.\n\n${AVANI_OFFICIAL_PRODUCT_SUITE}\n\nCould you please let us know which loan product you are interested in? You may also connect directly with Sachin Shinde on WhatsApp: ${AVANI_BUSINESS_CONFIG.whatsapp.officialWabaFormatted}.`;
     }
 
-    if (sendImmediately) {
-      await handleSendReply(generatedReply);
-    } else {
-      setReplyText(generatedReply);
-      textareaRef.current?.focus();
-      showNotification("Contextual AI auto-reply prepared! Click Send to dispatch.", 'success');
-    }
+    setReplyText(generatedReply);
+    textareaRef.current?.focus();
+    showNotification("Contextual AI response drafted! Review and click Send.", 'success');
   };
 
   return (
@@ -268,6 +241,7 @@ export default function InboxPage() {
               const cId = c.id || c._id || c.phone || `c_${idx}`;
               const isSelected = activeContactId === cId || String(c._id) === String(activeContactId);
               const phoneDisplay = c.phone || c.mobile || '';
+              const isContactTest = isAuthorizedTestRecipient(phoneDisplay);
               return (
                 <div 
                   key={cId} 
@@ -284,6 +258,11 @@ export default function InboxPage() {
                   <div className="flex items-center justify-between">
                     <div className="font-medium text-sm dark:text-zinc-100 flex items-center gap-1.5">
                       <span>{c.name || 'Customer'}</span>
+                      {isContactTest && (
+                        <span className="text-[10px] px-1.5 py-0.2 rounded font-medium bg-amber-500/10 text-amber-500 border border-amber-500/20">
+                          Test Contact
+                        </span>
+                      )}
                     </div>
                     {phoneDisplay && (
                       <span className="text-[11px] text-zinc-400 font-mono">
@@ -312,22 +291,30 @@ export default function InboxPage() {
                   <User className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="font-semibold text-sm dark:text-white flex items-center gap-2">
-                    {activeContact?.name || 'Customer'}
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-semibold text-sm dark:text-white">
+                      {activeContact?.name || 'Customer'}
+                    </h3>
                     {activePhone && (
                       <span className="text-xs font-normal text-zinc-500 dark:text-zinc-400 font-mono">
                         ({activePhone.startsWith('+') ? activePhone : `+${activePhone}`})
                       </span>
                     )}
-                  </h3>
+                    {isTestContact && (
+                      <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-amber-500/15 text-amber-500 border border-amber-500/30 flex items-center gap-1">
+                        <ShieldCheck className="w-3 h-3" />
+                        Authorized Test Recipient
+                      </span>
+                    )}
+                  </div>
                   <p className="text-xs text-zinc-500 flex items-center gap-1.5 mt-0.5">
                     <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
-                    Live WhatsApp • Official Hotline: 9175635165
+                    Live WhatsApp • Official Advisory Hotline: {AVANI_BUSINESS_CONFIG.whatsapp.officialWabaFormatted}
                   </p>
                 </div>
               </div>
 
-              {/* Auto Reply Mode Switch */}
+              {/* Auto Reply Mode Switch (Accurate Status: MOCK MODE or DISABLED) */}
               <div className="flex items-center gap-2">
                 <button
                   type="button"
@@ -335,19 +322,19 @@ export default function InboxPage() {
                     const next = !autoReplyEnabled;
                     setAutoReplyEnabled(next);
                     showNotification(
-                      next ? "AI Auto-Reply enabled for inbound messages." : "AI Auto-Reply switched to Manual Mode.",
+                      next ? "AI Auto-Reply enabled in Sandbox Mock Mode." : "AI Auto-Reply switched to Manual Mode.",
                       'success'
                     );
                   }}
                   className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-colors border ${
                     autoReplyEnabled 
-                      ? 'bg-green-600/15 text-green-700 dark:text-green-400 border-green-500/30 hover:bg-green-600/25' 
+                      ? 'bg-amber-600/15 text-amber-700 dark:text-amber-400 border-amber-500/30 hover:bg-amber-600/25' 
                       : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 border-zinc-300 dark:border-zinc-700 hover:bg-zinc-200 dark:hover:bg-zinc-700'
                   }`}
-                  title="Toggle automatic AI auto-replies on WhatsApp"
+                  title="Auto-reply operating in Mock Sandbox mode. Live WhatsApp execution requires owner activation."
                 >
                   <Bot className="w-3.5 h-3.5" />
-                  {autoReplyEnabled ? 'AI Auto-Reply: Active' : 'AI Auto-Reply: Off (Manual)'}
+                  {autoReplyEnabled ? 'AI Auto-Reply: MOCK MODE' : 'AI Auto-Reply: DISABLED'}
                 </button>
               </div>
             </div>
@@ -414,20 +401,20 @@ export default function InboxPage() {
 
             {/* Quick Response Bar + Manual Reply */}
             <div className="p-3.5 border-t border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 space-y-2.5">
-              {/* Quick Actions Bar */}
+              {/* Quick Actions Bar (Inserts draft for advisor review before dispatch) */}
               <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs scrollbar-none">
                 <button 
                   type="button"
-                  onClick={() => handleSendProductDetails(false)}
+                  onClick={handleInsertProductDetails}
                   className="px-2.5 py-1.5 bg-blue-50 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900/40 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-800/40 rounded-lg flex items-center gap-1.5 whitespace-nowrap font-medium transition-colors"
-                  title="Insert Product Suite into message composer"
+                  title="Insert AVANI Complete Product Suite into message composer"
                 >
                   <Sparkles className="w-3.5 h-3.5 text-blue-500" />
-                  Product Suite (9175635165)
+                  Product Suite (+91 72491 08474)
                 </button>
                 <button 
                   type="button"
-                  onClick={() => handleTriggerAiAutoReply(false)}
+                  onClick={handleGenerateAiResponse}
                   className="px-2.5 py-1.5 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/40 rounded-lg flex items-center gap-1.5 whitespace-nowrap font-medium transition-colors"
                   title="Draft an AI response based on customer requirements"
                 >
@@ -437,9 +424,9 @@ export default function InboxPage() {
                 <button 
                   type="button"
                   onClick={() => {
-                    setReplyText(`🩺 *Doctor Loan Requirement — Required Documents:*\n1. Degree Certificate (MBBS/MD/BDS)\n2. Medical Council Registration Certificate\n3. Clinic / Hospital Registration Proof\n4. PAN Card & Aadhaar Card\n5. Last 2-3 years ITR with Computation\n6. Last 12 months Bank Statements\n\n${AVANI_INBOX_PRODUCT_DETAILS}\n\nPlease share these documents or connect directly with Sachin Shinde on WhatsApp: 9175635165.`);
+                    setReplyText(`🩺 *Doctor Loan Requirement — Required Documents:*\n1. Degree Certificate (MBBS/MD/BDS)\n2. Medical Council Registration Certificate\n3. Clinic / Hospital Registration Proof\n4. PAN Card & Aadhaar Card\n5. Last 2-3 years ITR with Computation\n6. Last 12 months Bank Statements\n\n${AVANI_OFFICIAL_PRODUCT_SUITE}\n\nPlease share these documents or connect directly with ${AVANI_BUSINESS_CONFIG.founder.name} on WhatsApp: ${AVANI_BUSINESS_CONFIG.whatsapp.officialWabaFormatted}.`);
                     textareaRef.current?.focus();
-                    showNotification("Doctor Loan Checklist inserted! Click Send or press Enter to dispatch.", 'success');
+                    showNotification("Doctor Loan Checklist inserted! Please review before sending.", 'success');
                   }}
                   className="px-2.5 py-1.5 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 rounded-lg flex items-center gap-1.5 whitespace-nowrap transition-colors"
                   title="Insert Doctor Loan document checklist"
@@ -450,9 +437,9 @@ export default function InboxPage() {
                 <button 
                   type="button"
                   onClick={() => {
-                    setReplyText(`🏠 *Home Loan Requirement — Required Documents:*\n1. PAN & Aadhaar Card of Applicant & Co-applicant\n2. Latest 3 months salary slips / 2 years ITR\n3. Last 6-12 months Bank Statement\n4. Copy of Agreement to Sale / Allotment Letter\n5. 7/12 Extract / Property Card & Tax Receipt\n\n${AVANI_INBOX_PRODUCT_DETAILS}\n\nPlease share these documents or connect directly with Sachin Shinde on WhatsApp: 9175635165.`);
+                    setReplyText(`🏠 *Home Loan Requirement — Required Documents:*\n1. PAN & Aadhaar Card of Applicant & Co-applicant\n2. Latest 3 months salary slips / 2 years ITR\n3. Last 6-12 months Bank Statement\n4. Copy of Agreement to Sale / Allotment Letter\n5. 7/12 Extract / Property Card & Tax Receipt\n\n${AVANI_OFFICIAL_PRODUCT_SUITE}\n\nPlease share these documents or connect directly with ${AVANI_BUSINESS_CONFIG.founder.name} on WhatsApp: ${AVANI_BUSINESS_CONFIG.whatsapp.officialWabaFormatted}.`);
                     textareaRef.current?.focus();
-                    showNotification("Home Loan Checklist inserted! Click Send or press Enter to dispatch.", 'success');
+                    showNotification("Home Loan Checklist inserted! Please review before sending.", 'success');
                   }}
                   className="px-2.5 py-1.5 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 rounded-lg flex items-center gap-1.5 whitespace-nowrap transition-colors"
                   title="Insert Home Loan document checklist"

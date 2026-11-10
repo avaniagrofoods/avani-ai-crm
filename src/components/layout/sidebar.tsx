@@ -64,9 +64,21 @@ export function Sidebar({ className = "" }: { className?: string }) {
 
   return (
     <div className={`flex h-screen w-64 flex-col border-r border-zinc-800 bg-sidebar text-sidebar-foreground shrink-0 ${className}`}>
-        <div className="flex items-center gap-2">
-          <img src="/logo.svg" alt="Avani Loan Service" className="h-10 w-auto filter drop-shadow-md brightness-110" />
+      <div className="p-4 border-b border-zinc-800 flex items-center gap-3">
+        <img 
+          src="/logo.svg" 
+          alt="AVANI LOAN SERVICES" 
+          className="h-10 w-auto filter drop-shadow-md brightness-110 object-contain"
+          onError={(e) => {
+            // Graceful fallback to text brand mark if SVG fails
+            (e.target as HTMLElement).style.display = 'none';
+          }}
+        />
+        <div className="flex flex-col">
+          <span className="font-bold text-sm tracking-wider text-white">AVANI LOAN</span>
+          <span className="text-[10px] text-zinc-400 font-semibold tracking-widest">SERVICES</span>
         </div>
+      </div>
       <div className="flex-1 py-4 overflow-y-auto custom-scrollbar">
         <nav className="flex flex-col gap-1 px-3">
           {menuGroups.map((group, i) => (

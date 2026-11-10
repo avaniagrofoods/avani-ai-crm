@@ -1,13 +1,12 @@
 # ANTIGRAVITY RESUME STATE — AVANI LOAN SERVICES (`3-AVANI AI CRM`)
 
-- **Current Checkpoint:** `CP-25.2 — CRM Inbox Send Button Failure Repair, Outbound Pipeline, Phone Normalization & Live Safety`
-- **Status:** `COMPLETED & PRODUCTION DEPLOYED (READY)`
+- **Current Checkpoint:** `CP-25.3.1 — Production Forensic Audit, Branding Correction & Deployment Ownership Verification`
+- **Status:** `COMPLETED & VERIFIED (DECISION A: PRODUCTION UI AND CODE READY — LIVE WHATSAPP BLOCKED)`
 - **Business Entity:** `AVANI LOAN SERVICES` (`https://www.avanifinserv.com/`)
 - **Owner & Founder:** `Sachin Shinde`
 - **Production Alias:** `https://avani-ai-crm.vercel.app`
-- **Active Deployment ID:** `dpl_9UGCZqQwantC9WMhFA8bMJvMVSMY` (`READY`)
-- **Git Commit:** `4b07017`
-- **Automated Regression Suite:** `18 / 18 Suites Passed` (`271 / 271 Tests Passed — 100.0%`)
+- **Active Deployment ID:** `dpl_ENRc2x1bCktBnAsitwsrYYVEQqLL`
+- **Automated Regression Suite:** `19 / 19 Suites Passed` (`293 / 293 Tests Passed — 100.0%`)
 - **Secret Exposure Scan:** `0 Exposures`
 - **Safety Flags Preserved:**
   - `PROVIDER_MODE=mock`
@@ -15,10 +14,11 @@
   - `CHATMITRA_INBOUND_AUTO_REPLY_ENABLED=false`
   - `OMNIDM_LIVE_ENABLED=false`
   - `AUTHORIZED_LIVE_TEST_RECIPIENT=919175635165`
-- **Key Enhancements in CP-25.2:**
-  - Repaired Send button in CRM Inbox with dynamic loading spinner (`Loader2`) and visual states.
-  - Implemented draft preservation upon failed network dispatches.
-  - Repaired `ProviderRouter.dispatchMessage` to record outbound `text: options.messageText` in MongoDB.
-  - Normalized contact phone querying in `/api/contacts/[id]` and `/api/contacts` across 5 phone variants.
-  - Quick action overhaul: 8 AVANI products + official advisory hotline `9175635165` (+91 91756 35165).
-  - Pre-flight credentials check in `direct-message` API returning HTTP 422 if live without API key.
+- **Key Deliverables in CP-25.3.1:**
+  - Copied official `logo.svg` to root `public/` and implemented SVG fallback in `sidebar.tsx`.
+  - Created centralized business configuration `src/config/business.ts` (`AVANI_BUSINESS_CONFIG`).
+  - Disambiguated Official WABA (`+91 72491 08474`) from Authorized Test Recipient (`+91 91756 35165`).
+  - Corrected AI Auto-Reply status in Inbox UI to display `MOCK MODE` or `DISABLED` (never misleading Active).
+  - Cleaned external Vercel team URL references in `vapi-webhook/route.ts`.
+  - Created `tests/test_cp25_3_1_production_audit_and_branding.test.cjs` (22/22 tests PASS).
+  - Executed full read-only database audit (15 contacts, 24 leads, 52 messages, 0 duplicate contacts).

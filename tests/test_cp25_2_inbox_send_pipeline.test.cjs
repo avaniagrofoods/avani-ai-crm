@@ -40,22 +40,24 @@ runTest('CP25.2-01: InboxPage imports and React hooks defined properly', () => {
 
 // 2. Verify AVANI_INBOX_PRODUCT_DETAILS contains 8 products
 runTest('CP25.2-02: AVANI_INBOX_PRODUCT_DETAILS contains all 8 products', () => {
-  const code = fs.readFileSync(path.join('src', 'app', 'inbox', 'page.tsx'), 'utf8');
-  assert.ok(code.includes('Doctor Professional Loan'), 'Doctor loan missing');
-  assert.ok(code.includes('Personal Loan'), 'Personal loan missing');
-  assert.ok(code.includes('Business Loan & MSME Working Capital'), 'Business loan missing');
-  assert.ok(code.includes('CA Professional Loan'), 'CA loan missing');
-  assert.ok(code.includes('Home Loan & Construction Funding'), 'Home loan missing');
-  assert.ok(code.includes('Mortgage Loan / Loan Against Property (LAP)'), 'Mortgage LAP missing');
-  assert.ok(code.includes('Education Loan (India & Global Studies)'), 'Education loan missing');
-  assert.ok(code.includes('School & College Institutional Funding'), 'School/College funding missing');
+  const bCode = fs.readFileSync(path.join('src', 'config', 'business.ts'), 'utf8');
+  assert.ok(bCode.includes('Doctor Professional Loan'), 'Doctor loan missing');
+  assert.ok(bCode.includes('Personal Loan'), 'Personal loan missing');
+  assert.ok(bCode.includes('Business Loan & MSME Working Capital'), 'Business loan missing');
+  assert.ok(bCode.includes('CA Professional Loan'), 'CA loan missing');
+  assert.ok(bCode.includes('Home Loan & Construction Funding'), 'Home loan missing');
+  assert.ok(bCode.includes('Mortgage Loan / Loan Against Property (LAP)'), 'Mortgage LAP missing');
+  assert.ok(bCode.includes('Education Loan (India & Global Studies)'), 'Education loan missing');
+  assert.ok(bCode.includes('School & College Institutional Funding'), 'School/College funding missing');
 });
 
-// 3. Verify product suite contains official WhatsApp number 9175635165 (+91 91756 35165)
-runTest('CP25.2-03: Product suite contains official WhatsApp number 9175635165', () => {
+// 3. Verify product suite contains official WhatsApp WABA number +91 72491 08474
+runTest('CP25.2-03: Product suite contains official WhatsApp WABA number +91 72491 08474', () => {
   const code = fs.readFileSync(path.join('src', 'app', 'inbox', 'page.tsx'), 'utf8');
-  assert.ok(code.includes('9175635165'), 'Official advisory number 9175635165 missing');
-  assert.ok(code.includes('+91 91756 35165'), 'Formatted WhatsApp number missing');
+  assert.ok(code.includes('AVANI_OFFICIAL_PRODUCT_SUITE'), 'AVANI_OFFICIAL_PRODUCT_SUITE missing in inbox/page.tsx');
+  const bCode = fs.readFileSync(path.join('src', 'config', 'business.ts'), 'utf8');
+  assert.ok(bCode.includes('+91 72491 08474'), 'Official WABA number +91 72491 08474 missing in business.ts');
+  assert.ok(bCode.includes('+91 91756 35165'), 'Authorized test recipient +91 91756 35165 missing in business.ts');
 });
 
 // 4. Verify product suite includes Chief Loan Advisor Sachin Shinde
@@ -66,8 +68,8 @@ runTest('CP25.2-04: Product suite attributes Founder & Chief Loan Advisor Sachin
 
 // 5. Verify product suite includes official website https://www.avanifinserv.com/
 runTest('CP25.2-05: Product suite links to official website https://www.avanifinserv.com/', () => {
-  const code = fs.readFileSync(path.join('src', 'app', 'inbox', 'page.tsx'), 'utf8');
-  assert.ok(code.includes('https://www.avanifinserv.com/'), 'Official website URL missing');
+  const bCode = fs.readFileSync(path.join('src', 'config', 'business.ts'), 'utf8');
+  assert.ok(bCode.includes('https://www.avanifinserv.com'), 'Official website URL missing');
 });
 
 // 6. Verify Doctor Loan Checklist

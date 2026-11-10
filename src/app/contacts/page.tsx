@@ -253,18 +253,18 @@ export default function ContactsPage() {
             <div className="space-y-4">
               <div className="flex items-center justify-between border-b border-zinc-805 pb-3">
                 <div>
-                  <p className="text-xs text-zinc-550">Sender / Broadcast Number</p>
-                  <p className="text-sm font-mono text-zinc-200 font-semibold">+91 9175635165</p>
+                  <p className="text-xs text-zinc-400">Official WABA Number</p>
+                  <p className="text-sm font-mono text-zinc-200 font-semibold">+91 72491 08474</p>
                 </div>
                 <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                  Active
+                  WABA Active
                 </span>
               </div>
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-xs text-zinc-550">Auto Workflow Test Lead</p>
-                  <p className="text-sm font-mono text-zinc-200 font-semibold">+91 7219053645</p>
+                  <p className="text-xs text-zinc-400">Authorized Test Recipient</p>
+                  <p className="text-sm font-mono text-zinc-200 font-semibold">+91 91756 35165</p>
                 </div>
                 <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-semibold bg-indigo-500/10 text-indigo-400">
                   <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse"></span>
