@@ -153,7 +153,7 @@ export function classifyLoanCategory(text: string): InboundLoanClassification {
   }
 
   // 5. School Funding
-  if (/(\bschool\b|\bschool funding\b|\bschool loan\b|\bcbse school\b|\bicse school\b|\bschool campus\b|\bk-12\b|\btrust school\b|शाळा|स्कूल)/i.test(lower)) {
+  if (/(\bschool\b|\bschool funding\b|\bschool loan\b|\bcbse school\b|\bicse school\b|\bschool campus\b|\bk-12\b|\btrust school\b|शाळा|शाळे|स्कूल)/i.test(lower)) {
     return { category: 'School Funding', template: 'school_owner_funding_welcome', confidence: 0.94 };
   }
 

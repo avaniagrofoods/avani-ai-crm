@@ -464,4 +464,43 @@ Respond with ONLY raw JSON, no markdown blocks.
       'Income Proof (Salary Slips or ITR)'
     ];
   }
+
+  static createAuditRecord(params: {
+    inputMessageRef?: string;
+    detectedLanguage?: 'en' | 'mr' | 'hi';
+    detectedLoanCategory?: string;
+    extractedQualificationFields?: Record<string, any>;
+    aiResponseRef?: string;
+    handoffDecision?: 'CONTINUE_BOT' | 'HUMAN_ADVISOR_HANDOFF';
+  }) {
+    return {
+      inputMessageRef: params.inputMessageRef || `MSG-${Date.now()}`,
+      detectedLanguage: params.detectedLanguage || 'en',
+      detectedLoanCategory: params.detectedLoanCategory || 'Personal Loan',
+      extractedQualificationFields: params.extractedQualificationFields || {},
+      aiResponseRef: params.aiResponseRef || `RESP-${Date.now()}`,
+      handoffDecision: params.handoffDecision || 'CONTINUE_BOT',
+      timestamp: new Date().toISOString(),
+      modelVersion: process.env.PROVIDER_MODE === 'mock' ? 'avani-deterministic-cp25-v1' : 'gemini-2.5-flash-cp25-v1'
+    };
+  }
+
+  static prepareAdvisorHandoffNotes(context: Record<string, any> = {}) {
+    const requiredFields = ['fullName', 'mobile', 'email', 'city', 'employmentType', 'monthlyIncome', 'loanProduct', 'loanAmount'];
+    const missingQualificationFields = requiredFields.filter(f => !context[f]);
+    const isApplicationIncomplete = missingQualificationFields.length > 0;
+    const docsList = this.getDocumentsForProfile(context.employmentType, context.profession, context.loanProduct);
+
+    return {
+      assignedAdvisor: ADVISOR_CONTACT.name,
+      advisorPhone: ADVISOR_CONTACT.phone,
+      customerSummary: `${context.fullName || 'Prospective Applicant'} (${context.mobile || 'Phone Pending'}) — ${context.loanProduct || 'General Loan Inquiry'} in ${context.city || 'India'}`,
+      isApplicationIncomplete,
+      missingQualificationFields,
+      recommendedChecklist: docsList,
+      disclaimerIncluded: true,
+      advisoryDisclaimer: ADVISORY_DISCLAIMER,
+      preparedAt: new Date().toISOString()
+    };
+  }
 }

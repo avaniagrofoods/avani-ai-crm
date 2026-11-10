@@ -1,14 +1,37 @@
 import axios from 'axios';
 
+export const MAX_OMNIDM_RETRIES = 2;
+
 export interface DispatchCallOptions {
   phoneNumber: string;
   customerName: string;
+  leadId?: string;
   loanType?: string;
   language?: 'mr' | 'hi' | 'en';
   customTask?: string;
   city?: string;
   profession?: string;
   loanRequirement?: string;
+  consentGranted?: boolean;
+  isOptedOut?: boolean;
+  retryAttempt?: number;
+}
+
+export interface CallAuditTrail {
+  leadId: string;
+  phoneNumber: string;
+  language: 'mr' | 'hi' | 'en';
+  loanCategory: string;
+  agentId: string;
+  consentVerified: boolean;
+  dndSuppressed: boolean;
+  retryAttempt: number;
+  callStatus: string;
+  callOutcome?: string;
+  callSummary?: string;
+  nextAction?: string;
+  advisorHandoff?: boolean;
+  timestamp: string;
 }
 
 export interface DispatchCallResult {
@@ -17,6 +40,7 @@ export interface DispatchCallResult {
   provider: string;
   rawResponse?: any;
   error?: string;
+  auditTrail?: CallAuditTrail;
 }
 
 export interface IVoiceProvider {
@@ -33,37 +57,133 @@ export class OmniDMVoiceProvider implements IVoiceProvider {
   private englishAgentId: string;
 
   constructor() {
-    // Strip any leading/trailing whitespace or periods from API key
     this.apiKey = (process.env.OMNIDIM_API_KEY || '').replace(/\.+$/, '').trim();
     this.defaultAgentId = (process.env.OMNIDIM_DEFAULT_AGENT_ID || '229425').trim();
     this.marathiAgentId = (process.env.OMNIDIM_MARATHI_AGENT_ID || '229425').trim();
     this.englishAgentId = (process.env.OMNIDIM_ENGLISH_AGENT_ID || '228450').trim();
   }
 
-  private selectAgentId(language?: 'mr' | 'hi' | 'en'): string {
+  public selectAgentId(language?: 'mr' | 'hi' | 'en'): string {
     if (language === 'mr') return this.marathiAgentId;
     if (language === 'en' || language === 'hi') return this.englishAgentId;
     return this.defaultAgentId;
   }
 
   async dispatchCall(options: DispatchCallOptions): Promise<DispatchCallResult> {
-    if (process.env.OMNIDM_LIVE_ENABLED !== 'true') {
-      console.log("[OmniDM Provider] Live calling disabled (OMNIDM_LIVE_ENABLED != true).");
+    const lang: 'mr' | 'hi' | 'en' = options.language || 'mr';
+    const agentId = this.selectAgentId(lang);
+    const retryAttempt = options.retryAttempt || 0;
+    const leadId = options.leadId || `AVL-CALL-${Date.now()}`;
+
+    let formattedPhone = String(options.phoneNumber || '').trim().replace(/[^0-9+]/g, '');
+    if (!formattedPhone.startsWith('+')) {
+      formattedPhone = formattedPhone.length === 10 ? '+91' + formattedPhone : '+' + formattedPhone;
+    }
+
+    // 1. DND / Opt-out Suppression Guard
+    if (options.isOptedOut === true) {
       return {
         success: false,
-        error: "OmniDM integration READY — live calling disabled pending recharge.",
         provider: this.name,
-        rawResponse: { status: "DISABLED_PENDING_RECHARGE" }
+        error: 'CALL_SUPPRESSED_OPTED_OUT_OR_DND',
+        rawResponse: { status: 'SUPPRESSED_OPT_OUT' },
+        auditTrail: {
+          leadId,
+          phoneNumber: formattedPhone,
+          language: lang,
+          loanCategory: options.loanType || 'Personal Loan',
+          agentId,
+          consentVerified: false,
+          dndSuppressed: true,
+          retryAttempt,
+          callStatus: 'SUPPRESSED_DND_OPTOUT',
+          timestamp: new Date().toISOString()
+        }
+      };
+    }
+
+    // 2. Explicit Consent Verification Guard
+    if (options.consentGranted === false) {
+      return {
+        success: false,
+        provider: this.name,
+        error: 'CALL_BLOCKED_MISSING_CONSENT',
+        rawResponse: { status: 'BLOCKED_MISSING_CONSENT' },
+        auditTrail: {
+          leadId,
+          phoneNumber: formattedPhone,
+          language: lang,
+          loanCategory: options.loanType || 'Personal Loan',
+          agentId,
+          consentVerified: false,
+          dndSuppressed: false,
+          retryAttempt,
+          callStatus: 'BLOCKED_NO_CONSENT',
+          timestamp: new Date().toISOString()
+        }
+      };
+    }
+
+    // 3. Retry Limit Guard
+    if (retryAttempt > MAX_OMNIDM_RETRIES) {
+      return {
+        success: false,
+        provider: this.name,
+        error: `CALL_RETRY_LIMIT_EXCEEDED (max=${MAX_OMNIDM_RETRIES})`,
+        rawResponse: { status: 'RETRY_LIMIT_EXCEEDED' },
+        auditTrail: {
+          leadId,
+          phoneNumber: formattedPhone,
+          language: lang,
+          loanCategory: options.loanType || 'Personal Loan',
+          agentId,
+          consentVerified: true,
+          dndSuppressed: false,
+          retryAttempt,
+          callStatus: 'RETRY_EXHAUSTED',
+          advisorHandoff: true,
+          nextAction: 'MANUAL_ADVISOR_FOLLOWUP',
+          timestamp: new Date().toISOString()
+        }
+      };
+    }
+
+    // 4. Test Mode Safety Gate (Default: disabled until owner approves live calling)
+    if (process.env.OMNIDM_LIVE_ENABLED !== 'true') {
+      console.log('[OmniDM Provider] Live calling disabled (OMNIDM_LIVE_ENABLED != true).');
+      return {
+        success: false,
+        error: 'OmniDM integration READY — live calling disabled pending recharge.',
+        provider: this.name,
+        rawResponse: { status: 'DISABLED_PENDING_RECHARGE' },
+        auditTrail: {
+          leadId,
+          phoneNumber: formattedPhone,
+          language: lang,
+          loanCategory: options.loanType || 'Personal Loan',
+          agentId,
+          consentVerified: true,
+          dndSuppressed: false,
+          retryAttempt,
+          callStatus: 'TEST_MODE_STANDBY',
+          nextAction: 'AWAITING_OWNER_LIVE_CALL_APPROVAL',
+          timestamp: new Date().toISOString()
+        }
+      };
+    }
+
+    // 5. Authorized Test Recipient Safety Clamp when live
+    const digits = formattedPhone.replace(/\D/g, '');
+    if (digits !== '919175635165' && digits !== '9175635165') {
+      return {
+        success: false,
+        provider: this.name,
+        error: `Safety clamp: Live OmniDM calling is restricted to authorized test number +91 91756 35165.`,
+        rawResponse: { status: 'BLOCKED_UNAUTHORIZED_RECIPIENT' }
       };
     }
 
     try {
-      const agentId = this.selectAgentId(options.language);
-      let formattedPhone = options.phoneNumber.trim();
-      if (!formattedPhone.startsWith('+')) {
-        formattedPhone = formattedPhone.length === 10 ? '+91' + formattedPhone : '+' + formattedPhone;
-      }
-
       const advancedPrompt = `
 CRITICAL: You are AVANI, a professional multilingual AI loan qualification assistant for AVANI LOAN SERVICES. 
 You MUST auto-detect the language spoken by the customer (Marathi, Hindi, or English) and reply fluently in that exact SAME language. Do not switch languages unnecessarily.
@@ -102,13 +222,14 @@ If customer changes product/profession, recalculate the required checklist.
         to_number: formattedPhone,
         phone_number: formattedPhone,
         customer_name: options.customerName,
-        language: options.language || "mr",
+        language: lang,
         variables: {
+          lead_id: leadId,
           name: options.customerName,
-          loan_type: options.loanType || "Personal Loan",
-          city: options.city || "",
-          profession: options.profession || "",
-          Loan_requirement: options.loanRequirement || "",
+          loan_type: options.loanType || 'Personal Loan',
+          city: options.city || '',
+          profession: options.profession || '',
+          Loan_requirement: options.loanRequirement || '',
           system_prompt: advancedPrompt
         }
       };
@@ -118,7 +239,7 @@ If customer changes product/profession, recalculate the required checklist.
         payload,
         {
           headers: {
-            'Authorization': `Bearer ${this.apiKey}`,
+            Authorization: `Bearer ${this.apiKey}`,
             'Content-Type': 'application/json'
           },
           timeout: 15000
@@ -126,11 +247,24 @@ If customer changes product/profession, recalculate the required checklist.
       );
 
       if (response.data && (response.data.success || response.data.requestId || response.data.status === 'dispatched')) {
+        const callId = String(response.data.requestId || response.data.id || 'omnidim_' + Date.now());
         return {
           success: true,
-          callId: String(response.data.requestId || response.data.id || 'omnidim_' + Date.now()),
+          callId,
           provider: this.name,
-          rawResponse: response.data
+          rawResponse: response.data,
+          auditTrail: {
+            leadId,
+            phoneNumber: formattedPhone,
+            language: lang,
+            loanCategory: options.loanType || 'Personal Loan',
+            agentId,
+            consentVerified: true,
+            dndSuppressed: false,
+            retryAttempt,
+            callStatus: 'DISPATCHED',
+            timestamp: new Date().toISOString()
+          }
         };
       }
 
@@ -149,6 +283,54 @@ If customer changes product/profession, recalculate the required checklist.
         provider: this.name
       };
     }
+  }
+
+  /**
+   * Parses inbound call completion webhook from OmniDM into a structured outcome & handoff decision.
+   */
+  static parseCallOutcome(webhookBody: Record<string, any>): {
+    callId: string;
+    leadId?: string;
+    callStatus: 'COMPLETED' | 'NO_ANSWER' | 'BUSY' | 'FAILED' | 'IN_PROGRESS';
+    callOutcome: 'QUALIFIED' | 'CALLBACK_REQUESTED' | 'NOT_INTERESTED' | 'HUMAN_HANDOFF' | 'INCOMPLETE';
+    callSummary: string;
+    nextAction: string;
+    advisorHandoff: boolean;
+  } {
+    const rawStatus = String(webhookBody?.status || webhookBody?.call_status || 'COMPLETED').toUpperCase();
+    const summary = String(webhookBody?.summary || webhookBody?.call_summary || webhookBody?.transcript || '');
+    const lowerSummary = summary.toLowerCase();
+
+    let callStatus: 'COMPLETED' | 'NO_ANSWER' | 'BUSY' | 'FAILED' | 'IN_PROGRESS' = 'COMPLETED';
+    if (rawStatus.includes('NO_ANSWER') || rawStatus.includes('UNANSWERED')) callStatus = 'NO_ANSWER';
+    else if (rawStatus.includes('BUSY')) callStatus = 'BUSY';
+    else if (rawStatus.includes('FAIL')) callStatus = 'FAILED';
+
+    let callOutcome: 'QUALIFIED' | 'CALLBACK_REQUESTED' | 'NOT_INTERESTED' | 'HUMAN_HANDOFF' | 'INCOMPLETE' = 'QUALIFIED';
+    let advisorHandoff = false;
+    let nextAction = 'SEND_WHATSAPP_CHECKLIST';
+
+    if (lowerSummary.includes('not interested') || lowerSummary.includes('decline')) {
+      callOutcome = 'NOT_INTERESTED';
+      nextAction = 'CLOSE_LEAD';
+    } else if (lowerSummary.includes('advisor') || lowerSummary.includes('human') || lowerSummary.includes('sachin')) {
+      callOutcome = 'HUMAN_HANDOFF';
+      advisorHandoff = true;
+      nextAction = 'ASSIGN_TO_SACHIN_SHINDE';
+    } else if (lowerSummary.includes('callback') || lowerSummary.includes('call later') || callStatus !== 'COMPLETED') {
+      callOutcome = 'CALLBACK_REQUESTED';
+      nextAction = 'SCHEDULE_FOLLOWUP_CALL';
+    }
+
+    return {
+      callId: String(webhookBody?.call_id || webhookBody?.requestId || `CALL-${Date.now()}`),
+      leadId: webhookBody?.variables?.lead_id || webhookBody?.leadId,
+      callStatus,
+      callOutcome,
+      callSummary: summary || 'Call processed via OmniDM AI Voice Agent',
+      nextAction,
+      advisorHandoff
+    };
   }
 }
 

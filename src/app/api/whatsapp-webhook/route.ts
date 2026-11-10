@@ -77,7 +77,7 @@ export async function POST(request: Request) {
     else if (hubSig) {
       let verified = false;
 
-      // Check against Meta App Secret first if configured
+      // Check against Meta App Secret first if configured (constant-time timingSafeEqual via verifyChatMitraSignature)
       if (metaAppSecret && verifyChatMitraSignature(rawBody, hubSig, metaAppSecret)) {
         verified = true;
         log('[Meta Security] Signature verified successfully via META_APP_SECRET');
