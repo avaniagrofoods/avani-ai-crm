@@ -5,7 +5,7 @@
 - **Business Entity:** `AVANI LOAN SERVICES` (`https://www.avanifinserv.com/`)
 - **Owner & Founder:** `Sachin Shinde`
 - **Production Alias:** `https://avani-ai-crm.vercel.app`
-- **Active Deployment ID:** `dpl_ENRc2x1bCktBnAsitwsrYYVEQqLL`
+- **Active Deployment ID:** `dpl_9gev9vJDyYKk3qdzLXJ9GYYHD76S` (Commit `3c9b00c`)
 - **Automated Regression Suite:** `19 / 19 Suites Passed` (`293 / 293 Tests Passed — 100.0%`)
 - **Secret Exposure Scan:** `0 Exposures`
 - **Safety Flags Preserved:**
