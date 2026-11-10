@@ -15,8 +15,8 @@
 
 | Forensic Attribute | Verified Production Value | Status | Evidence / Notes |
 |---|---|---|---|
-| **Production Deployment ID** | `dpl_DF6Py8wJ14Acg89ySF26NYy2wcv7` | **PASS** | Target: `production`, ReadyState: `READY`, Region: `iad1` |
-| **Commit SHA (Local & Origin)** | `0c121492ee672d112e15fae7e12475a35000cefa` | **PASS** | Verified on `main`, `release/stage1-hardening`, and `feat/cp25-chatbot-integration` |
+| **Production Deployment ID** | `dpl_J7YaA8wRjRqzZaHE7mZSEedDsSPo` | **PASS** | Target: `production`, ReadyState: `READY`, Region: `iad1` |
+| **Commit SHA (Local & Origin)** | `f8fb667` | **PASS** | Verified on `main`, `release/stage1-hardening`, and `feat/cp25-chatbot-integration` |
 | **Remote Repository** | `https://github.com/avaniagrofoods/avani-ai-crm.git` | **PASS** | Up to date on all branches; 0 unpushed commits |
 | **Repository Scope Boundary** | AVANI LOAN SERVICES exclusively | **PASS** | Zero files or credentials from `AVANI AGRO FOODS` accessed or modified |
 | **Live Production Health** | `https://avani-ai-crm.vercel.app/api/health` | **PASS** | Returns `HTTP 200 HEALTHY`, `databaseReady: true`, `appMode: "production"`, `providerMode: "mock"` |
