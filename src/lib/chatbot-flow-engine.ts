@@ -77,6 +77,27 @@ I can help you identify your loan requirement and share the relevant document ch
 
 Please select your preferred language.`;
 
+export const AVANI_PRODUCT_DETAILS_MESSAGE = [
+  '═══════════════════════════════════════',
+  '🏦 *AVANI LOAN SERVICES — COMPLETE PRODUCT SUITE*',
+  '═══════════════════════════════════════',
+  'Empowering your financial requirements across 40+ partner banks & NBFCs:',
+  '',
+  '1. 🩺 *Doctor Professional Loan* — Clinic setup, medical equipment & expansion funding up to ₹50 Lakhs (No collateral options).',
+  '2. 💼 *Personal Loan* — Instant personal loans for salaried & self-employed individuals up to ₹50 Lakhs.',
+  '3. 🏢 *Business Loan & MSME Working Capital* — Secured & unsecured business expansion, machinery & trade funding.',
+  '4. 📊 *CA Professional Loan* — Specialized funding for Chartered Accountants, COP holders & audit firms.',
+  '5. 🏠 *Home Loan & Construction Funding* — New flats, row houses, plot purchase & balance transfer with top-up.',
+  '6. 🏬 *Mortgage Loan / Loan Against Property (LAP)* — Loans against residential, commercial & industrial property.',
+  '7. 🎓 *Education Loan (India & Global Studies)* — Higher education in India or overseas (USA, UK, Canada, Germany, Australia).',
+  '8. 🏫 *School & College Institutional Funding* — Trust, society & educational institution campus development & expansion.',
+  '',
+  '📲 *Direct WhatsApp Advisory:* 9175635165 (+91 91756 35165)',
+  '👤 *Chief Loan Advisor:* Sachin Shinde',
+  '🌐 *Official Website:* https://www.avanifinserv.com/',
+  '═══════════════════════════════════════'
+].join('\n');
+
 export const LANGUAGE_OPTIONS = ['English', 'मराठी', 'हिंदी'] as const;
 
 export const APPLICANT_CATEGORY_OPTIONS = [
@@ -319,7 +340,7 @@ export function evaluateChatbotFlowStep(params: {
     ctx.handoffDecision = 'HUMAN_ADVISOR_HANDOFF';
     ctx.currentState = 'HUMAN_HANDOFF';
     const handoffReply =
-      `I am connecting your inquiry with our Founder & Chief Loan Advisor, Sachin Shinde (+91 72491 08474). Our advisor will review your requirement and assist you via ChatMitra Live Chat or phone.\n\n_${NON_LENDER_ADVISORY_DISCLAIMER}_`;
+      `I am connecting your inquiry with our Founder & Chief Loan Advisor, Sachin Shinde (+91 72491 08474 / WhatsApp: 9175635165). Our advisor will review your requirement and assist you via ChatMitra Live Chat or phone.\n\n${AVANI_PRODUCT_DETAILS_MESSAGE}\n\n_${NON_LENDER_ADVISORY_DISCLAIMER}_`;
     return {
       replyText: handoffReply,
       nextStep: 'HUMAN_ADVISOR_HANDOFF',
@@ -570,7 +591,9 @@ export function evaluateChatbotFlowStep(params: {
     'For your privacy, please do not send Aadhaar, PAN, passports, or bank statements directly in chat. Use your secure, encrypted upload portal link below:',
     portal.uploadUrl,
     '',
-    'Reply *ADVISOR* anytime to speak with Sachin Shinde (+91 72491 08474).'
+    AVANI_PRODUCT_DETAILS_MESSAGE,
+    '',
+    'Reply *ADVISOR* anytime to speak with Sachin Shinde (+91 72491 08474 / WhatsApp: 9175635165).'
   ].join('\n');
 
   return {
