@@ -181,6 +181,7 @@ export async function POST(request: Request) {
             await Message.create({
               messageId: msgId,
               providerMessageId: msgId,
+              idempotencyKey: msgId,
               leadId: leadId ? leadId.toString() : undefined,
               phone: fromPhone,
               senderPhone: fromPhone,

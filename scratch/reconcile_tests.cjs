@@ -38,7 +38,7 @@ for (const t of testFiles) {
   let stderr = '';
   
   try {
-    stdout = execSync(cmd, { encoding: 'utf8', timeout: 30000, stdio: ['pipe', 'pipe', 'pipe'] });
+    stdout = execSync(cmd, { encoding: 'utf8', timeout: 60000, stdio: ['pipe', 'pipe', 'pipe'] });
   } catch (err) {
     exitCode = err.status || 1;
     stdout = err.stdout ? err.stdout.toString() : '';
