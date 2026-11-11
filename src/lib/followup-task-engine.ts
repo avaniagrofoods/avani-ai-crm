@@ -57,10 +57,11 @@ export class FollowUpTaskEngine {
   public static evaluateTaskStatuses(tasks: any[]): any[] {
     const now = new Date();
     return (tasks || []).map(task => {
-      if (task.status === 'PENDING' && new Date(task.dueDate) < now) {
-        return { ...task, status: 'OVERDUE' };
+      const plain = typeof task?.toObject === 'function' ? task.toObject() : task;
+      if (plain.status === 'PENDING' && new Date(plain.dueDate) < now) {
+        return { ...plain, status: 'OVERDUE' };
       }
-      return task;
+      return plain;
     });
   }
 }

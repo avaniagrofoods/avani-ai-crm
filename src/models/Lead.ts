@@ -94,6 +94,22 @@ const LeadSchema = new mongoose.Schema({
     completedBy: { type: String }
   }],
 
+  // CP-26 Document Checklist Items
+  documentChecklist: [{
+    code: { type: String, required: true },
+    name: { type: String, required: true },
+    mandatory: { type: Boolean, default: true },
+    category: { type: String },
+    status: {
+      type: String,
+      enum: ['PENDING', 'REQUESTED', 'RECEIVED', 'UNDER_REVIEW', 'VERIFIED', 'REJECTED'],
+      default: 'PENDING'
+    },
+    updatedAt: { type: Date, default: Date.now },
+    verifiedBy: { type: String },
+    notes: { type: String }
+  }],
+
   // CP-26 Product Specific Details
   doctorLoanDetails: {
     specialization: { type: String },

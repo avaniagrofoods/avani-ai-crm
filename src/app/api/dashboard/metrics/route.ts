@@ -108,6 +108,10 @@ export async function GET(request: Request) {
     let totalActualRevenueReceived = 0;
     let totalOutstandingAmount = 0;
     let pendingFollowUpsCount = 0;
+    let overdueFollowUpsCount = 0;
+    let followUpTasksDueCount = 0;
+    let unqualifiedLeadsCount = 0;
+    const now = new Date();
 
     // Funnel counters (Section 12)
     let funnelEnquiries = 0;
@@ -135,9 +139,11 @@ export async function GET(request: Request) {
 
       // Funnel mapping
       funnelEnquiries++;
-      if (resolvedStage !== 'NEW_ENQUIRY') funnelContacted++;
+      if (!['NEW_ENQUIRY', 'CONTACT_PENDING'].includes(resolvedStage)) funnelContacted++;
       if (['QUALIFIED', 'DOCUMENTS_PENDING', 'DOCUMENTS_RECEIVED', 'DOCUMENT_VERIFICATION', 'LENDER_MATCHING', 'APPLICATION_PREPARATION', 'APPLICATION_SUBMITTED', 'LENDER_PROCESSING', 'ADDITIONAL_DOCUMENTS_REQUIRED', 'SANCTIONED', 'DISBURSEMENT_PENDING', 'DISBURSED'].includes(resolvedStage)) {
         funnelQualified++;
+      } else if (['NOT_ELIGIBLE', 'CUSTOMER_NOT_INTERESTED', 'CLOSED_LOST'].includes(resolvedStage)) {
+        unqualifiedLeadsCount++;
       }
       if (['DOCUMENTS_RECEIVED', 'DOCUMENT_VERIFICATION', 'LENDER_MATCHING', 'APPLICATION_PREPARATION', 'APPLICATION_SUBMITTED', 'LENDER_PROCESSING', 'ADDITIONAL_DOCUMENTS_REQUIRED', 'SANCTIONED', 'DISBURSEMENT_PENDING', 'DISBURSED'].includes(resolvedStage)) {
         funnelDocsReceived++;
@@ -155,23 +161,38 @@ export async function GET(request: Request) {
         funnelClosedLost++;
       }
 
-      // Check tasks for pending followups
+      // Check tasks for pending and overdue followups
       const tasks = l.followUpTasks || [];
-      if (tasks.some((t: any) => t.status === 'PENDING' || t.status === 'OVERDUE')) {
+      let leadHasPendingOrDue = false;
+      for (const t of tasks as any[]) {
+        if (t.status === 'COMPLETED' || t.status === 'CANCELLED') continue;
+        const isOverdue = t.status === 'OVERDUE' || (t.dueDate && new Date(t.dueDate) < now);
+        if (isOverdue) {
+          overdueFollowUpsCount++;
+          followUpTasksDueCount++;
+          leadHasPendingOrDue = true;
+        } else if (t.status === 'PENDING') {
+          followUpTasksDueCount++;
+          leadHasPendingOrDue = true;
+        }
+      }
+      if (leadHasPendingOrDue) {
         pendingFollowUpsCount++;
       }
 
       // Revenue accumulations
-      const disbursed = l.disbursement?.disbursedAmount || 0;
+      const disbursed = Number(l.disbursement?.disbursedAmount) || 0;
       totalDisbursedAmount += disbursed;
 
-      const expected = l.revenue?.expectedRevenue || 0;
+      const expected = Number(l.revenue?.expectedRevenue) || 0;
       totalExpectedRevenue += expected;
 
-      const received = l.revenue?.actualRevenueReceived || 0;
+      const received = Number(l.revenue?.actualRevenueReceived) || 0;
       totalActualRevenueReceived += received;
 
-      const outstanding = l.revenue?.outstandingAmount || (expected - received > 0 ? expected - received : 0);
+      const outstanding = l.revenue?.outstandingAmount !== undefined
+        ? Math.max(0, Number(l.revenue.outstandingAmount))
+        : Math.max(0, expected - received);
       totalOutstandingAmount += outstanding;
 
       if (received > 0) {
@@ -193,7 +214,11 @@ export async function GET(request: Request) {
       kpis: {
         totalLeads: leads.length,
         newLeadsToday,
+        qualifiedLeads: funnelQualified,
+        unqualifiedLeads: unqualifiedLeadsCount,
         pendingFollowUpsCount,
+        followUpTasksDueCount,
+        overdueFollowUpsCount,
         leadsByLoanCategory,
         leadsByCity,
         stageCounts

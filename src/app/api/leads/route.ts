@@ -4,6 +4,7 @@ import { Lead } from '@/models/Lead';
 import { Contact } from '@/models/Contact';
 import { mapLegacyStatusToStage } from '@/config/pipeline';
 import { FollowUpTaskEngine } from '@/lib/followup-task-engine';
+import { CATEGORY_DOCUMENT_CHECKLISTS } from '@/lib/document-checklist';
 
 function normalizeIndianPhone(input: string): { formatted: string; raw10: string } | null {
   if (!input) return null;
@@ -57,25 +58,30 @@ export async function GET(req: Request) {
     const followUpDue = searchParams.get('followUpDue');
     
     let query: any = {};
+    const andConditions: any[] = [];
 
     if (phone) {
       const parsed = normalizeIndianPhone(phone);
       if (parsed) {
-        query.$or = [
-          { phone: parsed.formatted },
-          { phone: parsed.raw10 },
-          { normalizedMobile: parsed.raw10 }
-        ];
+        andConditions.push({
+          $or: [
+            { phone: parsed.formatted },
+            { phone: parsed.raw10 },
+            { normalizedMobile: parsed.raw10 }
+          ]
+        });
       } else {
         query.phone = phone;
       }
     }
 
     if (stage) {
-      query.$or = [
-        { stage: stage },
-        { status: stage }
-      ];
+      andConditions.push({
+        $or: [
+          { stage: stage },
+          { status: stage }
+        ]
+      });
     }
 
     if (product) {
@@ -83,10 +89,12 @@ export async function GET(req: Request) {
     }
 
     if (advisor) {
-      query.$or = [
-        { 'assignedAdvisor.name': { $regex: advisor, $options: 'i' } },
-        { 'assignedAgent.name': { $regex: advisor, $options: 'i' } }
-      ];
+      andConditions.push({
+        $or: [
+          { 'assignedAdvisor.name': { $regex: advisor, $options: 'i' } },
+          { 'assignedAgent.name': { $regex: advisor, $options: 'i' } }
+        ]
+      });
     }
 
     if (city) {
@@ -95,12 +103,18 @@ export async function GET(req: Request) {
 
     if (q) {
       const cleanQ = q.trim();
-      query.$or = [
-        { name: { $regex: cleanQ, $options: 'i' } },
-        { phone: { $regex: cleanQ } },
-        { leadId: { $regex: cleanQ, $options: 'i' } },
-        { email: { $regex: cleanQ, $options: 'i' } }
-      ];
+      andConditions.push({
+        $or: [
+          { name: { $regex: cleanQ, $options: 'i' } },
+          { phone: { $regex: cleanQ } },
+          { leadId: { $regex: cleanQ, $options: 'i' } },
+          { email: { $regex: cleanQ, $options: 'i' } }
+        ]
+      });
+    }
+
+    if (andConditions.length > 0) {
+      query.$and = andConditions;
     }
 
     if (followUpDue === 'true' || followUpDue === 'today') {
@@ -264,7 +278,12 @@ export async function POST(req: Request) {
     if (utmContent) updatePayload.utmContent = utmContent;
     if (utmTerm) updatePayload.utmTerm = utmTerm;
     if (monthlyIncome !== undefined) updatePayload.monthlyIncome = Number(monthlyIncome) || 0;
-    if (requestedAmount !== undefined) updatePayload.requestedAmount = String(requestedAmount);
+    if (requestedAmount !== undefined) {
+      updatePayload.requestedAmount = String(requestedAmount);
+      const numAmt = Number(String(requestedAmount).replace(/[^0-9.]/g, ''));
+      if (Number.isFinite(numAmt) && numAmt > 0) updatePayload.requiredLoanAmount = numAmt;
+    }
+    if (body.requiredLoanAmount !== undefined) updatePayload.requiredLoanAmount = Number(body.requiredLoanAmount) || 0;
     if (employmentType) updatePayload.employmentType = employmentType;
     if (preferredLanguage) updatePayload.preferredLanguage = preferredLanguage;
     if (idempotencyKey) updatePayload.idempotencyKey = idempotencyKey;
@@ -292,8 +311,10 @@ export async function POST(req: Request) {
         reason: 'New enquiry registered',
         notes: `Source: ${updatePayload.leadSource}`
       }];
-      // Initialize default follow-up tasks
+      // Initialize default follow-up tasks & product document checklist
       updatePayload.followUpTasks = FollowUpTaskEngine.generateInitialTasks(leadId, 'Sachin Shinde');
+      const checklistDefs = CATEGORY_DOCUMENT_CHECKLISTS[canonicalLoanCategory] || CATEGORY_DOCUMENT_CHECKLISTS['Personal Loan'];
+      updatePayload.documentChecklist = checklistDefs.map((def) => ({ ...def, status: 'PENDING', updatedAt: new Date() }));
     }
 
     const lead = await Lead.findOneAndUpdate(
