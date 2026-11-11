@@ -8,8 +8,11 @@ import { Contact } from '@/models/Contact';
 import { Message } from '@/models/Message';
 import { Call } from '@/models/Call';
 import { Broadcast } from '@/models/Broadcast';
+import { requireRole } from '@/lib/auth';
 
 export async function POST(req: Request) {
+  const auth = await requireRole(req, ['ADMIN']);
+  if (!auth.ok) return auth.response;
   try {
     await connectToDatabase();
     const body = await req.json();

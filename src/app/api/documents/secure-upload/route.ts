@@ -1,33 +1,43 @@
 import { NextResponse } from 'next/server';
 import {
   verifySecureDocumentUploadToken,
-  canAccessDocumentRecord,
   encryptDocumentReference
 } from '@/lib/consent-privacy';
 import connectToDatabase from '@/lib/db';
 import { DocumentModel } from '@/models/Document';
+import { Lead } from '@/models/Lead';
+import { requireAuth, canAccessLead } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
 /**
- * GET /api/documents/secure-upload?token=...
- * Verifies the customer's signed upload token or advisor RBAC role.
+ * GET /api/documents/secure-upload
+ * - If ?leadId=... is requested: requires a verified server session (ADMIN or assigned ADVISOR).
+ *   Unspoofable: does NOT trust raw client x-advisor-role headers.
+ * - If ?token=... is provided: validates signed customer document portal token.
  */
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const token = searchParams.get('token') || '';
-  const roleHeader = request.headers.get('x-advisor-role');
+  const leadId = searchParams.get('leadId');
 
-  if (roleHeader && canAccessDocumentRecord(roleHeader)) {
-    const leadId = searchParams.get('leadId');
-    if (!leadId) {
-      return NextResponse.json({ success: false, error: 'Missing leadId parameter' }, { status: 400 });
-    }
+  if (leadId) {
+    const auth = await requireAuth(request);
+    if (!auth.ok) return auth.response;
+
     await connectToDatabase();
+    const lead = await Lead.findOne({ leadId }).lean();
+    if (lead && !canAccessLead(auth.session, lead)) {
+      return NextResponse.json(
+        { success: false, error: 'FORBIDDEN', message: 'You are not assigned to this lead.' },
+        { status: 403 }
+      );
+    }
+
     const docRecord = await DocumentModel.findOne({ leadId }).lean();
     return NextResponse.json({
       success: true,
-      accessRole: roleHeader.toUpperCase(),
+      accessRole: auth.session.role,
       encryption: 'AES-256-GCM + TLS 1.3',
       retentionPolicyDays: 90,
       record: docRecord || null

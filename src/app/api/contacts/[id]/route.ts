@@ -1,11 +1,37 @@
 import { NextResponse } from 'next/server';
 import connectToDatabase from '@/lib/db';
 import { Contact } from '@/models/Contact';
+import { Lead } from '@/models/Lead';
 import { Message } from '@/models/Message';
 import { Conversation } from '@/models/Conversation';
+import { requireAuth, requireRole, isValidObjectId, canAccessLead } from '@/lib/auth';
+
+async function verifyContactAccess(session: any, contact: any): Promise<boolean> {
+  if (session.role === 'ADMIN') return true;
+  const contactPhone = contact?.phone || '';
+  const digits = contactPhone.replace(/\D/g, '').slice(-10);
+  if (!digits) return false;
+  const lead = await Lead.findOne({
+    $or: [
+      { phone: contactPhone },
+      { normalizedMobile: digits },
+      { phone: `+91${digits}` },
+      { phone: digits }
+    ]
+  }).lean();
+  return canAccessLead(session, lead);
+}
 
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const auth = await requireAuth(req);
+    if (!auth.ok) return auth.response;
+
+    const resolvedParams = await params;
+    if (!isValidObjectId(resolvedParams.id)) {
+      return NextResponse.json({ success: false, error: 'Invalid contact ID format.' }, { status: 400 });
+    }
+
     const conn = await connectToDatabase();
     if (!conn || conn.connection?.readyState !== 1) {
       return NextResponse.json(
@@ -13,11 +39,14 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
         { status: 503 }
       );
     }
-    const resolvedParams = await params;
+
     const contact = await Contact.findById(resolvedParams.id);
     if (!contact) return NextResponse.json({ success: false, error: 'Contact not found' }, { status: 404 });
 
-    // Generate normalized phone variants for robust message matching
+    if (!(await verifyContactAccess(auth.session, contact))) {
+      return NextResponse.json({ success: false, error: 'FORBIDDEN', message: 'Not assigned to this customer.' }, { status: 403 });
+    }
+
     const contactPhone = contact.phone || '';
     const rawDigits = contactPhone.replace(/\D/g, '');
     const last10 = rawDigits.slice(-10);
@@ -29,7 +58,6 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       `0${last10}`
     ].filter(Boolean)));
 
-    // Fetch message history for CRM Inbox conversation panel
     const rawMessages = await Message.find({
       $or: [
         { phone: { $in: phoneVariants } },
@@ -46,10 +74,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       timestamp: m.createdAt || new Date()
     }));
 
-    // Fallback to conversation history if Message collection is empty
     if (messages.length === 0) {
-      const conv = await Conversation.findOne({ 
-        customerPhone: { $in: phoneVariants } 
+      const conv = await Conversation.findOne({
+        customerPhone: { $in: phoneVariants }
       });
       if (conv && Array.isArray(conv.history)) {
         messages = conv.history.map((h: any, i: number) => ({
@@ -69,6 +96,14 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const auth = await requireRole(req, ['ADMIN', 'ADVISOR']);
+    if (!auth.ok) return auth.response;
+
+    const resolvedParams = await params;
+    if (!isValidObjectId(resolvedParams.id)) {
+      return NextResponse.json({ success: false, error: 'Invalid contact ID format.' }, { status: 400 });
+    }
+
     const conn = await connectToDatabase();
     if (!conn || conn.connection?.readyState !== 1) {
       return NextResponse.json(
@@ -76,9 +111,15 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         { status: 503 }
       );
     }
+
+    const existing = await Contact.findById(resolvedParams.id);
+    if (!existing) return NextResponse.json({ success: false, error: 'Contact not found' }, { status: 404 });
+
+    if (!(await verifyContactAccess(auth.session, existing))) {
+      return NextResponse.json({ success: false, error: 'FORBIDDEN', message: 'Not assigned to this customer.' }, { status: 403 });
+    }
+
     const body = await req.json();
-    const resolvedParams = await params;
-    
     delete body._id;
     body.updatedAt = new Date();
 
@@ -87,8 +128,6 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       { $set: body },
       { new: true }
     );
-
-    if (!contact) return NextResponse.json({ success: false, error: 'Contact not found' }, { status: 404 });
 
     return NextResponse.json({ success: true, contact });
   } catch (error: any) {

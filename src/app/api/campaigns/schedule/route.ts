@@ -1,9 +1,13 @@
 import { NextResponse } from 'next/server';
 import connectToDatabase from '@/lib/db';
 import { Schedule } from '@/models/Schedule';
+import { requireAuth, requireRole } from '@/lib/auth';
 
 export async function POST(request: Request) {
   try {
+    const auth = await requireRole(request, ['ADMIN']);
+    if (!auth.ok) return auth.response;
+
     const conn = await connectToDatabase();
     if (!conn || conn.connection?.readyState !== 1) {
       return NextResponse.json(
@@ -44,15 +48,17 @@ export async function POST(request: Request) {
       message: `Campaign successfully scheduled for ${scheduledDateObj.toLocaleString('en-IN')}`,
       campaign: newSchedule
     });
-
   } catch (error: any) {
     console.error("Schedule Campaign Error:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const auth = await requireAuth(request);
+    if (!auth.ok) return auth.response;
+
     const conn = await connectToDatabase();
     if (!conn || conn.connection?.readyState !== 1) {
       return NextResponse.json({ success: true, campaigns: [] });
@@ -60,13 +66,16 @@ export async function GET() {
 
     const campaigns = await Schedule.find({}).sort({ scheduledAt: -1 }).limit(50);
     return NextResponse.json({ success: true, campaigns });
-  } catch (error: any) {
+  } catch {
     return NextResponse.json({ success: true, campaigns: [] });
   }
 }
 
 export async function PATCH(request: Request) {
   try {
+    const auth = await requireRole(request, ['ADMIN']);
+    if (!auth.ok) return auth.response;
+
     const conn = await connectToDatabase();
     if (!conn || conn.connection?.readyState !== 1) {
       return NextResponse.json(

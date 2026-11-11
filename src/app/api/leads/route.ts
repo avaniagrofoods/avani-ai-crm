@@ -1,4 +1,11 @@
 import { NextResponse } from 'next/server';
+import {
+  requireAuth,
+  buildLeadVisibilityFilter,
+  sanitizeLeadPayloadForClient,
+  validateStageTransition,
+  canAccessLead
+} from '@/lib/auth';
 import connectToDatabase from '@/lib/db';
 import { Lead } from '@/models/Lead';
 import { Contact } from '@/models/Contact';
@@ -41,6 +48,9 @@ function generateCanonicalLeadId(): string {
 
 export async function GET(req: Request) {
   try {
+    const auth = await requireAuth(req);
+    if (!auth.ok) return auth.response;
+
     const conn = await connectToDatabase();
     if (!conn || conn.connection?.readyState !== 1) {
       return NextResponse.json(
@@ -128,7 +138,15 @@ export async function GET(req: Request) {
       };
     }
 
-    const rawLeads = await Lead.find(query).sort({ createdAt: -1 }).limit(300);
+    const visibilityFilter = buildLeadVisibilityFilter(auth.session);
+    const scopedQuery =
+      Object.keys(visibilityFilter).length > 0 && Object.keys(query).length > 0
+        ? { $and: [query, visibilityFilter] }
+        : Object.keys(visibilityFilter).length > 0
+          ? visibilityFilter
+          : query;
+
+    const rawLeads = await Lead.find(scopedQuery).sort({ createdAt: -1 }).limit(300);
 
     // Map and guarantee canonical stage on output
     const leads = rawLeads.map((l: any) => {
@@ -136,7 +154,7 @@ export async function GET(req: Request) {
       if (!obj.stage) {
         obj.stage = mapLegacyStatusToStage(obj.status);
       }
-      return obj;
+      return sanitizeLeadPayloadForClient(obj, auth.session);
     });
 
     return NextResponse.json({ success: true, count: leads.length, leads });
@@ -160,6 +178,9 @@ export async function POST(req: Request) {
       }
     }
 
+    const auth = await requireAuth(req);
+    if (!auth.ok) return auth.response;
+
     const conn = await connectToDatabase();
     if (!conn || conn.connection?.readyState !== 1) {
       return NextResponse.json(
@@ -172,6 +193,12 @@ export async function POST(req: Request) {
       );
     }
     const body = await req.json();
+    if (auth.session.role !== 'ADMIN' && (body.revenue || body.revenueTracking || body.actualRevenueReceived !== undefined || body.sanction || body.disbursement || body.role)) {
+      return NextResponse.json(
+        { success: false, error: 'FORBIDDEN', message: 'Only ADMIN may set financial or role fields.' },
+        { status: 403 }
+      );
+    }
 
     const {
       name,
@@ -315,6 +342,28 @@ export async function POST(req: Request) {
       updatePayload.followUpTasks = FollowUpTaskEngine.generateInitialTasks(leadId, 'Sachin Shinde');
       const checklistDefs = CATEGORY_DOCUMENT_CHECKLISTS[canonicalLoanCategory] || CATEGORY_DOCUMENT_CHECKLISTS['Personal Loan'];
       updatePayload.documentChecklist = checklistDefs.map((def) => ({ ...def, status: 'PENDING', updatedAt: new Date() }));
+    }
+
+    if (stage) {
+      const stageCheck = validateStageTransition(auth.session, existingLead?.stage || 'NEW_ENQUIRY', stage);
+      if (!stageCheck.ok) {
+        return NextResponse.json({ success: false, error: stageCheck.error }, { status: stageCheck.status });
+      }
+    }
+    if (existingLead && !canAccessLead(auth.session, existingLead)) {
+      return NextResponse.json(
+        { success: false, error: 'FORBIDDEN', message: 'Lead is assigned to another advisor.' },
+        { status: 403 }
+      );
+    }
+    if (auth.session.role !== 'ADMIN') {
+      updatePayload.assignedAdvisor = {
+        name: auth.session.name,
+        email: auth.session.email,
+        phone: '+91 72491 08474',
+        role: 'LOAN_ADVISOR',
+        assignedAt: new Date()
+      };
     }
 
     const lead = await Lead.findOneAndUpdate(

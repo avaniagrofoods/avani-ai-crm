@@ -1,18 +1,20 @@
 import { NextResponse } from 'next/server';
 import connectToDatabase from '@/lib/db';
 import { Lender, DEFAULT_AVANI_LENDERS } from '@/models/Lender';
+import { requireAuth, requireRole } from '@/lib/auth';
 
 export async function GET(req: Request) {
   try {
+    const auth = await requireAuth(req);
+    if (!auth.ok) return auth.response;
+
     const conn = await connectToDatabase();
     if (!conn || conn.connection?.readyState !== 1) {
-      // Return defaults if db is temporarily offline
       return NextResponse.json({ success: true, count: DEFAULT_AVANI_LENDERS.length, lenders: DEFAULT_AVANI_LENDERS });
     }
 
     let lenders = await Lender.find({ isActive: true }).sort({ name: 1 });
-    
-    // Seed defaults if empty
+
     if (!lenders || lenders.length === 0) {
       await Lender.insertMany(DEFAULT_AVANI_LENDERS).catch(() => {});
       lenders = await Lender.find({ isActive: true }).sort({ name: 1 });
@@ -32,6 +34,9 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
+    const auth = await requireRole(req, ['ADMIN']);
+    if (!auth.ok) return auth.response;
+
     const conn = await connectToDatabase();
     if (!conn || conn.connection?.readyState !== 1) {
       return NextResponse.json({ success: false, error: 'DATABASE_UNAVAILABLE' }, { status: 503 });

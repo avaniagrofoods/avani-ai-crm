@@ -3,6 +3,14 @@ import connectToDatabase from '@/lib/db';
 import { Lead } from '@/models/Lead';
 import { CANONICAL_LEAD_STAGES, CanonicalLeadStage } from '@/config/pipeline';
 import { CATEGORY_DOCUMENT_CHECKLISTS } from '@/lib/document-checklist';
+import {
+  requireAuth,
+  requireRole,
+  isValidObjectId,
+  canAccessLead,
+  validateStageTransition,
+  sanitizeLeadPayloadForClient
+} from '@/lib/auth';
 
 function mapStageToLegacyStatus(stage: CanonicalLeadStage): string {
   switch (stage) {
@@ -46,6 +54,14 @@ function mapStageToLegacyStatus(stage: CanonicalLeadStage): string {
 
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const auth = await requireAuth(req);
+    if (!auth.ok) return auth.response;
+
+    const resolvedParams = await params;
+    if (!isValidObjectId(resolvedParams.id)) {
+      return NextResponse.json({ success: false, error: 'Invalid lead ID format.' }, { status: 400 });
+    }
+
     const conn = await connectToDatabase();
     if (!conn || conn.connection?.readyState !== 1) {
       return NextResponse.json(
@@ -53,10 +69,18 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
         { status: 503 }
       );
     }
-    const resolvedParams = await params;
+
     const lead = await Lead.findById(resolvedParams.id);
     if (!lead) return NextResponse.json({ success: false, error: 'Lead not found' }, { status: 404 });
-    return NextResponse.json({ success: true, lead });
+
+    if (!canAccessLead(auth.session, lead)) {
+      return NextResponse.json(
+        { success: false, error: 'FORBIDDEN', message: 'You are not assigned to this lead.' },
+        { status: 403 }
+      );
+    }
+
+    return NextResponse.json({ success: true, lead: sanitizeLeadPayloadForClient(lead, auth.session) });
   } catch (error: any) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
@@ -64,6 +88,14 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const auth = await requireRole(req, ['ADMIN', 'ADVISOR']);
+    if (!auth.ok) return auth.response;
+
+    const resolvedParams = await params;
+    if (!isValidObjectId(resolvedParams.id)) {
+      return NextResponse.json({ success: false, error: 'Invalid lead ID format.' }, { status: 400 });
+    }
+
     const conn = await connectToDatabase();
     if (!conn || conn.connection?.readyState !== 1) {
       return NextResponse.json(
@@ -71,21 +103,35 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         { status: 503 }
       );
     }
-    const body = await req.json();
-    const resolvedParams = await params;
 
-    delete body._id;
+    const body = await req.json();
     const currentLead = await Lead.findById(resolvedParams.id);
     if (!currentLead) return NextResponse.json({ success: false, error: 'Lead not found' }, { status: 404 });
 
+    if (!canAccessLead(auth.session, currentLead)) {
+      return NextResponse.json(
+        { success: false, error: 'FORBIDDEN', message: 'You are not authorized to modify this lead.' },
+        { status: 403 }
+      );
+    }
+
     const updateFields: Record<string, any> = { ...body, updatedAt: new Date() };
+    // Prevent mass assignment & financial/privilege tampering via PATCH
+    delete updateFields._id;
+    delete updateFields.role;
     delete updateFields.stageChangeReason;
     delete updateFields.stageNotes;
     delete updateFields.changedBy;
     delete updateFields.addChecklistItem;
     delete updateFields.updateChecklistItem;
+    delete updateFields.revenue;
+    delete updateFields.sanction;
+    delete updateFields.disbursement;
+    if (auth.session.role !== 'ADMIN') {
+      delete updateFields.assignedAdvisor;
+      delete updateFields.assignmentHistory;
+    }
 
-    // Validate and record stage transitions atomically
     if (body.stage) {
       if (!CANONICAL_LEAD_STAGES.includes(body.stage as CanonicalLeadStage)) {
         return NextResponse.json(
@@ -93,11 +139,21 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
           { status: 400 }
         );
       }
+
+      const currentStage = currentLead.stage || 'NEW_ENQUIRY';
+      const transitionCheck = validateStageTransition(auth.session, currentStage, body.stage);
+      if (!transitionCheck.ok) {
+        return NextResponse.json(
+          { success: false, error: transitionCheck.error },
+          { status: transitionCheck.status }
+        );
+      }
+
       if (body.stage !== currentLead.stage) {
         const history = Array.isArray(currentLead.stageHistory) ? [...currentLead.stageHistory] : [];
         history.push({
           stage: body.stage,
-          changedBy: body.changedBy || 'Sachin Shinde',
+          changedBy: auth.session.name,
           changedAt: new Date(),
           reason: body.stageChangeReason || 'Manual stage transition',
           notes: body.stageNotes || ''
@@ -109,7 +165,6 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       }
     }
 
-    // Handle checklist mutations cleanly (add or update checklist item)
     if (body.addChecklistItem || body.updateChecklistItem) {
       let checklist: any[] = Array.isArray(currentLead.documentChecklist) && currentLead.documentChecklist.length > 0
         ? currentLead.documentChecklist.map((item: any) => (item.toObject ? item.toObject() : { ...item }))
@@ -135,7 +190,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
           category: item.category || 'BUSINESS',
           status: item.status || 'PENDING',
           updatedAt: new Date(),
-          verifiedBy: item.verifiedBy,
+          verifiedBy: auth.session.name,
           notes: item.notes || ''
         };
         if (idx >= 0) checklist[idx] = { ...checklist[idx], ...newEntry };
@@ -154,7 +209,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         checklist[idx] = {
           ...checklist[idx],
           ...(upd.status ? { status: upd.status } : {}),
-          ...(upd.verifiedBy ? { verifiedBy: upd.verifiedBy } : {}),
+          verifiedBy: auth.session.name,
           ...(upd.notes !== undefined ? { notes: upd.notes } : {}),
           updatedAt: new Date()
         };
@@ -169,7 +224,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       { new: true }
     );
 
-    return NextResponse.json({ success: true, lead });
+    return NextResponse.json({ success: true, lead: sanitizeLeadPayloadForClient(lead, auth.session) });
   } catch (error: any) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }

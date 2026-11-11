@@ -1,53 +1,65 @@
-"use client";
+'use client';
 
-import { Bell, User, Menu, X } from 'lucide-react';
-import { useState } from 'react';
-import { Sidebar } from './sidebar';
+import React from 'react';
+import { Bell, LogOut, Shield, User as UserIcon } from 'lucide-react';
+import { useCrmSession } from '@/components/layout/session-provider';
 
 export function Topbar() {
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const { user, logout } = useCrmSession();
+  const displayName = user?.name || 'Avani Staff';
+  const roleLabel = user?.role || 'STAFF';
 
   return (
-    <>
-      <div className="flex h-16 shrink-0 items-center justify-between border-b px-4 md:px-6 bg-white dark:bg-black">
-        <div className="flex items-center gap-3">
-          <button 
-            className="md:hidden p-2 -ml-2 text-zinc-500"
-            onClick={() => setMobileMenuOpen(true)}
+    <header className="h-16 border-b border-zinc-800 bg-zinc-950 px-6 flex items-center justify-between shrink-0">
+      <div className="flex items-center gap-3">
+        <h1 className="text-lg font-semibold text-white">
+          Welcome back, {displayName.split(' ')[0]}!
+        </h1>
+        {user && (
+          <span
+            data-testid="topbar-role-badge"
+            className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${
+              user.role === 'ADMIN'
+                ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
+                : 'bg-sky-500/15 text-sky-300 border border-sky-500/30'
+            }`}
           >
-            <Menu className="h-6 w-6" />
-          </button>
-          <h1 className="text-lg md:text-xl font-semibold truncate">Welcome back, Sachin!</h1>
-        </div>
-        <div className="flex items-center gap-4">
-          <button className="text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-50">
-            <Bell className="h-5 w-5" />
-          </button>
-          <div className="h-8 w-8 shrink-0 rounded-full bg-zinc-200 dark:bg-zinc-800 flex items-center justify-center">
-            <User className="h-5 w-5 text-zinc-500 dark:text-zinc-400" />
-          </div>
-        </div>
+            <Shield className="h-3 w-3" />
+            {roleLabel}
+          </span>
+        )}
       </div>
 
-      {/* Mobile Sidebar (Slide-over) */}
-      <div 
-        className={`fixed inset-0 z-50 bg-black/50 md:hidden transition-opacity ${
-          mobileMenuOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'
-        }`}
-        onClick={() => setMobileMenuOpen(false)}
-      />
-      <div 
-        className={`fixed inset-y-0 left-0 z-50 w-64 bg-sidebar text-sidebar-foreground transform transition-transform duration-200 ease-in-out md:hidden flex flex-col ${
-          mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
-        }`}
-      >
-        <div className="flex flex-col h-full">
-          <div className="flex h-16 shrink-0 items-center px-6 border-b border-zinc-200 dark:border-zinc-800 gap-2">
-            <img src="/logo.svg" alt="Avani Loan Service" className="h-10 w-auto filter drop-shadow-md brightness-110" />
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          aria-label="Notifications"
+          className="h-9 w-9 rounded-lg border border-zinc-800 bg-zinc-900 flex items-center justify-center text-zinc-400 hover:text-white transition"
+        >
+          <Bell className="h-4 w-4" />
+        </button>
+
+        {user && (
+          <div className="flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-1.5">
+            <UserIcon className="h-4 w-4 text-zinc-400" />
+            <span className="text-xs text-zinc-200 hidden sm:inline" data-testid="topbar-user-name">
+              {displayName}
+            </span>
           </div>
-          <Sidebar className="w-full" />
-        </div>
+        )}
+
+        {user && (
+          <button
+            type="button"
+            onClick={logout}
+            data-testid="logout-button"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-900 hover:bg-zinc-800 px-3 py-1.5 text-xs font-medium text-zinc-200 transition"
+          >
+            <LogOut className="h-3.5 w-3.5" />
+            Sign Out
+          </button>
+        )}
       </div>
-    </>
+    </header>
   );
 }

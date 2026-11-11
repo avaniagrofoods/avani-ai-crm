@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { requireAuth, requireRole } from '@/lib/auth';
 import connectToDatabase from '@/lib/db';
 import { Contact } from '@/models/Contact';
 import { Lead } from '@/models/Lead';
@@ -9,6 +10,8 @@ import mongoose from 'mongoose';
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: Request) {
+  const auth = await requireAuth(req);
+  if (!auth.ok) return auth.response;
   try {
     const conn = await connectToDatabase();
     const readyState = mongoose.connection?.readyState ?? conn?.connection?.readyState;
@@ -105,6 +108,8 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
+  const auth = await requireRole(req, ['ADMIN']);
+  if (!auth.ok) return auth.response;
   try {
     const conn = await connectToDatabase();
     const readyState = mongoose.connection?.readyState ?? conn?.connection?.readyState;
@@ -181,6 +186,8 @@ export async function POST(req: Request) {
 }
 
 export async function DELETE(req: Request) {
+  const auth = await requireRole(req, ['ADMIN']);
+  if (!auth.ok) return auth.response;
   try {
     const conn = await connectToDatabase();
     const readyState = mongoose.connection?.readyState ?? conn?.connection?.readyState;

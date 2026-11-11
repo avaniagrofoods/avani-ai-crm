@@ -14,6 +14,10 @@ import { Lead } from '@/models/Lead';
 import { Document } from '@/models/Document';
 import { Message } from '@/models/Message';
 import { WebhookInbox } from '@/models/WebhookInbox';
+import { cookies } from 'next/headers';
+import { redirect } from 'next/navigation';
+import { SESSION_COOKIE_NAME, verifySessionToken, buildLeadVisibilityFilter } from '@/lib/auth';
+import { computeWhatsappTelemetry, WhatsappTelemetrySummary } from '@/lib/telemetry';
 import { buildLeadFilterQuery } from '@/app/api/dashboard/metrics/route';
 
 export const dynamic = 'force-dynamic';
@@ -21,6 +25,12 @@ export const dynamic = 'force-dynamic';
 export default async function Dashboard(props: {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
+  const cookieStore = await cookies();
+  const session = await verifySessionToken(cookieStore.get(SESSION_COOKIE_NAME)?.value);
+  if (!session) {
+    redirect('/login');
+  }
+
   const resolvedParams = props.searchParams ? await props.searchParams : {};
   const filterParams = {
     dateFrom: typeof resolvedParams.date === 'string' ? resolvedParams.date : null,
@@ -48,6 +58,16 @@ export default async function Dashboard(props: {
   let optOuts = 0;
   let integrationFailures = 0;
   let totalRevenue = 0;
+  let telemetry: WhatsappTelemetrySummary = {
+    mockAttempts: 0,
+    providerAccepted: 0,
+    delivered: 0,
+    failed: 0,
+    inboundReceived: 0,
+    webhookProcessingErrors: 0,
+    duplicateWebhookEvents: 0,
+    pendingDeliveryConfirmations: 0
+  };
   let recentLeads: any[] = [];
   const leadsByLoanCategory: Record<string, number> = {};
   const leadsByApplicantCategory: Record<string, number> = {};
@@ -59,7 +79,14 @@ export default async function Dashboard(props: {
     if (!conn || conn.connection?.readyState !== 1) {
       isDbOffline = true;
     } else {
-      const baseQuery = buildLeadFilterQuery(filterParams);
+      const rawFilter = buildLeadFilterQuery(filterParams);
+      const visibilityFilter = buildLeadVisibilityFilter(session);
+      const baseQuery =
+        Object.keys(visibilityFilter).length > 0 && Object.keys(rawFilter).length > 0
+          ? { $and: [rawFilter, visibilityFilter] }
+          : Object.keys(visibilityFilter).length > 0
+            ? visibilityFilter
+            : rawFilter;
       const startOfToday = new Date();
       startOfToday.setHours(0, 0, 0, 0);
 
@@ -127,7 +154,13 @@ export default async function Dashboard(props: {
         $or: [{ isOptedOut: true }, { status: 'OPTED_OUT' }]
       });
 
-      whatsappMessagesSent = await Message.countDocuments({
+      telemetry = await computeWhatsappTelemetry();
+      whatsappMessagesSent = telemetry.delivered;
+      deliveryFailures = telemetry.failed;
+      integrationFailures = telemetry.webhookProcessingErrors;
+      void Message;
+      void WebhookInbox;
+      /* legacy counts superseded by computeWhatsappTelemetry()
         direction: { $in: ['OUTBOUND', 'outbound'] }
       });
 
@@ -139,6 +172,7 @@ export default async function Dashboard(props: {
         status: 'FAILED'
       });
 
+      */
       const allFiltered = await Lead.find(
         baseQuery,
         'requestedAmount loanType employmentType city'
@@ -212,7 +246,7 @@ export default async function Dashboard(props: {
         />
         <MetricCard
           title="Potential Loan Volume"
-          value={isDbOffline ? '—' : formatCurrency(totalRevenue)}
+          value={isDbOffline ? '—' : (session.role === 'ADMIN' ? formatCurrency(totalRevenue) : 'ADMIN ONLY')}
           icon={<IndianRupee size={22} />}
           trend={isDbOffline ? 'Offline' : 'Based on requested amounts'}
         />
@@ -239,16 +273,16 @@ export default async function Dashboard(props: {
           trend="OmniDM AI Voice Agent"
         />
         <MetricCard
-          title="WhatsApp Sent / Failed"
+          title="WhatsApp Delivered / Failed"
           value={isDbOffline ? '—' : `${whatsappMessagesSent} / ${deliveryFailures}`}
           icon={<MessageSquare size={18} />}
-          trend="ChatMitra & Meta WABA"
+          trend={isDbOffline ? 'Offline' : `Real accepted: ${telemetry.providerAccepted} | Mock sandbox: ${telemetry.mockAttempts} | Pending: ${telemetry.pendingDeliveryConfirmations}`}
         />
         <MetricCard
-          title="Opt-Outs / Sync Errors"
-          value={isDbOffline ? '—' : `${optOuts} / ${integrationFailures}`}
+          title="Inbound / Webhook Errors"
+          value={isDbOffline ? '—' : `${telemetry.inboundReceived} / ${telemetry.webhookProcessingErrors}`}
           icon={<ShieldAlert size={18} />}
-          trend="DPDP suppression & webhook health"
+          trend={isDbOffline ? 'Offline' : `Opt-outs: ${optOuts} | Duplicates: ${telemetry.duplicateWebhookEvents}`}
         />
       </div>
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useCrmSession } from "@/components/layout/session-provider";
 import { 
   Users, Layers, ArrowRight, ShieldCheck, CheckCircle2, 
   Clock, PhoneCall, Check, Tag, Hash, FileText, Search,
@@ -24,6 +25,75 @@ export default function LeadsPage() {
   const [stageReason, setStageReason] = useState("");
   const [stageNotes, setStageNotes] = useState("");
   const [updating, setUpdating] = useState(false);
+  const { user } = useCrmSession();
+  const [advisorsList, setAdvisorsList] = useState<any[]>([]);
+  const [assignAdvisorEmail, setAssignAdvisorEmail] = useState("");
+  const [actionNotice, setActionNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  useEffect(() => {
+    fetch('/api/advisors')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data?.success && Array.isArray(data.advisors)) {
+          setAdvisorsList(data.advisors);
+          if (data.advisors.length > 0) setAssignAdvisorEmail(data.advisors[0].email);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleAssignAdvisor = async () => {
+    if (!selectedLead || !assignAdvisorEmail) return;
+    const chosen = advisorsList.find((a) => a.email === assignAdvisorEmail);
+    setUpdating(true);
+    setActionNotice(null);
+    try {
+      const res = await fetch(`/api/leads/${selectedLead._id}/assign`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          advisorName: chosen?.name || assignAdvisorEmail,
+          advisorEmail: assignAdvisorEmail,
+          advisorRole: chosen?.role || 'LOAN_ADVISOR',
+          advisorPhone: chosen?.phone || '+91 72491 08474'
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setActionNotice({ type: 'success', text: `Assigned to ${data.assignedAdvisor?.name || assignAdvisorEmail}` });
+        fetchLeads();
+      } else {
+        setActionNotice({ type: 'error', text: data.error || 'Advisor assignment failed' });
+      }
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  const handleChecklistStatusChange = async (code: string, nextStatus: string) => {
+    if (!selectedLead) return;
+    setUpdating(true);
+    setActionNotice(null);
+    try {
+      const res = await fetch(`/api/leads/${selectedLead._id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          updateChecklistItem: { code, status: nextStatus }
+        })
+      });
+      const data = await res.json();
+      if (data.success && data.lead) {
+        setSelectedLead(data.lead);
+        setActionNotice({ type: 'success', text: `Checklist item ${code} updated to ${nextStatus}` });
+        fetchLeads();
+      } else {
+        setActionNotice({ type: 'error', text: data.error || 'Checklist update failed' });
+      }
+    } finally {
+      setUpdating(false);
+    }
+  };
 
   // New task form state
   const [taskTitle, setTaskTitle] = useState("");
@@ -85,7 +155,7 @@ export default function LeadsPage() {
           stage: newStage,
           stageChangeReason: stageReason || 'Manual Advisor Transition',
           stageNotes,
-          changedBy: 'Sachin Shinde'
+          changedBy: user?.name || 'Staff'
         })
       });
       const data = await res.json();
@@ -94,9 +164,9 @@ export default function LeadsPage() {
         setStageReason("");
         setStageNotes("");
         fetchLeads();
-        alert(`Stage updated to ${newStage}!`);
+        setActionNotice({ type: 'success', text: `Stage updated to ${newStage}!` });
       } else {
-        alert(data.error || 'Failed to update stage');
+        setActionNotice({ type: 'error', text: data.error || 'Failed to update stage' });
       }
     } finally {
       setUpdating(false);
@@ -112,10 +182,10 @@ export default function LeadsPage() {
       });
       const data = await res.json();
       if (data.success) {
-        alert(`Qualification Score Calculated: ${data.score}/100 (${data.tierLabel})`);
+        setActionNotice({ type: 'success', text: `Qualification Score Calculated: ${data.score}/100 (${data.tierLabel})` });
         fetchLeads();
       } else {
-        alert(data.error || 'Failed to qualify lead');
+        setActionNotice({ type: 'error', text: data.error || 'Failed to qualify lead' });
       }
     } finally {
       setUpdating(false);
@@ -133,7 +203,7 @@ export default function LeadsPage() {
       });
       const data = await res.json();
       if (data.success) {
-        alert('D0–D30 Follow-Up Sequence initialized!');
+        setActionNotice({ type: 'success', text: 'D0–D30 Follow-Up Sequence initialized!' });
         fetchLeads();
       }
     } finally {
@@ -175,7 +245,7 @@ export default function LeadsPage() {
         body: JSON.stringify({
           taskId,
           status: 'COMPLETED',
-          completedBy: 'Sachin Shinde'
+          completedBy: user?.name || 'Staff'
         })
       });
       fetchLeads();
@@ -212,10 +282,10 @@ export default function LeadsPage() {
       });
       const data = await res.json();
       if (data.success) {
-        alert(`${action} recorded successfully!`);
+        setActionNotice({ type: 'success', text: `${action} recorded successfully!` });
         fetchLeads();
       } else {
-        alert(data.error || 'Operation failed');
+        setActionNotice({ type: 'error', text: data.error || 'Operation failed' });
       }
     } finally {
       setUpdating(false);
@@ -252,6 +322,26 @@ export default function LeadsPage() {
           <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} /> Refresh Pipeline
         </button>
       </div>
+
+      {actionNotice && (
+        <div
+          data-testid="leads-action-notice"
+          className={`px-4 py-2.5 rounded-xl border text-xs font-medium flex items-center justify-between ${
+            actionNotice.type === 'success'
+              ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300'
+              : 'bg-red-950/60 border-red-500/40 text-red-300'
+          }`}
+        >
+          <span>{actionNotice.text}</span>
+          <button
+            type="button"
+            onClick={() => setActionNotice(null)}
+            className="text-[11px] opacity-75 hover:opacity-100 ml-4"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {/* Filter and Search Bar */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-3 bg-zinc-900/80 border border-zinc-800 p-4 rounded-xl">
@@ -519,6 +609,36 @@ export default function LeadsPage() {
                     </button>
                   </div>
 
+                  {user?.role === 'ADMIN' && (
+                    <div data-testid="assign-advisor-panel" className="bg-zinc-950 p-3 rounded-xl border border-zinc-800 space-y-2">
+                      <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider block">
+                        Assign Advisor (Admin Only)
+                      </span>
+                      <div className="flex gap-2">
+                        <select
+                          aria-label="Assign Advisor"
+                          value={assignAdvisorEmail}
+                          onChange={(e) => setAssignAdvisorEmail(e.target.value)}
+                          className="flex-1 bg-zinc-900 border border-zinc-700 px-2.5 py-1.5 text-xs rounded-lg text-white"
+                        >
+                          {advisorsList.map((adv: any) => (
+                            <option key={adv.email} value={adv.email}>
+                              {adv.name} ({adv.role})
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={handleAssignAdvisor}
+                          disabled={updating || !assignAdvisorEmail}
+                          className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 font-bold rounded-lg text-white text-xs transition-colors disabled:opacity-50"
+                        >
+                          Assign
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Stage History */}
                   <div>
                     <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block mb-2">Stage Audit Trail</span>
@@ -680,7 +800,19 @@ export default function LeadsPage() {
                           </div>
                         </div>
                         <span className="text-[9px] px-2 py-0.5 rounded bg-zinc-800 text-zinc-400 font-semibold">
-                          UNDER REVIEW
+                          <select
+                            aria-label={`Checklist status for ${doc.name}`}
+                            disabled={updating}
+                            value={(selectedLead.documentChecklist || []).find((c: any) => c.code === doc.code || c.name === doc.name)?.status || 'PENDING'}
+                            onChange={(e) => handleChecklistStatusChange(doc.code, e.target.value)}
+                            className="bg-zinc-900 border border-zinc-700 rounded px-2 py-0.5 text-[10px] text-zinc-100"
+                          >
+                            <option value="PENDING">PENDING</option>
+                            <option value="REQUESTED">REQUESTED</option>
+                            <option value="RECEIVED">RECEIVED</option>
+                            <option value="VERIFIED">VERIFIED</option>
+                            <option value="REJECTED">REJECTED</option>
+                          </select>
                         </span>
                       </div>
                     ))}
@@ -723,6 +855,8 @@ export default function LeadsPage() {
                     </button>
                   </div>
 
+                  {user?.role === 'ADMIN' ? (
+                    <>
                   {/* Step 2: Record Sanction */}
                   <div className="bg-zinc-950 p-3 rounded-xl border border-zinc-800 space-y-2">
                     <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider block">2. Record Sanction</span>
@@ -803,6 +937,12 @@ export default function LeadsPage() {
                       Record Revenue Received
                     </button>
                   </div>
+                    </>
+                  ) : (
+                    <div data-testid="advisor-financial-restriction" className="bg-zinc-950 p-3 rounded-xl border border-zinc-800 text-[11px] text-amber-300">
+                      Sanction, Disbursement, and Revenue Reconciliation are restricted to ADMIN users.
+                    </div>
+                  )}
                 </div>
               )}
             </>

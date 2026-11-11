@@ -2,11 +2,15 @@ import { NextResponse } from 'next/server';
 import connectToDatabase from '@/lib/db';
 import { Template } from '@/models/Template';
 import { TemplateSyncEngine } from '@/lib/template-sync/aisensy';
+import { requireAuth } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
+    const auth = await requireAuth(req);
+    if (!auth.ok) return auth.response;
+
     const conn = await connectToDatabase();
     if (!conn || conn.connection?.readyState !== 1) {
       return NextResponse.json(
@@ -18,8 +22,7 @@ export async function GET() {
     let templates = await Template.find({ status: 'APPROVED' }).sort({ templateName: 1 });
 
     if (templates.length === 0) {
-      console.log("[Template API] DB Template registry empty. Running auto-sync...");
-      const syncRes = await TemplateSyncEngine.syncAllApprovedTemplates();
+      await TemplateSyncEngine.syncAllApprovedTemplates();
       templates = await Template.find({ status: 'APPROVED' }).sort({ templateName: 1 });
     }
 
@@ -29,7 +32,6 @@ export async function GET() {
       provider: 'AiSensy / Meta WABA',
       templates
     }, { status: 200 });
-
   } catch (error: any) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }

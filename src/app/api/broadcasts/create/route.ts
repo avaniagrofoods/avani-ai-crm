@@ -2,9 +2,13 @@ import { NextResponse } from 'next/server';
 import mongoose from 'mongoose';
 import connectToDatabase from '@/lib/db';
 import { Broadcast } from '@/models/Broadcast';
+import { requireRole } from '@/lib/auth';
 
 export async function POST(req: Request) {
   try {
+    const auth = await requireRole(req, ['ADMIN']);
+    if (!auth.ok) return auth.response;
+
     await connectToDatabase();
     const body = await req.json();
 
@@ -12,7 +16,7 @@ export async function POST(req: Request) {
 
     let broadcastId = 'test_broadcast_' + Date.now();
     let dbMode = "test";
-    
+
     try {
       if (mongoose.connection.readyState === 1) {
         const broadcast = await Broadcast.create({
@@ -28,21 +32,19 @@ export async function POST(req: Request) {
           readCount: 0,
           failedCount: 0,
           testMode: !!testMode,
-          mode: !!testMode ? 'test' : 'production',
+          mode: testMode ? 'test' : 'production',
           environment: process.env.NODE_ENV || 'development'
         });
         broadcastId = broadcast._id;
         dbMode = "production";
-      } else {
-        console.warn("DB not connected. Proceeding with mock broadcast ID for test mode.");
       }
     } catch (e) {
       console.warn("DB Create Error:", e);
       if (!testMode) throw e;
     }
 
-    return NextResponse.json({ 
-      success: true, 
+    return NextResponse.json({
+      success: true,
       broadcastId: broadcastId,
       mode: dbMode
     });

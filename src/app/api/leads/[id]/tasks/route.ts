@@ -2,19 +2,32 @@ import { NextResponse } from 'next/server';
 import connectToDatabase from '@/lib/db';
 import { Lead } from '@/models/Lead';
 import { FollowUpTaskEngine } from '@/lib/followup-task-engine';
+import { requireAuth, isValidObjectId, canAccessLead } from '@/lib/auth';
 
 export async function GET(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const auth = await requireAuth(req);
+    if (!auth.ok) return auth.response;
+
+    const resolvedParams = await params;
+    if (!isValidObjectId(resolvedParams.id)) {
+      return NextResponse.json({ success: false, error: 'Invalid lead ID format.' }, { status: 400 });
+    }
+
     const conn = await connectToDatabase();
     if (!conn || conn.connection?.readyState !== 1) {
       return NextResponse.json({ success: false, error: 'DATABASE_UNAVAILABLE' }, { status: 503 });
     }
-    const resolvedParams = await params;
+
     const lead = await Lead.findById(resolvedParams.id);
     if (!lead) return NextResponse.json({ success: false, error: 'Lead not found' }, { status: 404 });
+
+    if (!canAccessLead(auth.session, lead)) {
+      return NextResponse.json({ success: false, error: 'FORBIDDEN', message: 'You are not assigned to this lead.' }, { status: 403 });
+    }
 
     const evaluatedTasks = FollowUpTaskEngine.evaluateTaskStatuses(lead.followUpTasks || []);
     return NextResponse.json({ success: true, tasks: evaluatedTasks });
@@ -28,21 +41,32 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const auth = await requireAuth(req);
+    if (!auth.ok) return auth.response;
+
+    const resolvedParams = await params;
+    if (!isValidObjectId(resolvedParams.id)) {
+      return NextResponse.json({ success: false, error: 'Invalid lead ID format.' }, { status: 400 });
+    }
+
     const conn = await connectToDatabase();
     if (!conn || conn.connection?.readyState !== 1) {
       return NextResponse.json({ success: false, error: 'DATABASE_UNAVAILABLE' }, { status: 503 });
     }
-    const resolvedParams = await params;
+
     const lead = await Lead.findById(resolvedParams.id);
     if (!lead) return NextResponse.json({ success: false, error: 'Lead not found' }, { status: 404 });
 
+    if (!canAccessLead(auth.session, lead)) {
+      return NextResponse.json({ success: false, error: 'FORBIDDEN', message: 'You are not assigned to this lead.' }, { status: 403 });
+    }
+
     const body = await req.json();
 
-    // If request asks to initialize standard sequence:
     if (body.action === 'INITIALIZE_STANDARD_SEQUENCE') {
       const standardTasks = FollowUpTaskEngine.generateInitialTasks(
         lead.leadId || lead._id.toString(),
-        lead.assignedAdvisor?.name || 'Sachin Shinde'
+        lead.assignedAdvisor?.name || auth.session.name
       );
       lead.followUpTasks = standardTasks;
       lead.updatedAt = new Date();
@@ -62,7 +86,7 @@ export async function POST(
       dueDate: new Date(dueDate),
       priority: priority || 'MEDIUM',
       status: 'PENDING',
-      assignedTo: assignedTo || lead.assignedAdvisor?.name || 'Sachin Shinde',
+      assignedTo: assignedTo || lead.assignedAdvisor?.name || auth.session.name,
       notes: notes || ''
     };
 
@@ -82,16 +106,28 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const auth = await requireAuth(req);
+    if (!auth.ok) return auth.response;
+
+    const resolvedParams = await params;
+    if (!isValidObjectId(resolvedParams.id)) {
+      return NextResponse.json({ success: false, error: 'Invalid lead ID format.' }, { status: 400 });
+    }
+
     const conn = await connectToDatabase();
     if (!conn || conn.connection?.readyState !== 1) {
       return NextResponse.json({ success: false, error: 'DATABASE_UNAVAILABLE' }, { status: 503 });
     }
-    const resolvedParams = await params;
+
     const lead = await Lead.findById(resolvedParams.id);
     if (!lead) return NextResponse.json({ success: false, error: 'Lead not found' }, { status: 404 });
 
+    if (!canAccessLead(auth.session, lead)) {
+      return NextResponse.json({ success: false, error: 'FORBIDDEN', message: 'You are not assigned to this lead.' }, { status: 403 });
+    }
+
     const body = await req.json();
-    const { taskId, status, notes, completedBy, dueDate, priority } = body;
+    const { taskId, status, notes, dueDate, priority } = body;
 
     if (!taskId) {
       return NextResponse.json({ success: false, error: 'taskId is required' }, { status: 400 });
@@ -107,10 +143,10 @@ export async function PATCH(
       task.status = status;
       if (status === 'COMPLETED') {
         task.completedAt = new Date();
-        task.completedBy = completedBy || 'Sachin Shinde';
+        task.completedBy = auth.session.name;
       }
     }
-    if (notes) task.notes = notes;
+    if (notes !== undefined) task.notes = notes;
     if (dueDate) task.dueDate = new Date(dueDate);
     if (priority) task.priority = priority;
 

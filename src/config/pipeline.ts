@@ -105,3 +105,23 @@ export const AVANI_LOAN_PRODUCTS = [
 ] as const;
 
 export type LoanProductId = typeof AVANI_LOAN_PRODUCTS[number]['id'];
+
+export function normalizeLoanCategory(loanType: string): string {
+  const norm = String(loanType || '').toUpperCase().replace(/[^A-Z]/g, '');
+  if (norm.includes('DOCTOR') || norm.includes('MEDIC')) return 'Doctor Loan';
+  if (norm.includes('BUSIN') || norm.includes('COMMERC') || norm.includes('MSME')) return 'Business Loan';
+  if (norm.includes('MORTG') || norm.includes('LAP') || norm.includes('AGAINSTPROP')) return 'Mortgage Loan / LAP';
+  if (norm.includes('HOME') || norm.includes('HOUS')) return 'Home Loan';
+  if (norm.includes('GLOBAL') || norm.includes('ABROAD') || norm.includes('OVERSEA')) return 'Education Loan — Global Studies';
+  if (norm.includes('EDU') || norm.includes('STUD')) return 'Education Loan — India';
+  if (norm.includes('SCHOOL')) return 'School Funding';
+  if (norm.includes('COLLEGE')) return 'College Funding';
+  if (norm.includes('CA') || norm.includes('CHARTERED')) return 'CA Professional Loan';
+  return 'Personal Loan';
+}
+
+export function generateCanonicalLeadId(): string {
+  const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  const randomNum = Math.floor(100000 + Math.random() * 900000);
+  return `AVL-${dateStr}-${randomNum}`;
+}

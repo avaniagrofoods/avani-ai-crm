@@ -4,31 +4,34 @@ import { Lead } from '@/models/Lead';
 import { triggerOmnidimCall } from '@/lib/omnidim';
 import { sendAiSensyWhatsApp } from '@/lib/aisensy';
 import { normalizeIndianPhone } from '@/lib/phone';
+import { requireRole } from '@/lib/auth';
 
 export async function POST(request: Request) {
   try {
+    const auth = await requireRole(request, ['ADMIN']);
+    if (!auth.ok) return auth.response;
+
     try {
       await connectToDatabase();
     } catch (dbErr) {
       console.warn("DB Connection fallback:", dbErr);
     }
-    
+
     const body = await request.json();
     const { name, phone, loanType, language, city, profession, loanRequirement } = body;
-    
+
     if (!name || !phone) {
       return NextResponse.json({ error: "Missing required fields: name and phone" }, { status: 400 });
     }
-    
-    const effectiveLoanType = loanType || 'Personal Loan';
 
+    const effectiveLoanType = loanType || 'Personal Loan';
     const formattedPhone = normalizeIndianPhone(phone);
     if (!formattedPhone) {
       return NextResponse.json({ error: "Invalid Indian phone number format" }, { status: 400 });
     }
-    
+
     let newLead: any = { name, phone: formattedPhone, loanType: effectiveLoanType, status: 'New' };
-    
+
     try {
       if (process.env.MONGODB_URI && !process.env.MONGODB_URI.includes('localhost')) {
         newLead = await Lead.create({ name, phone: formattedPhone, loanType: effectiveLoanType, status: 'New' });
@@ -37,7 +40,6 @@ export async function POST(request: Request) {
       console.warn("MongoDB lead save fallback:", dbError);
     }
 
-    // 1. Immediately trigger WhatsApp Business Details & Qualification Workflow (So customer gets message even if call is missed/hung up)
     try {
       console.log(`[Auto WhatsApp Workflow] Triggering WhatsApp qualification message for ${formattedPhone}...`);
       await sendAiSensyWhatsApp({
@@ -48,11 +50,10 @@ export async function POST(request: Request) {
     } catch (waErr: any) {
       console.warn("Auto WhatsApp dispatch warning:", waErr.message);
     }
-    
-    // 2. Dispatch OmniDM AI Voice Call
+
     try {
       const omnidimResponse = await triggerOmnidimCall(formattedPhone, name, effectiveLoanType, language || 'mr', city, profession, loanRequirement);
-      
+
       if (omnidimResponse && omnidimResponse.call_id && newLead.save) {
         newLead.callId = omnidimResponse.call_id;
         await newLead.save();
@@ -60,14 +61,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: true, callId: omnidimResponse?.call_id || 'dispatched' });
     } catch (callError: any) {
       console.error(`Failed to trigger OmniDM call for ${name}:`, callError?.response?.data || callError.message);
-      // Return 200 with notice if voice limit exceeded, since WhatsApp workflow has ALREADY been dispatched!
-      return NextResponse.json({ 
-        success: true, 
+      return NextResponse.json({
+        success: true,
         message: "WhatsApp qualification message sent smoothly. Voice call queued: " + (callError.message || "Concurrent limit reached"),
-        callId: 'queued_' + Date.now() 
+        callId: 'queued_' + Date.now()
       });
     }
-    
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }

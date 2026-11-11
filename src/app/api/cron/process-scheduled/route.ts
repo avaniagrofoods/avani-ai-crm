@@ -3,6 +3,7 @@ import connectToDatabase from '@/lib/db';
 import { Schedule } from '@/models/Schedule';
 import { Lead } from '@/models/Lead';
 import { ProviderRouter } from '@/lib/provider-router';
+import { requireRole, constantTimeEqualStrings } from '@/lib/auth';
 import mongoose from 'mongoose';
 
 export const dynamic = 'force-dynamic';
@@ -10,11 +11,14 @@ export const dynamic = 'force-dynamic';
 export async function GET(req: Request) {
   try {
     const authHeader = req.headers.get('authorization');
-    const cronSecret = process.env.CRON_SECRET || 'avani_cron_secret';
-    
-    // Validate authorization if header provided
-    if (authHeader && authHeader !== `Bearer ${cronSecret}`) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const cronSecret = process.env.CRON_SECRET?.trim();
+    const hasValidCronHeader = Boolean(
+      cronSecret && authHeader && constantTimeEqualStrings(authHeader, `Bearer ${cronSecret}`)
+    );
+
+    if (!hasValidCronHeader) {
+      const auth = await requireRole(req, ['ADMIN']);
+      if (!auth.ok) return auth.response;
     }
 
     const conn = await connectToDatabase();
@@ -27,8 +31,6 @@ export async function GET(req: Request) {
     }
 
     const now = new Date();
-
-    // Find pending schedules due for execution
     const pendingSchedules = await Schedule.find({
       status: 'SCHEDULED',
       scheduledAt: { $lte: now }
@@ -45,21 +47,17 @@ export async function GET(req: Request) {
     const executedResults = [];
 
     for (const schedule of pendingSchedules) {
-      // Set to PROCESSING atomically to prevent concurrent double-execution
       await Schedule.updateOne(
         { _id: schedule._id, status: 'SCHEDULED' },
         { $set: { status: 'PROCESSING', updatedAt: new Date() } }
       );
-
-      console.log(`[ProcessScheduled] Executing schedule ${schedule.scheduleId}: "${schedule.title}" (${schedule.type})`);
 
       let dispatchedCount = 0;
       let failedCount = 0;
       let suppressedCount = 0;
 
       if (schedule.type === 'Broadcast') {
-        // Query eligible leads
-        let leadQuery: any = {
+        const leadQuery: any = {
           isOptedOut: { $ne: true },
           status: { $nin: ['Closed', 'Rejected', 'Not Interested', 'OPTED_OUT'] }
         };
@@ -94,12 +92,9 @@ export async function GET(req: Request) {
               journeyStage: 'SCHEDULED_BROADCAST'
             });
 
-            if (dispatchRes.success) {
-              dispatchedCount++;
-            } else {
-              failedCount++;
-            }
-          } catch (e) {
+            if (dispatchRes.success) dispatchedCount++;
+            else failedCount++;
+          } catch {
             failedCount++;
           }
         }
@@ -137,7 +132,6 @@ export async function GET(req: Request) {
       processedCount: executedResults.length,
       schedules: executedResults
     });
-
   } catch (error: any) {
     console.error('[ProcessScheduled] Error executing scheduled tasks:', error);
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });

@@ -2,16 +2,26 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { 
-  FileText, ClipboardList, Tag, Columns, Settings2, Globe, 
-  Image as ImageIcon, HelpCircle, MessageSquare, Bot, GitMerge, 
-  Folder, CheckCircle, Settings, Book, Code, Phone, Users, Smartphone,
+import { useCrmSession } from '@/components/layout/session-provider';
+import {
+  FileText, ClipboardList, Tag, Columns, Settings2, Globe,
+  Image as ImageIcon, HelpCircle, MessageSquare, Bot, GitMerge,
+  Folder, CheckCircle, Settings, Book, Code, Users, Smartphone,
   Megaphone, Calendar, Layers
 } from 'lucide-react';
 
 export function Sidebar({ className = "" }: { className?: string }) {
   const pathname = usePathname();
-  
+  const { user } = useCrmSession();
+
+  const initials = (user?.name || 'Avani Staff')
+    .split(' ')
+    .filter(Boolean)
+    .map((p) => p[0])
+    .join('')
+    .slice(0, 2)
+    .toUpperCase();
+
   const menuGroups = [
     {
       title: "MAIN",
@@ -67,12 +77,11 @@ export function Sidebar({ className = "" }: { className?: string }) {
   return (
     <div className={`flex h-screen w-64 flex-col border-r border-zinc-800 bg-sidebar text-sidebar-foreground shrink-0 ${className}`}>
       <div className="p-4 border-b border-zinc-800 flex items-center gap-3">
-        <img 
-          src="/logo.svg" 
-          alt="AVANI LOAN SERVICES" 
+        <img
+          src="/logo.svg"
+          alt="AVANI LOAN SERVICES"
           className="h-10 w-auto filter drop-shadow-md brightness-110 object-contain"
           onError={(e) => {
-            // Graceful fallback to text brand mark if SVG fails
             (e.target as HTMLElement).style.display = 'none';
           }}
         />
@@ -90,21 +99,21 @@ export function Sidebar({ className = "" }: { className?: string }) {
                 {group.items.map((item) => {
                   const isActive = pathname === item.href;
                   return (
-                    <Link 
+                    <Link
                       key={item.name}
-                      href={item.href} 
+                      href={item.href}
                       target={item.external ? "_blank" : undefined}
                       rel={item.external ? "noopener noreferrer" : undefined}
                       className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors ${
-                        isActive 
-                          ? 'bg-primary text-primary-foreground font-medium' 
+                        isActive
+                          ? 'bg-primary text-primary-foreground font-medium'
                           : 'text-zinc-400 hover:bg-zinc-800 hover:text-zinc-50'
                       }`}
                     >
                       <item.icon className={`h-4 w-4 ${isActive ? 'text-primary-foreground' : 'text-zinc-500'}`} />
                       {item.name}
                     </Link>
-                  )
+                  );
                 })}
               </div>
             </div>
@@ -114,11 +123,11 @@ export function Sidebar({ className = "" }: { className?: string }) {
       <div className="border-t border-zinc-800 p-4">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded bg-zinc-800 flex items-center justify-center font-bold text-xs text-white">
-            SS
+            {initials || 'AV'}
           </div>
           <div className="flex flex-col min-w-0">
-            <span className="text-sm font-medium truncate">Sachin Shinde</span>
-            <span className="text-xs text-zinc-500 truncate">enquiry@avanifinserv.com</span>
+            <span className="text-sm font-medium truncate">{user?.name || 'Authorized Staff'}</span>
+            <span className="text-xs text-zinc-500 truncate">{user?.email || 'crm@avanifinserv.com'}</span>
           </div>
         </div>
       </div>

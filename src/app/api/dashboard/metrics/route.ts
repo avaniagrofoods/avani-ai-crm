@@ -5,6 +5,8 @@ import { Message } from '@/models/Message';
 import { DocumentModel } from '@/models/Document';
 import { WebhookInbox } from '@/models/WebhookInbox';
 import { CANONICAL_LEAD_STAGES, mapLegacyStatusToStage } from '@/config/pipeline';
+import { requireAuth, buildLeadVisibilityFilter } from '@/lib/auth';
+import { computeWhatsappTelemetry } from '@/lib/telemetry';
 import mongoose from 'mongoose';
 
 export const dynamic = 'force-dynamic';
@@ -65,6 +67,9 @@ export function buildLeadFilterQuery(params: DashboardFilterParams): Record<stri
 }
 
 export async function GET(request: Request) {
+  const auth = await requireAuth(request);
+  if (!auth.ok) return auth.response;
+
   const { searchParams } = new URL(request.url || 'http://localhost/api/dashboard/metrics');
   const filterParams: DashboardFilterParams = {
     dateFrom: searchParams.get('dateFrom') || searchParams.get('date'),
@@ -79,6 +84,13 @@ export async function GET(request: Request) {
   };
 
   const baseFilter = buildLeadFilterQuery(filterParams);
+  const visibilityFilter = buildLeadVisibilityFilter(auth.session);
+  const finalFilter =
+    Object.keys(visibilityFilter).length > 0 && Object.keys(baseFilter).length > 0
+      ? { $and: [baseFilter, visibilityFilter] }
+      : Object.keys(visibilityFilter).length > 0
+        ? visibilityFilter
+        : baseFilter;
 
   try {
     const conn = await connectToDatabase();
@@ -89,9 +101,11 @@ export async function GET(request: Request) {
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
 
-    const leads = await Lead.find(baseFilter).lean();
+    const [leads, whatsappTelemetry] = await Promise.all([
+      Lead.find(finalFilter).lean(),
+      computeWhatsappTelemetry()
+    ]);
 
-    // 20 Canonical Stages Counts
     const stageCounts: Record<string, number> = {};
     for (const s of CANONICAL_LEAD_STAGES) {
       stageCounts[s] = 0;
@@ -113,7 +127,6 @@ export async function GET(request: Request) {
     let unqualifiedLeadsCount = 0;
     const now = new Date();
 
-    // Funnel counters (Section 12)
     let funnelEnquiries = 0;
     let funnelContacted = 0;
     let funnelQualified = 0;
@@ -137,7 +150,6 @@ export async function GET(request: Request) {
         newLeadsToday++;
       }
 
-      // Funnel mapping
       funnelEnquiries++;
       if (!['NEW_ENQUIRY', 'CONTACT_PENDING'].includes(resolvedStage)) funnelContacted++;
       if (['QUALIFIED', 'DOCUMENTS_PENDING', 'DOCUMENTS_RECEIVED', 'DOCUMENT_VERIFICATION', 'LENDER_MATCHING', 'APPLICATION_PREPARATION', 'APPLICATION_SUBMITTED', 'LENDER_PROCESSING', 'ADDITIONAL_DOCUMENTS_REQUIRED', 'SANCTIONED', 'DISBURSEMENT_PENDING', 'DISBURSED'].includes(resolvedStage)) {
@@ -161,7 +173,6 @@ export async function GET(request: Request) {
         funnelClosedLost++;
       }
 
-      // Check tasks for pending and overdue followups
       const tasks = l.followUpTasks || [];
       let leadHasPendingOrDue = false;
       for (const t of tasks as any[]) {
@@ -180,29 +191,29 @@ export async function GET(request: Request) {
         pendingFollowUpsCount++;
       }
 
-      // Revenue accumulations
-      const disbursed = Number(l.disbursement?.disbursedAmount) || 0;
-      totalDisbursedAmount += disbursed;
+      if (auth.session.role === 'ADMIN') {
+        const disbursed = Number(l.disbursement?.disbursedAmount) || 0;
+        totalDisbursedAmount += disbursed;
 
-      const expected = Number(l.revenue?.expectedRevenue) || 0;
-      totalExpectedRevenue += expected;
+        const expected = Number(l.revenue?.expectedRevenue) || 0;
+        totalExpectedRevenue += expected;
 
-      const received = Number(l.revenue?.actualRevenueReceived) || 0;
-      totalActualRevenueReceived += received;
+        const received = Number(l.revenue?.actualRevenueReceived) || 0;
+        totalActualRevenueReceived += received;
 
-      const outstanding = l.revenue?.outstandingAmount !== undefined
-        ? Math.max(0, Number(l.revenue.outstandingAmount))
-        : Math.max(0, expected - received);
-      totalOutstandingAmount += outstanding;
+        const outstanding = l.revenue?.outstandingAmount !== undefined
+          ? Math.max(0, Number(l.revenue.outstandingAmount))
+          : Math.max(0, expected - received);
+        totalOutstandingAmount += outstanding;
 
-      if (received > 0) {
-        revenueByProduct[cat] = (revenueByProduct[cat] || 0) + received;
-        const advisorName = l.assignedAdvisor?.name || l.assignedAgent?.name || 'Sachin Shinde';
-        revenueByAdvisor[advisorName] = (revenueByAdvisor[advisorName] || 0) + received;
+        if (received > 0) {
+          revenueByProduct[cat] = (revenueByProduct[cat] || 0) + received;
+          const advisorName = l.assignedAdvisor?.name || l.assignedAgent?.name || 'Sachin Shinde';
+          revenueByAdvisor[advisorName] = (revenueByAdvisor[advisorName] || 0) + received;
+        }
       }
     }
 
-    // Conversion rate calculations
     const leadToAppConversionPct = funnelEnquiries > 0 ? Math.round((funnelAppSubmitted / funnelEnquiries) * 100) : 0;
     const appToSanctionConversionPct = funnelAppSubmitted > 0 ? Math.round((funnelSanctioned / funnelAppSubmitted) * 100) : 0;
     const sanctionToDisbursedConversionPct = funnelSanctioned > 0 ? Math.round((funnelDisbursed / funnelSanctioned) * 100) : 0;
@@ -210,6 +221,7 @@ export async function GET(request: Request) {
     return NextResponse.json({
       success: true,
       databaseOnline: true,
+      userRole: auth.session.role,
       appliedFilters: filterParams,
       kpis: {
         totalLeads: leads.length,
@@ -238,14 +250,26 @@ export async function GET(request: Request) {
         appToSanctionPct: appToSanctionConversionPct,
         sanctionToDisbursedPct: sanctionToDisbursedConversionPct
       },
-      revenue: {
-        totalDisbursedAmount,
-        totalExpectedRevenue,
-        totalActualRevenueReceived,
-        totalOutstandingAmount,
-        revenueByProduct,
-        revenueByAdvisor
-      }
+      revenue: auth.session.role === 'ADMIN'
+        ? {
+            restricted: false,
+            totalDisbursedAmount,
+            totalExpectedRevenue,
+            totalActualRevenueReceived,
+            totalOutstandingAmount,
+            revenueByProduct,
+            revenueByAdvisor
+          }
+        : {
+            restricted: true,
+            totalDisbursedAmount: null,
+            totalExpectedRevenue: null,
+            totalActualRevenueReceived: null,
+            totalOutstandingAmount: null,
+            revenueByProduct: {},
+            revenueByAdvisor: {}
+          },
+      whatsappTelemetry
     });
   } catch (error: any) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });

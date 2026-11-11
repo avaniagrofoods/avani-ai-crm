@@ -2,12 +2,21 @@ import { NextResponse } from 'next/server';
 import connectToDatabase from '@/lib/db';
 import { Lead } from '@/models/Lead';
 import { Advisor } from '@/models/Advisor';
+import { requireRole, isValidObjectId } from '@/lib/auth';
 
 export async function POST(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const auth = await requireRole(req, ['ADMIN']);
+    if (!auth.ok) return auth.response;
+
+    const resolvedParams = await params;
+    if (!isValidObjectId(resolvedParams.id)) {
+      return NextResponse.json({ success: false, error: 'Invalid lead ID format.' }, { status: 400 });
+    }
+
     const conn = await connectToDatabase();
     if (!conn || conn.connection?.readyState !== 1) {
       return NextResponse.json(
@@ -15,9 +24,9 @@ export async function POST(
         { status: 503 }
       );
     }
-    const resolvedParams = await params;
+
     const body = await req.json();
-    const { advisorName, advisorEmail, advisorRole, assignedBy, notes } = body;
+    const { advisorName, advisorEmail, advisorRole, notes } = body;
 
     if (!advisorName || !advisorEmail) {
       return NextResponse.json(
@@ -35,7 +44,7 @@ export async function POST(
 
     lead.assignedAdvisor = {
       name: advisorName,
-      email: advisorEmail,
+      email: String(advisorEmail).trim().toLowerCase(),
       role: advisorRole || 'LOAN_ADVISOR',
       phone: body.advisorPhone || '+91 72491 08474',
       assignedAt: new Date()
@@ -44,8 +53,8 @@ export async function POST(
     if (!lead.assignmentHistory) lead.assignmentHistory = [];
     lead.assignmentHistory.push({
       advisorName,
-      advisorEmail,
-      assignedBy: assignedBy || 'Sachin Shinde',
+      advisorEmail: String(advisorEmail).trim().toLowerCase(),
+      assignedBy: auth.session.name,
       assignedAt: new Date(),
       notes: notes || `Reassigned from ${previousAdvisor} to ${advisorName}`
     });
@@ -53,9 +62,8 @@ export async function POST(
     lead.updatedAt = new Date();
     await lead.save();
 
-    // Increment advisor active lead count
     await Advisor.findOneAndUpdate(
-      { email: advisorEmail },
+      { email: String(advisorEmail).trim().toLowerCase() },
       { $inc: { activeLeadsCount: 1 } }
     ).catch(() => {});
 

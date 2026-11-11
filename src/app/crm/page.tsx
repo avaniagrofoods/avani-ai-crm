@@ -99,13 +99,59 @@ export default function CRM() {
         <div className="bg-zinc-900 border border-zinc-800 p-4 rounded-xl">
           <span className="text-[11px] text-zinc-400 font-medium block">Revenue Collected</span>
           <div className="text-2xl font-black text-amber-400 mt-1 font-mono">
-            ₹{(revenue.totalActualRevenueReceived || 0).toLocaleString('en-IN')}
+            {revenue?.restricted ? 'ADMIN ONLY' : `₹${(revenue.totalActualRevenueReceived || 0).toLocaleString('en-IN')}`}
           </div>
           <span className="text-[10px] text-zinc-400 mt-1 block">
-            ₹{(revenue.totalOutstandingAmount || 0).toLocaleString('en-IN')} outstanding
+            {revenue?.restricted ? 'Financial details restricted to ADMIN' : `₹${(revenue.totalOutstandingAmount || 0).toLocaleString('en-IN')} outstanding`}
           </span>
         </div>
       </div>
+
+      {/* Separated WhatsApp Delivery vs Sandbox Telemetry */}
+      {metrics?.whatsappTelemetry && (
+        <div className="bg-zinc-900 border border-zinc-800 p-5 rounded-2xl space-y-3" data-testid="crm-whatsapp-telemetry">
+          <div className="flex justify-between items-center">
+            <h3 className="text-xs font-bold text-zinc-300 uppercase tracking-wider">
+              WhatsApp Telemetry (Mock Sandbox Separated from Live Delivery)
+            </h3>
+            <span className="text-[10px] text-zinc-400">Zero synthetic inflation</span>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-8 gap-2 text-center">
+            <div className="bg-zinc-950 p-2.5 rounded-xl border border-zinc-800">
+              <span className="text-[10px] text-zinc-400 block">Mock Attempts</span>
+              <span className="text-lg font-black text-zinc-200">{metrics.whatsappTelemetry.mockAttempts}</span>
+            </div>
+            <div className="bg-zinc-950 p-2.5 rounded-xl border border-zinc-800">
+              <span className="text-[10px] text-zinc-400 block">Real Accepted</span>
+              <span className="text-lg font-black text-blue-400">{metrics.whatsappTelemetry.providerAccepted}</span>
+            </div>
+            <div className="bg-zinc-950 p-2.5 rounded-xl border border-zinc-800">
+              <span className="text-[10px] text-zinc-400 block">Confirmed Delivered</span>
+              <span className="text-lg font-black text-emerald-400">{metrics.whatsappTelemetry.delivered}</span>
+            </div>
+            <div className="bg-zinc-950 p-2.5 rounded-xl border border-zinc-800">
+              <span className="text-[10px] text-zinc-400 block">Failed Deliveries</span>
+              <span className="text-lg font-black text-red-400">{metrics.whatsappTelemetry.failed}</span>
+            </div>
+            <div className="bg-zinc-950 p-2.5 rounded-xl border border-zinc-800">
+              <span className="text-[10px] text-zinc-400 block">Inbound Received</span>
+              <span className="text-lg font-black text-cyan-400">{metrics.whatsappTelemetry.inboundReceived}</span>
+            </div>
+            <div className="bg-zinc-950 p-2.5 rounded-xl border border-zinc-800">
+              <span className="text-[10px] text-zinc-400 block">Webhook Errors</span>
+              <span className="text-lg font-black text-amber-400">{metrics.whatsappTelemetry.webhookProcessingErrors}</span>
+            </div>
+            <div className="bg-zinc-950 p-2.5 rounded-xl border border-zinc-800">
+              <span className="text-[10px] text-zinc-400 block">Duplicate Events</span>
+              <span className="text-lg font-black text-zinc-300">{metrics.whatsappTelemetry.duplicateWebhookEvents}</span>
+            </div>
+            <div className="bg-zinc-950 p-2.5 rounded-xl border border-zinc-800">
+              <span className="text-[10px] text-zinc-400 block">Pending Confirm</span>
+              <span className="text-lg font-black text-indigo-400">{metrics.whatsappTelemetry.pendingDeliveryConfirmations}</span>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Funnel Progress Section */}
       <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-2xl space-y-4">

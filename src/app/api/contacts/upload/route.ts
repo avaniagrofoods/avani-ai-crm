@@ -1,9 +1,13 @@
 import { NextResponse } from 'next/server';
 import connectToDatabase from '@/lib/db';
 import { Contact } from '@/models/Contact';
+import { requireRole } from '@/lib/auth';
 
 export async function POST(req: Request) {
   try {
+    const auth = await requireRole(req, ['ADMIN']);
+    if (!auth.ok) return auth.response;
+
     const conn = await connectToDatabase();
     if (!conn || conn.connection?.readyState !== 1) {
       return NextResponse.json(
@@ -32,23 +36,20 @@ export async function POST(req: Request) {
       );
     }
 
-    // Parse header
     const headerLine = lines[0];
     const delimiter = headerLine.includes(',') ? ',' : headerLine.includes(';') ? ';' : '\t';
     const rawHeaders = headerLine.split(delimiter).map(h => h.trim().toLowerCase().replace(/['"]/g, ''));
 
-    // Map column indices
     let nameIdx = rawHeaders.findIndex(h => h.includes('name') || h === 'full name');
     let phoneIdx = rawHeaders.findIndex(h => h.includes('phone') || h.includes('mobile') || h.includes('contact') || h.includes('tel') || h.includes('number'));
-    let emailIdx = rawHeaders.findIndex(h => h.includes('email') || h.includes('mail'));
-    let cityIdx = rawHeaders.findIndex(h => h.includes('city') || h.includes('location') || h.includes('town'));
+    const emailIdx = rawHeaders.findIndex(h => h.includes('email') || h.includes('mail'));
+    const cityIdx = rawHeaders.findIndex(h => h.includes('city') || h.includes('location') || h.includes('town'));
 
-    // Fallbacks if no explicit headers found
     if (phoneIdx === -1 && rawHeaders.length > 1) {
-      phoneIdx = 1; // Default 2nd column
+      phoneIdx = 1;
     }
     if (nameIdx === -1) {
-      nameIdx = 0; // Default 1st column
+      nameIdx = 0;
     }
 
     let importedCount = 0;
@@ -70,7 +71,6 @@ export async function POST(req: Request) {
         continue;
       }
 
-      // Normalize phone to E.164 (+91XXXXXXXXXX)
       let digits = rawPhone.replace(/\D/g, '');
       if (digits.length === 12 && digits.startsWith('91')) {
         digits = digits.slice(2);
@@ -94,7 +94,7 @@ export async function POST(req: Request) {
               phone: e164Phone,
               email: rawEmail || undefined,
               city: rawCity || undefined,
-              optedIn: true, // Default opt-in on import with audit trail
+              optedIn: true,
               updatedAt: new Date()
             },
             $setOnInsert: {
@@ -109,7 +109,7 @@ export async function POST(req: Request) {
         } else {
           importedCount++;
         }
-      } catch (err) {
+      } catch {
         skippedCount++;
       }
     }
@@ -122,7 +122,6 @@ export async function POST(req: Request) {
       skippedCount,
       totalRows: lines.length - 1
     });
-
   } catch (error: any) {
     console.error('[UploadAPI] Error uploading contacts CSV:', error);
     return NextResponse.json(

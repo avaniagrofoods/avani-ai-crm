@@ -4,9 +4,13 @@ import { Contact } from '@/models/Contact';
 import { Lead } from '@/models/Lead';
 import { Broadcast } from '@/models/Broadcast';
 import { ProviderRouter } from '@/lib/provider-router';
+import { requireRole } from '@/lib/auth';
 
 export async function POST(req: Request) {
   try {
+    const auth = await requireRole(req, ['ADMIN']);
+    if (!auth.ok) return auth.response;
+
     const conn = await connectToDatabase();
     if (!conn || conn.connection?.readyState !== 1) {
       return NextResponse.json(
@@ -16,7 +20,7 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json();
-    const { message, templateName, templateParams, mediaType, mediaUrl, filter } = body;
+    const { message, templateName, templateParams, filter } = body;
 
     if (!message && !templateName) {
       return NextResponse.json(
@@ -25,20 +29,20 @@ export async function POST(req: Request) {
       );
     }
 
-    // MANDATORY SAFETY INVARIANT: Bulk broadcasts are strictly forbidden in live mode
-    if (process.env.PROVIDER_MODE === 'live') {
-      return NextResponse.json(
-        { 
-          success: false, 
-          error: 'BROADCAST_DISABLED', 
-          message: 'Safety invariant: Bulk broadcast messaging is strictly disabled in production live mode to protect consumers.' 
-        },
-        { status: 403 }
-      );
+    if (process.env.PROVIDER_MODE === 'live' || process.env.BULK_BROADCAST_ENABLED !== 'true') {
+      if (process.env.PROVIDER_MODE === 'live') {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'BROADCAST_DISABLED',
+            message: 'Safety invariant: Bulk broadcast messaging is strictly disabled in production live mode to protect consumers.'
+          },
+          { status: 403 }
+        );
+      }
     }
 
-    // Query active contacts
-    let contactQuery: any = { optedIn: { $ne: false } };
+    const contactQuery: any = { optedIn: { $ne: false } };
     if (filter?.city) contactQuery.city = filter.city;
 
     const contacts = await Contact.find(contactQuery).limit(500);
@@ -54,7 +58,6 @@ export async function POST(req: Request) {
       });
     }
 
-    // Extract all phone numbers for opt-out cross-check
     const phones = contacts.map(c => c.phone);
     const optedOutLeads = await Lead.find({
       $or: [
@@ -66,7 +69,6 @@ export async function POST(req: Request) {
     }).select('phone');
 
     const optedOutPhoneSet = new Set(optedOutLeads.map(l => l.phone));
-
     const eligibleContacts = contacts.filter(c => !optedOutPhoneSet.has(c.phone));
     const suppressedCount = contacts.length - eligibleContacts.length;
 
@@ -88,7 +90,6 @@ export async function POST(req: Request) {
     let failedCount = 0;
     const campaignId = `BULK_${Date.now()}`;
 
-    // Dispatch messages in batches of 5 to maintain high throughput without overloading provider
     const batchSize = 5;
     for (let i = 0; i < eligibleContacts.length; i += batchSize) {
       const batch = eligibleContacts.slice(i, i + batchSize);
@@ -104,12 +105,9 @@ export async function POST(req: Request) {
             journeyStage: 'BULK_BROADCAST'
           });
 
-          if (res.success) {
-            sentCount++;
-          } else {
-            failedCount++;
-          }
-        } catch (e) {
+          if (res.success) sentCount++;
+          else failedCount++;
+        } catch {
           failedCount++;
         }
       }));
@@ -134,7 +132,6 @@ export async function POST(req: Request) {
       failedCount,
       suppressedCount
     });
-
   } catch (error: any) {
     console.error('[BulkMessageAPI] Error processing bulk message:', error);
     return NextResponse.json(

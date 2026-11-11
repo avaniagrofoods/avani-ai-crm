@@ -1,9 +1,13 @@
 import { NextResponse } from 'next/server';
 import connectToDatabase from '@/lib/db';
 import { WebhookInbox } from '@/models/WebhookInbox';
+import { requireRole } from '@/lib/auth';
 
 export async function GET(req: Request) {
   try {
+    const auth = await requireRole(req, ['ADMIN']);
+    if (!auth.ok) return auth.response;
+
     const conn = await connectToDatabase();
     if (!conn || conn.connection?.readyState !== 1) {
       return NextResponse.json(
@@ -15,7 +19,6 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const limit = parseInt(searchParams.get('limit') || '50', 10);
 
-    // 1. Static registered endpoints configuration
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://avani-ai-crm.vercel.app';
     const endpoints = [
       {
@@ -56,7 +59,6 @@ export async function GET(req: Request) {
       }
     ];
 
-    // 2. Fetch live recent events from WebhookInbox
     const recentEvents = await WebhookInbox.find({})
       .sort({ receivedAt: -1 })
       .limit(limit);
@@ -67,7 +69,6 @@ export async function GET(req: Request) {
       recentEvents,
       totalEvents: recentEvents.length
     });
-
   } catch (error: any) {
     console.error('[WebhooksAPI] Error loading webhooks:', error);
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });

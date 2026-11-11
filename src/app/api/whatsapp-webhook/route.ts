@@ -17,7 +17,7 @@ export async function GET(request: Request) {
 
   const VERIFY_TOKEN = process.env.OMNIDIM_VERIFY_TOKEN || process.env.META_WEBHOOK_VERIFY_TOKEN || "avani_secure_token";
 
-  if (mode === "subscribe" && (token === VERIFY_TOKEN || token === "avani_secure_token" || challenge)) {
+  if (mode === "subscribe" && token && token === VERIFY_TOKEN) {
     console.log("Meta / AiSensy Webhook Verified!");
     return new NextResponse(challenge, { status: 200 });
   }
@@ -114,7 +114,7 @@ export async function POST(request: Request) {
       }
     }
     // 3. Missing Signature Guards
-    else if (isChatMitraPayload && chatmitraSecret && !isDirectDispatch) {
+    else if ((isChatMitraPayload || isDirectDispatch) && chatmitraSecret) {
       log(`[ChatMitra Security] Missing required signature header on ChatMitra event: ${body.event} (UA: ${userAgent.slice(0, 40)})`);
       return NextResponse.json({ success: false, error: 'Missing webhook signature' }, { status: 401 });
     }

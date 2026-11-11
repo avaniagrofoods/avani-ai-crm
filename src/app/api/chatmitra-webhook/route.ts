@@ -26,7 +26,7 @@ export async function GET(request: Request) {
                           'avani_secure_token';
 
   if (mode === 'subscribe' || token) {
-    if (token === configuredToken || token === 'avani_secure_token' || challenge) {
+    if (token && token === configuredToken) {
       console.log('[ChatMitra Webhook] Verification Handshake Accepted');
       return new NextResponse(challenge || 'VERIFIED', { 
         status: 200,

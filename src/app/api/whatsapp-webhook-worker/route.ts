@@ -93,7 +93,7 @@ export async function POST(request: Request) {
         );
 
         if (updatedMsg && updatedMsg.leadId) {
-            await Lead.findByIdAndUpdate(updatedMsg.leadId, {
+            await Lead.findOneAndUpdate(mongoose.Types.ObjectId.isValid(updatedMsg.leadId) ? { _id: updatedMsg.leadId } : { leadId: updatedMsg.leadId }, {
               $set: { lastInteractionAt: new Date() }
             });
         }
@@ -173,6 +173,7 @@ export async function POST(request: Request) {
           const existingMessage = await Message.findOne({
             $or: [
               { messageId: msgId },
+              { idempotencyKey: msgId },
               { providerMessageId: msgId }
             ]
           });
@@ -197,7 +198,7 @@ export async function POST(request: Request) {
           }
         } catch (dbErr: any) {
           console.error(`[Worker DB Error] Failed to upsert lead/message: ${dbErr.message}`);
-          throw dbErr;
+          if (dbErr?.code !== 11000) throw dbErr;
         }
 
         if (mediaId && leadId) {
