@@ -23,10 +23,10 @@ export async function GET(request: Request) {
                           process.env.CHATMITRA_VERIFY_TOKEN || 
                           process.env.OMNIDIM_VERIFY_TOKEN || 
                           process.env.META_WEBHOOK_VERIFY_TOKEN || 
-                          'avani_secure_token';
+                          '';
 
   if (mode === 'subscribe' || token) {
-    if (token === configuredToken || token === 'avani_secure_token' || challenge) {
+    if (token && configuredToken && token === configuredToken) {
       console.log('[ChatMantra Webhook] Verification Handshake Accepted');
       return new NextResponse(challenge || 'VERIFIED', { 
         status: 200,

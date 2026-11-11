@@ -15,9 +15,9 @@ export async function GET(request: Request) {
   const token = searchParams.get("hub.verify_token");
   const challenge = searchParams.get("hub.challenge");
 
-  const VERIFY_TOKEN = process.env.OMNIDIM_VERIFY_TOKEN || process.env.META_WEBHOOK_VERIFY_TOKEN || "avani_secure_token";
+  const VERIFY_TOKEN = process.env.OMNIDIM_VERIFY_TOKEN || process.env.META_WEBHOOK_VERIFY_TOKEN || "";
 
-  if (mode === "subscribe" && token && token === VERIFY_TOKEN) {
+  if (mode === "subscribe" && token && VERIFY_TOKEN && token === VERIFY_TOKEN) {
     console.log("Meta / AiSensy Webhook Verified!");
     return new NextResponse(challenge, { status: 200 });
   }

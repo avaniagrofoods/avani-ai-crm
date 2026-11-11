@@ -64,6 +64,17 @@ export async function POST(req: Request) {
       );
     }
 
+    const isConsentExplicitlyGranted = body.consentStatus === 'GRANTED' || body.consent === true;
+    if (!isConsentExplicitlyGranted) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'DPDP Act Consent required: missing consent. Provide explicit consentStatus="GRANTED" or consent=true.'
+        },
+        { status: 400 }
+      );
+    }
+
     const canonicalLoanCategory = normalizeLoanCategory(loanTypeInput);
     const normalizedPhoneFormatted = phoneData.formatted;
     const normalizedMobileDigits = phoneData.raw10;

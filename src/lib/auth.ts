@@ -1,5 +1,14 @@
 import { NextResponse } from 'next/server';
 import { CANONICAL_LEAD_STAGES, CanonicalLeadStage } from '@/config/pipeline';
+import {
+  isSessionActiveInDb,
+  registerSessionInDb,
+  revokeSessionInDb
+} from '@/lib/auth-store';
+import {
+  getOrDeriveEnvScryptHash,
+  verifyStoredPasswordHash
+} from '@/lib/password';
 
 export const SESSION_COOKIE_NAME = 'avani_crm_session';
 export const SESSION_MAX_AGE_SECONDS = 60 * 60 * 8; // 8 hours
@@ -7,6 +16,7 @@ export const SESSION_MAX_AGE_SECONDS = 60 * 60 * 8; // 8 hours
 export type CrmRole = 'ADMIN' | 'ADVISOR';
 
 export interface CrmSession {
+  jti: string;
   sub: string;
   name: string;
   email: string;
@@ -21,7 +31,7 @@ export interface CrmAccountConfig {
   email: string;
   role: CrmRole;
   passwordPlain?: string;
-  passwordHashSha256?: string;
+  passwordHash?: string;
 }
 
 const textEncoder = new TextEncoder();
@@ -50,7 +60,7 @@ function base64UrlDecode(input: string): Uint8Array | null {
 
 function getSessionSecret(): string | null {
   const secret = process.env.SESSION_SECRET?.trim();
-  if (!secret || secret.length < 16) {
+  if (!secret || secret.length < 32) {
     return null;
   }
   return secret;
@@ -66,14 +76,6 @@ async function getHmacKey(secret: string, usage: 'sign' | 'verify'): Promise<Cry
   );
 }
 
-export async function sha256Hex(value: string): Promise<string> {
-  const digest = await globalThis.crypto.subtle.digest('SHA-256', textEncoder.encode(value));
-  const bytes = new Uint8Array(digest);
-  return Array.from(bytes)
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
-}
-
 export function constantTimeEqualStrings(a: string, b: string): boolean {
   const aBytes = textEncoder.encode(a);
   const bBytes = textEncoder.encode(b);
@@ -85,17 +87,22 @@ export function constantTimeEqualStrings(a: string, b: string): boolean {
   return diff === 0;
 }
 
-export async function signSessionToken(
-  payload: Omit<CrmSession, 'iat' | 'exp'>,
+export async function signSessionTokenWithDetails(
+  payload: Omit<CrmSession, 'jti' | 'iat' | 'exp'> & { jti?: string },
   ttlSeconds = SESSION_MAX_AGE_SECONDS
-): Promise<string> {
+): Promise<{ token: string; session: CrmSession }> {
   const secret = getSessionSecret();
   if (!secret) {
-    throw new Error('SESSION_SECRET is not configured or is shorter than 16 characters');
+    throw new Error('SESSION_SECRET is not configured or is shorter than 32 characters');
   }
   const now = Math.floor(Date.now() / 1000);
+  const jti = payload.jti || globalThis.crypto.randomUUID();
   const session: CrmSession = {
-    ...payload,
+    jti,
+    sub: payload.sub,
+    name: payload.name,
+    email: payload.email,
+    role: payload.role,
     iat: now,
     exp: now + ttlSeconds
   };
@@ -103,7 +110,15 @@ export async function signSessionToken(
   const key = await getHmacKey(secret, 'sign');
   const sigBuffer = await globalThis.crypto.subtle.sign('HMAC', key, textEncoder.encode(payloadB64));
   const sigB64 = base64UrlEncode(new Uint8Array(sigBuffer));
-  return `${payloadB64}.${sigB64}`;
+  return { token: `${payloadB64}.${sigB64}`, session };
+}
+
+export async function signSessionToken(
+  payload: Omit<CrmSession, 'jti' | 'iat' | 'exp'> & { jti?: string },
+  ttlSeconds = SESSION_MAX_AGE_SECONDS
+): Promise<string> {
+  const { token } = await signSessionTokenWithDetails(payload, ttlSeconds);
+  return token;
 }
 
 export async function verifySessionToken(token: string | undefined | null): Promise<CrmSession | null> {
@@ -133,7 +148,7 @@ export async function verifySessionToken(token: string | undefined | null): Prom
     if (!valid) return null;
 
     const decoded = JSON.parse(new TextDecoder().decode(payloadBytes)) as CrmSession;
-    if (!decoded || !decoded.sub || !decoded.email || !decoded.role) return null;
+    if (!decoded || !decoded.jti || !decoded.sub || !decoded.email || !decoded.role) return null;
     if (decoded.role !== 'ADMIN' && decoded.role !== 'ADVISOR') return null;
     if (typeof decoded.exp !== 'number' || decoded.exp <= Math.floor(Date.now() / 1000)) {
       return null;
@@ -141,6 +156,42 @@ export async function verifySessionToken(token: string | undefined | null): Prom
     return decoded;
   } catch {
     return null;
+  }
+}
+
+export async function verifyActiveSession(token: string | undefined | null): Promise<CrmSession | null> {
+  const session = await verifySessionToken(token);
+  if (!session) return null;
+  const active = await isSessionActiveInDb(session.jti);
+  if (!active) return null;
+  return session;
+}
+
+export async function issueRotatedSession(
+  account: Pick<CrmAccountConfig, 'id' | 'name' | 'email' | 'role'>,
+  previousToken?: string | null
+): Promise<{ token: string; session: CrmSession }> {
+  if (previousToken) {
+    const oldSession = await verifySessionToken(previousToken);
+    if (oldSession?.jti) {
+      await revokeSessionInDb(oldSession.jti);
+    }
+  }
+  const result = await signSessionTokenWithDetails({
+    sub: account.id,
+    name: account.name,
+    email: account.email,
+    role: account.role
+  });
+  await registerSessionInDb(result.session);
+  return result;
+}
+
+export async function revokeSessionToken(token: string | undefined | null): Promise<void> {
+  if (!token) return;
+  const session = await verifySessionToken(token);
+  if (session?.jti) {
+    await revokeSessionInDb(session.jti);
   }
 }
 
@@ -160,12 +211,15 @@ export function parseCookieHeader(cookieHeader: string | null, name: string): st
 
 export async function getSessionFromRequest(req: Request): Promise<CrmSession | null> {
   const token = parseCookieHeader(req.headers.get('cookie'), SESSION_COOKIE_NAME);
-  return verifySessionToken(token);
+  return verifyActiveSession(token);
 }
 
 export function buildSessionCookieOptions(req: Request, maxAgeSeconds: number) {
   const forwardedProto = req.headers.get('x-forwarded-proto');
-  const isHttps = forwardedProto === 'https' || req.url.startsWith('https://');
+  const isHttps =
+    forwardedProto === 'https' ||
+    req.url.startsWith('https://') ||
+    process.env.VERCEL === '1';
   return {
     name: SESSION_COOKIE_NAME,
     httpOnly: true,
@@ -174,6 +228,64 @@ export function buildSessionCookieOptions(req: Request, maxAgeSeconds: number) {
     path: '/',
     maxAge: maxAgeSeconds
   };
+}
+
+const STATE_CHANGING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+
+export function verifyCsrfRequest(
+  req: Request
+): { ok: true } | { ok: false; status: number; error: string } {
+  const method = (req.method || 'GET').toUpperCase();
+  if (!STATE_CHANGING_METHODS.has(method)) {
+    return { ok: true };
+  }
+
+  const secFetchSite = req.headers.get('sec-fetch-site')?.trim().toLowerCase();
+  if (secFetchSite === 'cross-site') {
+    return { ok: false, status: 403, error: 'CSRF_FORBIDDEN' };
+  }
+
+  const expectedHosts = new Set<string>();
+  const reqHost = req.headers.get('x-forwarded-host') || req.headers.get('host');
+  if (reqHost) expectedHosts.add(reqHost.split(',')[0].trim().toLowerCase());
+  try {
+    expectedHosts.add(new URL(req.url).host.toLowerCase());
+  } catch {
+    // ignore malformed internal URL
+  }
+  if (process.env.NEXT_PUBLIC_APP_URL) {
+    try {
+      expectedHosts.add(new URL(process.env.NEXT_PUBLIC_APP_URL).host.toLowerCase());
+    } catch {
+      // ignore invalid app URL
+    }
+  }
+
+  const origin = req.headers.get('origin');
+  if (origin) {
+    try {
+      const originHost = new URL(origin).host.toLowerCase();
+      if (expectedHosts.size > 0 && !expectedHosts.has(originHost)) {
+        return { ok: false, status: 403, error: 'CSRF_ORIGIN_MISMATCH' };
+      }
+    } catch {
+      return { ok: false, status: 403, error: 'CSRF_INVALID_ORIGIN' };
+    }
+  } else {
+    const referer = req.headers.get('referer');
+    if (referer) {
+      try {
+        const refHost = new URL(referer).host.toLowerCase();
+        if (expectedHosts.size > 0 && !expectedHosts.has(refHost)) {
+          return { ok: false, status: 403, error: 'CSRF_REFERER_MISMATCH' };
+        }
+      } catch {
+        return { ok: false, status: 403, error: 'CSRF_INVALID_REFERER' };
+      }
+    }
+  }
+
+  return { ok: true };
 }
 
 export function getConfiguredAccounts(): CrmAccountConfig[] {
@@ -185,14 +297,15 @@ export function getConfiguredAccounts(): CrmAccountConfig[] {
       const parsed = JSON.parse(jsonRaw);
       if (Array.isArray(parsed)) {
         for (const item of parsed) {
-          if (item?.email && (item?.password || item?.passwordHashSha256) && (item?.role === 'ADMIN' || item?.role === 'ADVISOR')) {
+          const hashVal = item?.passwordHash || item?.passwordHashScrypt || item?.passwordHashSha256;
+          if (item?.email && (item?.password || hashVal) && (item?.role === 'ADMIN' || item?.role === 'ADVISOR')) {
             accounts.push({
               id: String(item.id || item.email),
               name: String(item.name || item.email),
               email: String(item.email).trim().toLowerCase(),
               role: item.role,
               passwordPlain: item.password ? String(item.password) : undefined,
-              passwordHashSha256: item.passwordHashSha256 ? String(item.passwordHashSha256).toLowerCase() : undefined
+              passwordHash: hashVal ? String(hashVal).trim() : undefined
             });
           }
         }
@@ -204,7 +317,7 @@ export function getConfiguredAccounts(): CrmAccountConfig[] {
 
   const adminEmail = process.env.CRM_ADMIN_EMAIL?.trim().toLowerCase();
   const adminPassword = process.env.CRM_ADMIN_PASSWORD;
-  const adminPasswordHash = process.env.CRM_ADMIN_PASSWORD_HASH?.trim().toLowerCase();
+  const adminPasswordHash = process.env.CRM_ADMIN_PASSWORD_HASH?.trim();
   if (adminEmail && (adminPassword || adminPasswordHash)) {
     accounts.push({
       id: 'ADV-SACHIN-01',
@@ -212,13 +325,13 @@ export function getConfiguredAccounts(): CrmAccountConfig[] {
       email: adminEmail,
       role: 'ADMIN',
       passwordPlain: adminPassword,
-      passwordHashSha256: adminPasswordHash
+      passwordHash: adminPasswordHash
     });
   }
 
   const advisorEmail = process.env.CRM_ADVISOR_EMAIL?.trim().toLowerCase();
   const advisorPassword = process.env.CRM_ADVISOR_PASSWORD;
-  const advisorPasswordHash = process.env.CRM_ADVISOR_PASSWORD_HASH?.trim().toLowerCase();
+  const advisorPasswordHash = process.env.CRM_ADVISOR_PASSWORD_HASH?.trim();
   if (advisorEmail && (advisorPassword || advisorPasswordHash)) {
     accounts.push({
       id: 'ADV-OPS-02',
@@ -226,7 +339,7 @@ export function getConfiguredAccounts(): CrmAccountConfig[] {
       email: advisorEmail,
       role: 'ADVISOR',
       passwordPlain: advisorPassword,
-      passwordHashSha256: advisorPasswordHash
+      passwordHash: advisorPasswordHash
     });
   }
 
@@ -241,15 +354,14 @@ export async function verifyCrmCredentials(emailInput: string, passwordInput: st
   const accounts = getConfiguredAccounts();
   if (accounts.length === 0) return null;
 
-  const inputHash = await sha256Hex(password);
   for (const acct of accounts) {
     if (!constantTimeEqualStrings(acct.email, email)) continue;
-    const expectedHash = acct.passwordHashSha256
-      ? acct.passwordHashSha256
+    const targetHash = acct.passwordHash
+      ? acct.passwordHash
       : acct.passwordPlain
-        ? await sha256Hex(acct.passwordPlain)
+        ? await getOrDeriveEnvScryptHash(acct.id, acct.passwordPlain)
         : '';
-    if (expectedHash && constantTimeEqualStrings(inputHash, expectedHash)) {
+    if (targetHash && (await verifyStoredPasswordHash(password, targetHash))) {
       return acct;
     }
   }
@@ -259,6 +371,17 @@ export async function verifyCrmCredentials(emailInput: string, passwordInput: st
 export async function requireAuth(
   req: Request
 ): Promise<{ ok: true; session: CrmSession } | { ok: false; response: NextResponse }> {
+  const csrf = verifyCsrfRequest(req);
+  if (!csrf.ok) {
+    return {
+      ok: false,
+      response: NextResponse.json(
+        { success: false, error: csrf.error, message: 'Cross-site state change blocked.' },
+        { status: csrf.status }
+      )
+    };
+  }
+
   const session = await getSessionFromRequest(req);
   if (!session) {
     return {
@@ -375,7 +498,6 @@ export function validateStageTransition(
     };
   }
 
-  // Block invalid direct financial jumps regardless of role
   if (targetStage === 'SANCTIONED') {
     if (!['APPLICATION_SUBMITTED', 'LENDER_PROCESSING', 'ADDITIONAL_DOCUMENTS_REQUIRED'].includes(currentStage)) {
       return {
@@ -419,7 +541,6 @@ export function sanitizeLeadPayloadForClient(lead: any, session: CrmSession): an
   if (!lead) return lead;
   const obj = typeof lead.toObject === 'function' ? lead.toObject() : { ...lead };
   if (session.role === 'ADMIN') return obj;
-  // Mask financial commission / invoice figures from non-admin advisors
   if (obj.revenue) {
     obj.revenue = {
       paymentStatus: obj.revenue.paymentStatus || 'RESTRICTED',

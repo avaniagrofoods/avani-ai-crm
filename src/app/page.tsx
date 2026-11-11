@@ -16,7 +16,7 @@ import { Message } from '@/models/Message';
 import { WebhookInbox } from '@/models/WebhookInbox';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
-import { SESSION_COOKIE_NAME, verifySessionToken, buildLeadVisibilityFilter } from '@/lib/auth';
+import { SESSION_COOKIE_NAME, verifyActiveSession, buildLeadVisibilityFilter } from '@/lib/auth';
 import { computeWhatsappTelemetry, WhatsappTelemetrySummary } from '@/lib/telemetry';
 import { buildLeadFilterQuery } from '@/app/api/dashboard/metrics/route';
 
@@ -26,7 +26,7 @@ export default async function Dashboard(props: {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const cookieStore = await cookies();
-  const session = await verifySessionToken(cookieStore.get(SESSION_COOKIE_NAME)?.value);
+  const session = await verifyActiveSession(cookieStore.get(SESSION_COOKIE_NAME)?.value);
   if (!session) {
     redirect('/login');
   }

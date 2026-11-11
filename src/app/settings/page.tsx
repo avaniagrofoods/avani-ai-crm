@@ -3,10 +3,10 @@ import { useState, useEffect } from "react";
 import { Settings, Save, Key, Shield, AlertCircle, RefreshCw, ExternalLink, CheckCircle } from "lucide-react";
 
 export default function SettingsPage() {
-  const DEFAULT_TOKEN = "EAAdIUij5eSEBSGriZCTt06QY1yLIkPZCDIQmHY2iE1ZAGiO7plPIiHyV1VnoXIvbvQeFfyhFM0IwWKIxlj0y5haUYPbYIBQMabyJ9XJhTUZA2vUEUYDbSnJH4OIsFYiLTD8yPBFH331fwmBU253NwW48xWhytfkb2gn8E52jZAElt6PcnGL0YZChBtExZCj2AZDZD";
-  const DEFAULT_PHONE_ID = "1147494668457940";
-  const DEFAULT_GEMINI = "AIzaSyAzz0LUgUt9DxicUZQmkoZv3zRh_EdWMlU";
-  const DEFAULT_BACKEND = "https://avani-ai-crm.vercel.app/api";
+  const DEFAULT_TOKEN = "";
+  const DEFAULT_PHONE_ID = "";
+  const DEFAULT_GEMINI = "";
+  const DEFAULT_BACKEND = "/api";
 
   const [name, setName] = useState("Avani Loan Services");
   const [timezone, setTimezone] = useState("IST");

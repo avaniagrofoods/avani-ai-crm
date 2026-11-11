@@ -598,6 +598,7 @@ async function runTests() {
       await db.collection('messages').deleteMany({ messageId: { $in: createdMsgIds } });
       await db.collection('conversations').deleteMany({ customerPhone: { $in: phonePhones } });
       await db.collection('webhookinboxes').deleteMany({ eventId: { $in: createdEventIds } });
+      await db.collection('authsessions').deleteMany({ email: { $in: [SYNTHETIC_ADMIN_EMAIL, SYNTHETIC_ADVISOR_EMAIL, 'revoked@local'] } });
       const residual = await db.collection('leads').countDocuments({ normalizedMobile: { $in: raw10s } });
       assert.strictEqual(residual, 0, 'Test residue must be zero after cleanup');
       console.log('[Gate 7 Cleanup] Verified 0 synthetic test records remain in avani_ai_crm_test.');

@@ -432,6 +432,7 @@ async function runBrowserAcceptance() {
       await db.collection('messages').deleteMany({
         $or: [{ body: /Doctor Loan Requirement/ }, { recipientPhone: { $in: allPhones } }, { phone: { $in: allPhones } }]
       });
+      await db.collection('authsessions').deleteMany({ email: { $in: [ADMIN_EMAIL, ADVISOR_EMAIL, 'revoked@local'] } });
       const residual = await db.collection('leads').countDocuments({ normalizedMobile: { $in: raw10s } });
       assert.strictEqual(residual, 0);
       console.log('[Gate 8 Cleanup] Verified 0 synthetic UI test records remain in avani_ai_crm_test.');

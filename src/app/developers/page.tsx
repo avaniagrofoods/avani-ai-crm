@@ -4,9 +4,9 @@ import { useState } from "react";
 import { Plus, Code, Trash2, X, Copy, Check } from "lucide-react";
 
 const preconfiguredKeys = [
-  { id: "dev1", name: "Meta WhatsApp WABA Production Secret", key: "EAAdIUij5eSEBSPNXXeehEPuB...", scope: "FULL_ACCESS", createdAt: new Date().toISOString() },
-  { id: "dev2", name: "AiSensy WABA Gateway API Token", key: "eyJhbGciOiJIUzI1NiIsInR5cCI6...", scope: "BROADCAST_READ_WRITE", createdAt: new Date().toISOString() },
-  { id: "dev3", name: "OmniDM AI Voice Dispatch Secret", key: "w-uV11bJBZ3g5icPI-uw97k2Fz...", scope: "VOICE_CALL_DISPATCH", createdAt: new Date().toISOString() }
+  { id: "dev1", name: "Meta WhatsApp WABA Production Secret", key: "Managed securely in Vercel Production environment", scope: "FULL_ACCESS", createdAt: new Date().toISOString() },
+  { id: "dev2", name: "ChatMitra / WABA Gateway API Token", key: "Managed securely in Vercel Production environment", scope: "BROADCAST_READ_WRITE", createdAt: new Date().toISOString() },
+  { id: "dev3", name: "OmniDM AI Voice Dispatch Secret", key: "Managed securely in Vercel Production environment", scope: "VOICE_CALL_DISPATCH", createdAt: new Date().toISOString() }
 ];
 
 export default function DevelopersPage() {

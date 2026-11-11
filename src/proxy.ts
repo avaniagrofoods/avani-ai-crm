@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { SESSION_COOKIE_NAME, verifySessionToken } from '@/lib/auth';
+import {
+  SESSION_COOKIE_NAME,
+  verifyActiveSession,
+  verifyCsrfRequest
+} from '@/lib/auth';
 
 const PUBLIC_PAGE_PATHS = new Set(['/login']);
 
@@ -37,8 +41,23 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
+  // Monitoring callers authenticating via Bearer secret reach /api/diagnostics handler directly
+  if (pathname === '/api/diagnostics' && request.headers.get('authorization')?.startsWith('Bearer ')) {
+    return NextResponse.next();
+  }
+
+  if (pathname.startsWith('/api/')) {
+    const csrf = verifyCsrfRequest(request);
+    if (!csrf.ok) {
+      return NextResponse.json(
+        { success: false, error: csrf.error, message: 'Cross-site state change blocked.' },
+        { status: csrf.status, headers: { 'Cache-Control': 'no-store' } }
+      );
+    }
+  }
+
   const token = request.cookies.get(SESSION_COOKIE_NAME)?.value;
-  const session = await verifySessionToken(token);
+  const session = await verifyActiveSession(token);
 
   if (PUBLIC_PAGE_PATHS.has(pathname)) {
     if (session) {
@@ -51,7 +70,7 @@ export async function proxy(request: NextRequest) {
     if (pathname.startsWith('/api/')) {
       return NextResponse.json(
         { success: false, error: 'UNAUTHORIZED', message: 'Authentication required.' },
-        { status: 401 }
+        { status: 401, headers: { 'Cache-Control': 'no-store' } }
       );
     }
     const loginUrl = new URL('/login', request.url);

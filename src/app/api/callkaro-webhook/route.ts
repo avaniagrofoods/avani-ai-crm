@@ -35,10 +35,13 @@ export async function POST(request: Request) {
       console.warn("DB Update notice in CallKaro Webhook:", dbErr);
     }
 
-    // Trigger Meta / AiSensy WhatsApp Followup Template if requested
+    // Trigger Meta / AiSensy WhatsApp Followup Template ONLY when live mode + token configured
     if (phone && (status === 'completed' || status === 'COMPLETED' || !status)) {
-      const metaToken = process.env.WHATSAPP_TOKEN || "EAAdIUij5eSEBSGriZCTt06QY1yLIkPZCDIQmHY2iE1ZAGiO7plPIiHyV1VnoXIvbvQeFfyhFM0IwWKIxlj0y5haUYPbYIBQMabyJ9XJhTUZA2vUEUYDbSnJH4OIsFYiLTD8yPBFH331fwmBU253NwW48xWhytfkb2gn8E52jZAElt6PcnGL0YZChBtExZCj2AZDZD";
-      const phoneId = process.env.WHATSAPP_PHONE_NUMBER_ID || "1147494668457940";
+      const metaToken = process.env.WHATSAPP_TOKEN;
+      const phoneId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+      if (!metaToken || !phoneId || process.env.PROVIDER_MODE !== 'live') {
+        return NextResponse.json({ success: true, message: "CallKaro Webhook processed (live WA disabled)" });
+      }
 
       const whatsappPayload = {
         messaging_product: "whatsapp",

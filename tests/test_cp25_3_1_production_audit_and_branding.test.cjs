@@ -209,8 +209,8 @@ runTest('CP25.3.1-21: contacts/[id] generates normalized phoneVariants for messa
 
 // 22. Database health verification capability
 runTest('CP25.3.1-22: Health endpoint reports database status and WhatsApp provider status without leaking secrets', () => {
-  const code = fs.readFileSync(path.join('src', 'app', 'api', 'health', 'route.ts'), 'utf8');
-  assert.ok(code.includes('maskCredential'), 'Credential masking helper missing');
+  const code = fs.readFileSync(path.join('src', 'app', 'api', 'diagnostics', 'route.ts'), 'utf8');
+  assert.ok(code.includes('flagStatus'), 'Credential status helper missing');
   assert.ok(code.includes('AVANI LOAN SERVICES — AVANI AI CRM'), 'Service identifier missing');
 });
 
