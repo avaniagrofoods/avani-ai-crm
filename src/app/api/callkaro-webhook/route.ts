@@ -1,8 +1,16 @@
 import { NextResponse } from 'next/server';
 import connectToDatabase from '@/lib/db';
 import { Lead } from '@/models/Lead';
+import { verifySharedWebhookSecret } from '@/lib/auth';
 
 export async function POST(request: Request) {
+  const webhookAuth = verifySharedWebhookSecret(
+    request,
+    ['CALLKARO_WEBHOOK_SECRET', 'INTERNAL_WORKER_SECRET'],
+    ['x-callkaro-secret', 'x-webhook-secret']
+  );
+  if (!webhookAuth.ok) return webhookAuth.response;
+
   try {
     const body = await request.json();
     console.log("Received CallKaro AI Webhook:", JSON.stringify(body));

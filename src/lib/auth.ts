@@ -552,3 +552,53 @@ export function sanitizeLeadPayloadForClient(lead: any, session: CrmSession): an
   }
   return obj;
 }
+
+/**
+ * Constant-time shared-secret guard for third-party voice/webhook POST endpoints.
+ * Fails closed (HTTP 401) when no configured secret matches Bearer or custom header.
+ */
+export function verifySharedWebhookSecret(
+  req: Request,
+  envSecretKeys: string[],
+  headerNames: string[] = ['x-webhook-secret']
+): { ok: true } | { ok: false; response: NextResponse } {
+  const configuredSecrets = envSecretKeys
+    .map((k) => String(process.env[k] || '').trim())
+    .filter((v) => v.length > 0);
+
+  if (configuredSecrets.length === 0) {
+    return {
+      ok: false,
+      response: NextResponse.json(
+        { success: false, error: 'UNAUTHORIZED', message: 'Webhook verification secret not configured.' },
+        { status: 401, headers: { 'Cache-Control': 'no-store' } }
+      )
+    };
+  }
+
+  const candidates: string[] = [];
+  const authHeader = req.headers.get('authorization');
+  if (authHeader && /^Bearer\s+/i.test(authHeader)) {
+    candidates.push(authHeader.replace(/^Bearer\s+/i, '').trim());
+  }
+  for (const h of headerNames) {
+    const val = req.headers.get(h);
+    if (val && val.trim()) candidates.push(val.trim());
+  }
+
+  for (const provided of candidates) {
+    for (const secret of configuredSecrets) {
+      if (constantTimeEqualStrings(provided, secret)) {
+        return { ok: true };
+      }
+    }
+  }
+
+  return {
+    ok: false,
+    response: NextResponse.json(
+      { success: false, error: 'UNAUTHORIZED', message: 'Invalid or missing webhook authentication credential.' },
+      { status: 401, headers: { 'Cache-Control': 'no-store' } }
+    )
+  };
+}

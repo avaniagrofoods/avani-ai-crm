@@ -13,14 +13,16 @@ import { Conversation } from '@/models/Conversation';
 import { AgentEngine } from '@/lib/ai-agent';
 import { OptOutEngine } from '@/lib/optout-engine';
 import { normalizeMessageStatus, canTransitionStatus } from '@/lib/message-status';
+import { constantTimeEqualStrings } from '@/lib/auth';
 import mongoose from 'mongoose';
 
 export async function POST(request: Request) {
   try {
-    const workerSecret = process.env.INTERNAL_WORKER_SECRET || 'dev_secret_only';
-    const authHeader = request.headers.get('x-worker-auth');
-    if (authHeader !== workerSecret) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+    const workerSecret = process.env.INTERNAL_WORKER_SECRET?.trim();
+
+    const authHeader = request.headers.get('x-worker-auth')?.trim();
+    if (!workerSecret || !authHeader || !constantTimeEqualStrings(authHeader, workerSecret)) {
+      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401, headers: { 'Cache-Control': 'no-store' } });
     }
 
     const payload = await request.json();
@@ -182,7 +184,7 @@ export async function POST(request: Request) {
             await Message.create({
               messageId: msgId,
               providerMessageId: msgId,
-              idempotencyKey: msgId,
+              idempotencyKey: msgId || eventId || correlationId || `inb_${Date.now()}`,
               leadId: leadId ? leadId.toString() : undefined,
               phone: fromPhone,
               senderPhone: fromPhone,

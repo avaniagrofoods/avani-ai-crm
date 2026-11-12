@@ -5,7 +5,15 @@ import { logToGoogleSheets, syncToHubSpot, triggerMakeWebhook, triggerPabblyWebh
 import { logCallToPostgres } from '@/lib/postgres';
 import axios from 'axios';
 
+import { verifySharedWebhookSecret } from '@/lib/auth';
+
 export async function POST(request: Request) {
+  const webhookAuth = verifySharedWebhookSecret(
+    request,
+    ['VAPI_WEBHOOK_SECRET', 'INTERNAL_WORKER_SECRET'],
+    ['x-vapi-secret', 'x-webhook-secret']
+  );
+  if (!webhookAuth.ok) return webhookAuth.response;
   try {
     const body = await request.json();
     

@@ -96,6 +96,35 @@ export function detectSensitiveDataInChat(text: string): {
 /**
  * Generates a cryptographically signed, time-limited, authenticated document upload link.
  */
+let ephemeralPortalSecret: string | null = null;
+let ephemeralEncryptionSecret: string | null = null;
+
+export function resolvePrivacySecret(kind: 'portal' | 'encryption'): string {
+  const envVal =
+    kind === 'portal'
+      ? process.env.DOCUMENT_PORTAL_SECRET ||
+        process.env.INTERNAL_WORKER_SECRET ||
+        process.env.SESSION_SECRET
+      : process.env.DOCUMENT_ENCRYPTION_KEY ||
+        process.env.INTERNAL_WORKER_SECRET ||
+        process.env.SESSION_SECRET;
+  const trimmed = String(envVal || '').trim();
+  if (trimmed.length >= 16) return trimmed;
+  if (process.env.NODE_ENV === 'production' || process.env.VERCEL === '1') {
+    throw new Error(
+      `Security configuration error: missing ${
+        kind === 'portal' ? 'DOCUMENT_PORTAL_SECRET' : 'DOCUMENT_ENCRYPTION_KEY'
+      } in production.`
+    );
+  }
+  if (kind === 'portal') {
+    if (!ephemeralPortalSecret) ephemeralPortalSecret = crypto.randomBytes(32).toString('hex');
+    return ephemeralPortalSecret;
+  }
+  if (!ephemeralEncryptionSecret) ephemeralEncryptionSecret = crypto.randomBytes(32).toString('hex');
+  return ephemeralEncryptionSecret;
+}
+
 export function generateSecureDocumentUploadLink(params: {
   leadId: string;
   phone: string;
@@ -107,7 +136,7 @@ export function generateSecureDocumentUploadLink(params: {
   retentionDays: number;
 } {
   const baseUrl = (process.env.NEXT_PUBLIC_APP_URL || 'https://avani-ai-crm.vercel.app').replace(/\/$/, '');
-  const secret = process.env.DOCUMENT_PORTAL_SECRET || process.env.INTERNAL_WORKER_SECRET || 'avani_doc_portal_signing_key';
+  const secret = resolvePrivacySecret('portal');
   const expiresAt = Date.now() + (params.expiresInMinutes || 1440) * 60 * 1000; // Default 24h
 
   const payloadObj = {
@@ -140,7 +169,7 @@ export function verifySecureDocumentUploadToken(token: string): {
     return { valid: false, error: 'Malformed upload token' };
   }
   const [payloadB64, sig] = token.split('.');
-  const secret = process.env.DOCUMENT_PORTAL_SECRET || process.env.INTERNAL_WORKER_SECRET || 'avani_doc_portal_signing_key';
+  const secret = resolvePrivacySecret('portal');
   const expectedSig = crypto.createHmac('sha256', secret).update(payloadB64).digest('base64url');
 
   try {
@@ -172,7 +201,7 @@ export function canAccessDocumentRecord(role?: string | null): boolean {
  * Encrypts document metadata / storage reference at rest using AES-256-GCM.
  */
 export function encryptDocumentReference(plainReference: string): string {
-  const secret = process.env.DOCUMENT_ENCRYPTION_KEY || process.env.INTERNAL_WORKER_SECRET || 'avani_default_encryption_key_32b';
+  const secret = resolvePrivacySecret('encryption');
   const key = crypto.createHash('sha256').update(secret).digest();
   const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);

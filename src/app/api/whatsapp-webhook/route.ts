@@ -58,18 +58,29 @@ export async function POST(request: Request) {
                            process.env.CHATMITRA_SECRET || 
                            process.env.CHATMANTRA_SECRET;
     const metaAppSecret = process.env.META_APP_SECRET;
+    const unauthorizedWebhook = (error: string) =>
+      NextResponse.json(
+        { success: false, error },
+        {
+          status: 401,
+          headers: {
+            'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
+            Pragma: 'no-cache'
+          }
+        }
+      );
 
     // 1. Explicit ChatMitra Signature Header (x-webhook-signature or x-signature)
     if (webhookSig || customSig) {
       const sigToVerify = (webhookSig || customSig)!;
       if (!chatmitraSecret) {
         log('[ChatMitra Security] Signature header received but CHATMITRA_WEBHOOK_SECRET not configured');
-        return NextResponse.json({ success: false, error: 'ChatMitra webhook secret not configured' }, { status: 401 });
+        return unauthorizedWebhook('ChatMitra webhook secret not configured');
       }
       const isValid = verifyChatMitraSignature(rawBody, sigToVerify, chatmitraSecret);
       if (!isValid) {
         log(`[ChatMitra Security] Invalid Webhook Signature on ${isChatMitraPayload ? 'ChatMitra' : 'unknown'} payload (UA: ${userAgent.slice(0, 40)})`);
-        return NextResponse.json({ success: false, error: 'Invalid Webhook Signature' }, { status: 401 });
+        return unauthorizedWebhook('Invalid Webhook Signature');
       }
       log('[ChatMitra Security] Signature verified successfully via x-webhook-signature');
     }
@@ -91,36 +102,32 @@ export async function POST(request: Request) {
       if (!verified) {
         if (isChatMitraPayload && chatmitraSecret) {
           log(`[ChatMitra Security] Invalid Webhook Signature for ChatMitra payload via x-hub-signature-256 (UA: ${userAgent.slice(0, 40)})`);
-          return NextResponse.json({ success: false, error: 'Invalid Webhook Signature' }, { status: 401 });
+          return unauthorizedWebhook('Invalid Webhook Signature');
         }
         if (isMetaPayload) {
           if (metaAppSecret) {
             log(`[Meta Security] Invalid Webhook Signature for Meta WABA payload (UA: ${userAgent.slice(0, 40)})`);
-            return NextResponse.json({ success: false, error: 'Invalid Meta Webhook Signature' }, { status: 401 });
-          } else if (process.env.STRICT_META_WEBHOOK_VERIFICATION === 'true') {
-            log(`[Meta Security] STRICT ENFORCEMENT: Rejected unverified Meta WABA payload because META_APP_SECRET is not configured (UA: ${userAgent.slice(0, 40)})`);
-            return NextResponse.json({ success: false, error: 'Meta App Secret not configured (strict mode)' }, { status: 401 });
-          } else {
-            // META_APP_SECRET is not configured in Vercel; log prominent production security gap alert
-            log(`[Meta Security Gap Alert] Accepting unverified Meta WABA payload because META_APP_SECRET is not configured. Configure META_APP_SECRET in Vercel to enforce strict cryptographic validation (UA: ${userAgent.slice(0, 40)}).`);
+            return unauthorizedWebhook('Invalid Meta Webhook Signature');
           }
-        } else {
-          // Unrecognized payload structure with an unverified signature
-          if (chatmitraSecret) {
-            log(`[Webhook Security] Unknown payload rejected with invalid x-hub-signature-256 (UA: ${userAgent.slice(0, 40)})`);
-            return NextResponse.json({ success: false, error: 'Invalid Webhook Signature' }, { status: 401 });
-          }
+          log(`[Meta Security] Rejected unverified Meta WABA payload (UA: ${userAgent.slice(0, 40)})`);
+          return unauthorizedWebhook('Meta App Secret not configured');
         }
+        log(`[Webhook Security] Unknown payload rejected with invalid x-hub-signature-256 (UA: ${userAgent.slice(0, 40)})`);
+        return unauthorizedWebhook('Invalid Webhook Signature');
       }
     }
     // 3. Missing Signature Guards
     else if ((isChatMitraPayload || isDirectDispatch) && chatmitraSecret) {
       log(`[ChatMitra Security] Missing required signature header on ChatMitra event: ${body.event} (UA: ${userAgent.slice(0, 40)})`);
-      return NextResponse.json({ success: false, error: 'Missing webhook signature' }, { status: 401 });
+      return unauthorizedWebhook('Missing webhook signature');
     }
     else if (isMetaPayload && (metaAppSecret || process.env.STRICT_META_WEBHOOK_VERIFICATION === 'true')) {
       log(`[Meta Security] Missing required x-hub-signature-256 header on Meta payload (UA: ${userAgent.slice(0, 40)})`);
-      return NextResponse.json({ success: false, error: 'Missing Meta webhook signature' }, { status: 401 });
+      return unauthorizedWebhook('Missing Meta webhook signature');
+    }
+    else {
+      log(`[Webhook Security] Unsigned POST request rejected (UA: ${userAgent.slice(0, 40)})`);
+      return unauthorizedWebhook('Missing webhook signature');
     }
 
     log("Received Webhook Payload: " + JSON.stringify(body).substring(0, 300));
@@ -151,7 +158,7 @@ export async function POST(request: Request) {
             });
 
             const workerUrl = new URL(request.url.replace('whatsapp-webhook', 'whatsapp-webhook-worker'));
-            const workerSecret = process.env.INTERNAL_WORKER_SECRET || 'dev_secret_only';
+            const workerSecret = process.env.INTERNAL_WORKER_SECRET?.trim() || '';
 
             waitUntil(
               fetch(workerUrl.toString(), {
@@ -191,7 +198,7 @@ export async function POST(request: Request) {
             });
 
             const workerUrl = new URL(request.url.replace('whatsapp-webhook', 'whatsapp-webhook-worker'));
-            const workerSecret = process.env.INTERNAL_WORKER_SECRET || 'dev_secret_only';
+            const workerSecret = process.env.INTERNAL_WORKER_SECRET?.trim() || '';
 
             waitUntil(
               fetch(workerUrl.toString(), {
@@ -235,7 +242,7 @@ export async function POST(request: Request) {
 
       const correlationId = `CRM-BRD-${Date.now()}-${Math.random().toString(36).substring(7)}`;
       const workerUrl = new URL(request.url.replace('whatsapp-webhook', 'whatsapp-webhook-worker'));
-      const workerSecret = process.env.INTERNAL_WORKER_SECRET || 'dev_secret_only';
+      const workerSecret = process.env.INTERNAL_WORKER_SECRET?.trim() || '';
 
       // Trigger background worker securely via waitUntil
       waitUntil(
@@ -294,7 +301,7 @@ export async function POST(request: Request) {
                   log(`[Webhook Inbox] Recorded STATUS_UPDATE: ${eventId}`);
                   
                   const workerUrl = new URL(request.url.replace('whatsapp-webhook', 'whatsapp-webhook-worker'));
-                  const workerSecret = process.env.INTERNAL_WORKER_SECRET || 'dev_secret_only';
+                  const workerSecret = process.env.INTERNAL_WORKER_SECRET?.trim() || '';
 
                   waitUntil(
                     fetch(workerUrl.toString(), {
@@ -356,7 +363,7 @@ export async function POST(request: Request) {
               log(`[Webhook Inbox] Recorded INBOUND_MESSAGE: ${eventId}`);
               
               const workerUrl = new URL(request.url.replace('whatsapp-webhook', 'whatsapp-webhook-worker'));
-              const workerSecret = process.env.INTERNAL_WORKER_SECRET || 'dev_secret_only';
+              const workerSecret = process.env.INTERNAL_WORKER_SECRET?.trim() || '';
 
               waitUntil(
                 fetch(workerUrl.toString(), {

@@ -7,6 +7,7 @@ import { sendAiSensyWhatsApp } from '@/lib/aisensy';
 import axios from 'axios';
 import { validateProductPayload } from '@/lib/validators';
 import { sendSlackAlert } from '@/lib/alerts';
+import { verifySharedWebhookSecret } from '@/lib/auth';
 
 export async function processOutgoingZapierPayload(loanType: string, compiledPayload: any, lead: any) {
   const verification = validateProductPayload(loanType, compiledPayload);
@@ -69,6 +70,12 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
+  const webhookAuth = verifySharedWebhookSecret(
+    req,
+    ['OMNIDIM_WEBHOOK_SECRET', 'OMNIDIM_VERIFY_TOKEN', 'INTERNAL_WORKER_SECRET'],
+    ['x-omnidim-secret', 'x-webhook-secret']
+  );
+  if (!webhookAuth.ok) return webhookAuth.response;
   try {
     const body = await req.json();
     console.log("OmniDM AI Webhook Event Received:", JSON.stringify(body, null, 2));

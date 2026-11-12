@@ -123,7 +123,7 @@ export async function POST(request: Request) {
         });
 
         const workerUrl = new URL(request.url.replace('chatmantra-webhook', 'whatsapp-webhook-worker'));
-        const workerSecret = process.env.INTERNAL_WORKER_SECRET || 'dev_secret_only';
+        const workerSecret = process.env.INTERNAL_WORKER_SECRET?.trim() || '';
 
         waitUntil(
           fetch(workerUrl.toString(), {
@@ -174,7 +174,7 @@ export async function POST(request: Request) {
         });
 
         const workerUrl = new URL(request.url.replace('chatmantra-webhook', 'whatsapp-webhook-worker'));
-        const workerSecret = process.env.INTERNAL_WORKER_SECRET || 'dev_secret_only';
+        const workerSecret = process.env.INTERNAL_WORKER_SECRET?.trim() || '';
 
         waitUntil(
           fetch(workerUrl.toString(), {
