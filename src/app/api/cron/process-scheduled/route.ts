@@ -2,8 +2,11 @@ import { NextResponse } from 'next/server';
 import connectToDatabase from '@/lib/db';
 import { Schedule } from '@/models/Schedule';
 import { Lead } from '@/models/Lead';
+import { Contact } from '@/models/Contact';
+import { OptOutEngine } from '@/lib/optout-engine';
 import { ProviderRouter } from '@/lib/provider-router';
 import { requireRole, constantTimeEqualStrings } from '@/lib/auth';
+import { evaluateBulkBroadcastPolicy } from '@/lib/safeguards';
 import mongoose from 'mongoose';
 
 export const dynamic = 'force-dynamic';
@@ -57,9 +60,42 @@ export async function GET(req: Request) {
       let suppressedCount = 0;
 
       if (schedule.type === 'Broadcast') {
+        const bulkPolicy = evaluateBulkBroadcastPolicy();
+        if (!bulkPolicy.allowed) {
+          const executionResult = {
+            dispatched: 0,
+            failed: 0,
+            suppressed: 0,
+            blockedByPolicy: true,
+            reason: bulkPolicy.error || 'BROADCAST_DISABLED',
+            completedAt: new Date().toISOString()
+          };
+
+          await Schedule.updateOne(
+            { _id: schedule._id },
+            {
+              $set: {
+                status: 'CANCELLED',
+                executedAt: new Date(),
+                executionResult,
+                updatedAt: new Date()
+              }
+            }
+          );
+
+          executedResults.push({
+            scheduleId: schedule.scheduleId,
+            title: schedule.title,
+            status: 'CANCELLED',
+            result: executionResult
+          });
+          continue;
+        }
+
         const leadQuery: any = {
           isOptedOut: { $ne: true },
-          status: { $nin: ['Closed', 'Rejected', 'Not Interested', 'OPTED_OUT'] }
+          status: { $nin: ['Closed', 'Rejected', 'Not Interested', 'OPTED_OUT'] },
+          consentStatus: { $nin: ['DENIED', 'WITHDRAWN'] }
         };
 
         if (schedule.targetAudience === 'DOCTOR_LEADS') {
@@ -75,7 +111,37 @@ export async function GET(req: Request) {
         const candidateLeads = await Lead.find(leadQuery).limit(50);
 
         for (const lead of candidateLeads) {
-          if (lead.isOptedOut || lead.status === 'OPTED_OUT' || lead.consentStatus === 'DENIED') {
+          const freshLead: any = (await Lead.findById(lead._id).lean()) || lead;
+          const { raw10, variants: phoneVariants } = OptOutEngine.getPhoneVariants(freshLead.phone || '');
+          const optedOutSiblingLead = phoneVariants.length > 0
+            ? await Lead.exists({
+                $or: [
+                  { phone: { $in: phoneVariants } },
+                  ...(raw10.length === 10 ? [{ normalizedMobile: raw10 }] : [])
+                ],
+                $and: [
+                  {
+                    $or: [
+                      { isOptedOut: true },
+                      { status: 'OPTED_OUT' },
+                      { consentStatus: { $in: ['DENIED', 'WITHDRAWN'] } }
+                    ]
+                  }
+                ]
+              })
+            : null;
+          const optedOutContact = phoneVariants.length > 0
+            ? await Contact.exists({ phone: { $in: phoneVariants }, optedIn: false })
+            : null;
+
+          if (
+            freshLead.isOptedOut ||
+            freshLead.status === 'OPTED_OUT' ||
+            freshLead.consentStatus === 'DENIED' ||
+            freshLead.consentStatus === 'WITHDRAWN' ||
+            Boolean(optedOutSiblingLead) ||
+            Boolean(optedOutContact)
+          ) {
             suppressedCount++;
             continue;
           }

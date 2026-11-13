@@ -236,6 +236,18 @@ export async function POST(request: Request) {
 
     // Support internal dispatch event from Broadcast UI (Ensure we don't accidentally intercept inbound webhooks that happen to have a 'phone' field)
     if (body.event === 'send_template' || (body.phone && !body.message && !body.text && !body.entry && !body.type && !body.interactive)) {
+      if (process.env.AISENSY_INBOUND_WEBHOOK_ENABLED !== 'true' || process.env.BULK_BROADCAST_ENABLED !== 'true') {
+        log('[Webhook Safeguard] Direct template dispatch blocked: AISENSY_INBOUND_WEBHOOK_ENABLED or BULK_BROADCAST_ENABLED is not true');
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'AISENSY_INBOUND_DISABLED',
+            message: 'Safety invariant: Direct template webhook dispatch is disabled in safe mode.'
+          },
+          { status: 403 }
+        );
+      }
+
       const targetPhone = body.phone || body.destination;
       const targetName = body.name || body.userName || 'Valued Customer';
       const templateName = body.template || body.templateName || 'Avani_Loan_Welcome';

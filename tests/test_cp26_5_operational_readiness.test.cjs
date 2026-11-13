@@ -21,31 +21,18 @@ const SYNTHETIC_OMNIDIM_SECRET = 'omnidim_test_secret_cp26_5_xyz';
 const SYNTHETIC_VAPI_SECRET = 'vapi_test_secret_cp26_5_xyz';
 
 function loadTestMongoUri() {
-  let rawUri = process.env.TEST_MONGODB_URI || '';
-  if (!rawUri) {
-    const tmpEnv = path.join(process.cwd(), 'scratch', `.tmp_cp265_${process.pid}.env`);
-    try {
-      execFileSync('cmd.exe', ['/c', 'npx', 'vercel', 'env', 'pull', tmpEnv, '--environment=production', '--yes'], {
-        stdio: ['ignore', 'ignore', 'pipe']
-      });
-      if (fs.existsSync(tmpEnv)) {
-        const content = fs.readFileSync(tmpEnv, 'utf8');
-        const m = content.match(/^(?:avani_ai_crm_prod_MONGODB_URI|MONGODB_URI)=["']?(mongodb[^"'\r\n]+)["']?/m);
-        if (m) rawUri = m[1].trim();
-      }
-    } finally {
-      if (fs.existsSync(tmpEnv)) fs.unlinkSync(tmpEnv);
-    }
-  }
-  assert.ok(rawUri, 'Missing TEST_MONGODB_URI or cluster URI for avani_ai_crm_test');
+  const rawUri = (process.env.TEST_MONGODB_URI || 'mongodb://127.0.0.1:27017/avani_ai_crm_test').trim();
   const u = new URL(rawUri);
-  u.pathname = '/avani_ai_crm_test';
-  const testUri = u.toString();
+  const host = (u.hostname || '').toLowerCase();
   assert.ok(
-    testUri.includes('/avani_ai_crm_test') && !testUri.includes('avani_ai_crm_prod'),
-    'SAFETY ABORT: Test DB URI must point exclusively to avani_ai_crm_test'
+    !host.includes('rhpn2gh.mongodb.net') && !host.includes('cluster0.mlcxcp.mongodb.net') && !host.includes('xj6nhak.mongodb.net'),
+    'SAFETY ABORT: Local/isolated tests must NOT target shared production Atlas clusters'
   );
-  return testUri;
+  assert.ok(
+    u.pathname === '/avani_ai_crm_test' && !rawUri.includes('avani_ai_crm_prod'),
+    'SAFETY ABORT: Test DB URI must point exclusively to /avani_ai_crm_test'
+  );
+  return u.toString();
 }
 
 async function waitForServer(url, timeoutMs = 45000) {

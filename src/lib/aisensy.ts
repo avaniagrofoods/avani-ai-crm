@@ -2,6 +2,7 @@ import axios from 'axios';
 import connectToDatabase from '@/lib/db';
 import { Message } from '@/models/Message';
 import mongoose from 'mongoose';
+import { evaluateAuthorizedTestRecipient, maskPhoneForLog } from './safeguards';
 
 export interface AiSensyMessagePayload {
   destination: string;
@@ -30,6 +31,14 @@ export interface AiSensyResponse {
  * Triggers OmniDM WhatsApp Campaign API (Campaign #22)
  */
 export async function sendOmniDMWhatsApp(phone: string, name: string): Promise<any> {
+  if (process.env.PROVIDER_MODE !== 'live') {
+    return { success: false, error: 'OmniDM WhatsApp Campaign API blocked in non-live mode' };
+  }
+  const recipientCheck = evaluateAuthorizedTestRecipient(phone);
+  if (!recipientCheck.allowed) {
+    console.error(`[OmniDM WhatsApp Safety Clamp] Blocked live dispatch to ${recipientCheck.targetMasked}: ${recipientCheck.reason}`);
+    return { success: false, error: recipientCheck.message };
+  }
   const omnidmKey = (process.env.OMNIDIM_API_KEY || '').trim();
 
   let formattedPhone = phone.trim();
@@ -52,7 +61,7 @@ export async function sendOmniDMWhatsApp(phone: string, name: string): Promise<a
         timeout: 10000
       }
     );
-    console.log(`[OmniDM WhatsApp Campaign 22 Success] Phone: ${formattedPhone}`, res.data);
+    console.log(`[OmniDM WhatsApp Campaign 22 Success] Phone: ${maskPhoneForLog(formattedPhone)}`, res.data);
     return { success: true, data: res.data };
   } catch (err: any) {
     console.warn(`[OmniDM WhatsApp Campaign 22 Warning]:`, err?.response?.data || err.message);
@@ -73,10 +82,10 @@ export async function sendAiSensyWhatsApp(payload: AiSensyMessagePayload, existi
     phone = phone.length === 10 ? '+91' + phone : '+' + phone;
   }
 
-  console.log(`[WhatsApp Dispatch] Sending to ${phone} from Automation WABA: ${automationNumber}`);
+  console.log(`[WhatsApp Dispatch] Sending to ${maskPhoneForLog(phone)} from Automation WABA: ${automationNumber}`);
 
   // MOCK PROVIDER SAFETY GATE
-  if (process.env.PROVIDER_MODE === 'mock') {
+  if (process.env.PROVIDER_MODE !== 'live') {
     const mockMsgId = 'mock_wamid_' + Date.now() + '_' + Math.random().toString(36).substring(7);
     try {
       await connectToDatabase();
@@ -100,6 +109,17 @@ export async function sendAiSensyWhatsApp(payload: AiSensyMessagePayload, existi
       console.error("[Provider MOCK Error] Ledger failure:", e.message);
     }
     return { success: true, messageId: mockMsgId, status: 'Sent' };
+  }
+
+  // MANDATORY SAFETY INVARIANT: Live WhatsApp dispatch restricted to authorized test recipient
+  const recipientCheck = evaluateAuthorizedTestRecipient(phone);
+  if (!recipientCheck.allowed) {
+    console.error(`[AiSensy Safety Clamp] Blocked live dispatch to ${recipientCheck.targetMasked}: ${recipientCheck.reason}`);
+    return {
+      success: false,
+      status: 'BLOCKED_UNAUTHORIZED_LIVE_RECIPIENT',
+      error: recipientCheck.message
+    };
   }
 
   // 1. Primary: AiSensy WABA Campaign API (Since WABA is registered on AiSensy)

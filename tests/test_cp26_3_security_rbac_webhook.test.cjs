@@ -22,31 +22,18 @@ const SYNTHETIC_WORKER_SECRET = 'worker_test_secret_cp26_3_xyz';
 const SYNTHETIC_CM_SECRET = 'chatmitra_test_secret_cp26_3_xyz';
 
 function loadTestMongoUri() {
-  let rawUri = process.env.TEST_MONGODB_URI || '';
-  if (!rawUri) {
-    const tmpEnv = path.join(process.cwd(), 'scratch', `.tmp_gate7_${process.pid}.env`);
-    try {
-      execFileSync('cmd.exe', ['/c', 'npx', 'vercel', 'env', 'pull', tmpEnv, '--environment=production', '--yes'], {
-        stdio: ['ignore', 'ignore', 'pipe']
-      });
-      if (fs.existsSync(tmpEnv)) {
-        const content = fs.readFileSync(tmpEnv, 'utf8');
-        const m = content.match(/^(?:avani_ai_crm_prod_MONGODB_URI|MONGODB_URI)=["']?(mongodb[^"'\r\n]+)["']?/m);
-        if (m) rawUri = m[1].trim();
-      }
-    } finally {
-      if (fs.existsSync(tmpEnv)) fs.unlinkSync(tmpEnv);
-    }
-  }
-  assert.ok(rawUri, 'Missing TEST_MONGODB_URI or active cluster URI for avani_ai_crm_test');
+  const rawUri = (process.env.TEST_MONGODB_URI || 'mongodb://127.0.0.1:27017/avani_ai_crm_test').trim();
   const u = new URL(rawUri);
-  u.pathname = '/avani_ai_crm_test';
-  const testUri = u.toString();
+  const host = (u.hostname || '').toLowerCase();
   assert.ok(
-    testUri.includes('/avani_ai_crm_test') && !testUri.includes('avani_ai_crm_prod'),
-    'SAFETY ABORT: Test DB URI must point exclusively to avani_ai_crm_test'
+    !host.includes('rhpn2gh.mongodb.net') && !host.includes('cluster0.mlcxcp.mongodb.net') && !host.includes('xj6nhak.mongodb.net'),
+    'SAFETY ABORT: Local/isolated tests must NOT target shared production Atlas clusters'
   );
-  return testUri;
+  assert.ok(
+    u.pathname === '/avani_ai_crm_test' && !rawUri.includes('avani_ai_crm_prod'),
+    'SAFETY ABORT: Test DB URI must point exclusively to /avani_ai_crm_test'
+  );
+  return u.toString();
 }
 
 async function waitForServer(url, timeoutMs = 45000) {
@@ -236,9 +223,9 @@ async function runTests() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: SYNTHETIC_ADVISOR_EMAIL, password: SYNTHETIC_ADVISOR_PASS })
     });
-    assert.strictEqual(advisorLoginRes.status, 200);
+    assert.strictEqual(advisorLoginRes.status, 401, 'CP-28.1 single-owner policy: ADVISOR login must be denied (401)');
     const advisorCookie = extractCookie(advisorLoginRes, 'avani_crm_session');
-    assert.ok(advisorCookie, 'ADVISOR login must set session cookie');
+    assert.strictEqual(advisorCookie, null, 'Denied ADVISOR login must NOT set session cookie');
 
     // Create Lead B assigned to other advisor & Lead C assigned to advisor
     const leadBDoc = await db.collection('leads').insertOne({
@@ -274,51 +261,50 @@ async function runTests() {
     const leadCId = String(leadCDoc.insertedId);
 
     const rbacTests = [
-      assertTest('6. ADVISOR visibility scoping hides other advisor leads & denies IDOR 403', async () => {
-        const listRes = await fetch(`${BASE_URL}/api/leads`, { headers: { Cookie: advisorCookie } });
+      assertTest('6. Single-owner ADMIN sees all leads & revenue; unauthenticated/forged ADVISOR cookie is rejected 401', async () => {
+        const listRes = await fetch(`${BASE_URL}/api/leads`, { headers: { Cookie: adminCookie } });
         assert.strictEqual(listRes.status, 200);
         const listData = await listRes.json();
         const ids = (listData.leads || []).map((l) => String(l._id));
-        assert.ok(ids.includes(leadCId), 'ADVISOR must see assigned Lead C');
-        assert.ok(!ids.includes(leadBId), 'ADVISOR must NOT see other advisor Lead B');
+        assert.ok(ids.includes(leadCId) && ids.includes(leadBId), 'ADMIN must see all leads');
 
-        const idorGet = await fetch(`${BASE_URL}/api/leads/${leadBId}`, { headers: { Cookie: advisorCookie } });
-        assert.strictEqual(idorGet.status, 403);
+        const forgedAdvCookie = 'avani_crm_session=forged.advisor.token';
+        const idorGet = await fetch(`${BASE_URL}/api/leads/${leadBId}`, { headers: { Cookie: forgedAdvCookie } });
+        assert.strictEqual(idorGet.status, 401);
         const idorPatch = await fetch(`${BASE_URL}/api/leads/${leadBId}`, {
           method: 'PATCH',
-          headers: { Cookie: advisorCookie, 'Content-Type': 'application/json' },
+          headers: { Cookie: forgedAdvCookie, 'Content-Type': 'application/json' },
           body: JSON.stringify({ stage: 'CONTACTED' })
         });
-        assert.strictEqual(idorPatch.status, 403);
+        assert.strictEqual(idorPatch.status, 401);
 
-        const ownGet = await fetch(`${BASE_URL}/api/leads/${leadCId}`, { headers: { Cookie: advisorCookie } });
+        const ownGet = await fetch(`${BASE_URL}/api/leads/${leadCId}`, { headers: { Cookie: adminCookie } });
         assert.strictEqual(ownGet.status, 200);
         const ownBody = await ownGet.json();
-        assert.strictEqual(ownBody.lead.revenueTracking, undefined, 'ADVISOR lead detail must strip revenueTracking');
-        assert.strictEqual(ownBody.lead.revenue?.actualRevenueReceived, undefined, 'ADVISOR lead detail must mask revenue figures');
-        assert.strictEqual(ownBody.lead.revenue?.restricted, true);
+        assert.strictEqual(ownBody.lead.revenue?.actualRevenueReceived, 20000, 'ADMIN lead detail sees real revenue');
       }),
 
-      assertTest('7. ADVISOR blocked 403 from assign, financial milestones, and admin routes', async () => {
+      assertTest('7. Unauthenticated/forged requests blocked 401 from assign/financial/leads; invalid ID returns 400 for ADMIN', async () => {
+        const forgedAdvCookie = 'avani_crm_session=forged.advisor.token';
         const assignRes = await fetch(`${BASE_URL}/api/leads/${leadCId}/assign`, {
           method: 'POST',
-          headers: { Cookie: advisorCookie, 'Content-Type': 'application/json' },
+          headers: { Cookie: forgedAdvCookie, 'Content-Type': 'application/json' },
           body: JSON.stringify({ advisorEmail: SYNTHETIC_ADVISOR_EMAIL, advisorName: 'Self' })
         });
-        assert.strictEqual(assignRes.status, 403);
+        assert.strictEqual(assignRes.status, 401);
 
         for (const action of ['RECORD_SANCTION', 'RECORD_DISBURSEMENT', 'RECORD_REVENUE']) {
           const finRes = await fetch(`${BASE_URL}/api/leads/${leadCId}/application`, {
             method: 'POST',
-            headers: { Cookie: advisorCookie, 'Content-Type': 'application/json' },
+            headers: { Cookie: forgedAdvCookie, 'Content-Type': 'application/json' },
             body: JSON.stringify({ action, sanctionedAmount: 500000, disbursedAmount: 500000, actualRevenueReceived: 5000 })
           });
-          assert.strictEqual(finRes.status, 403, `ADVISOR must be denied ${action}`);
+          assert.strictEqual(finRes.status, 401, `Forged token must be denied ${action}`);
         }
 
         const massRes = await fetch(`${BASE_URL}/api/leads`, {
           method: 'POST',
-          headers: { Cookie: advisorCookie, 'Content-Type': 'application/json' },
+          headers: { Cookie: forgedAdvCookie, 'Content-Type': 'application/json' },
           body: JSON.stringify({
             name: 'Mass Assign Attempt',
             phone: phoneB,
@@ -326,10 +312,10 @@ async function runTests() {
             actualRevenueReceived: 50000
           })
         });
-        assert.ok([400, 403].includes(massRes.status), `Mass-assigned financial field / cross-advisor phone must fail, got ${massRes.status}`);
+        assert.strictEqual(massRes.status, 401);
 
         const badIdRes = await fetch(`${BASE_URL}/api/leads/invalid_object_id_format`, {
-          headers: { Cookie: advisorCookie }
+          headers: { Cookie: adminCookie }
         });
         assert.strictEqual(badIdRes.status, 400);
       }),
@@ -480,12 +466,8 @@ async function runTests() {
         assert.ok(adminM.revenue.totalActualRevenueReceived >= 18000, 'ADMIN sees real revenue');
         assert.strictEqual(adminM.revenue.restricted, false);
 
-        const advMetricsRes = await fetch(`${BASE_URL}/api/dashboard/metrics`, { headers: { Cookie: advisorCookie } });
-        assert.strictEqual(advMetricsRes.status, 200);
-        const advM = await advMetricsRes.json();
-        assert.strictEqual(advM.revenue.restricted, true);
-        assert.strictEqual(advM.revenue.totalActualRevenueReceived, null);
-        assert.strictEqual(advM.revenue.totalDisbursedAmount, null);
+        const advMetricsRes = await fetch(`${BASE_URL}/api/dashboard/metrics`, { headers: { Cookie: 'avani_crm_session=forged.advisor.token' } });
+        assert.strictEqual(advMetricsRes.status, 401);
       }),
 
       assertTest('11. Webhook dead-letter worker handles string leadId STATUS_UPDATE & E11000 inbound duplicates without failing', async () => {
@@ -574,7 +556,7 @@ async function runTests() {
 
         const logoutRes = await fetch(`${BASE_URL}/api/auth/logout`, {
           method: 'POST',
-          headers: { Cookie: advisorCookie }
+          headers: { Cookie: adminCookie }
         });
         assert.strictEqual(logoutRes.status, 200);
         const setCookie = logoutRes.headers.get('set-cookie') || '';

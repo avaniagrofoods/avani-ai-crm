@@ -1,5 +1,6 @@
 import axios from 'axios';
 import crypto from 'crypto';
+import { evaluateAuthorizedTestRecipient } from './safeguards';
 
 /**
  * AVANI AI CRM — Official ChatMitra WhatsApp Platform Integration Adapter
@@ -212,14 +213,14 @@ export async function sendChatMitraMessage(payload: ChatMitraPayload): Promise<C
 
   // MANDATORY SAFETY INVARIANT: Single-recipient clamp for live testing
   // Under NO circumstances can a live message be sent to any number other than the authorized test contact
-  const AUTHORIZED_TEST_PHONE_CANONICAL = '919175635165';
-  if (providerMode === 'live' && formattedPhone !== AUTHORIZED_TEST_PHONE_CANONICAL) {
-    console.error(`[ChatMitra Safety Clamp] Blocked live dispatch attempt to unauthorized recipient: ${formattedPhone}`);
+  const recipientCheck = providerMode === 'live' ? evaluateAuthorizedTestRecipient(formattedPhone) : null;
+  if (recipientCheck && !recipientCheck.allowed) {
+    console.error(`[ChatMitra Safety Clamp] Blocked live dispatch attempt to unauthorized recipient: ${recipientCheck.targetMasked}`);
     return {
       success: false,
       provider: 'ChatMitra_SafetyClamp',
       status: 'BLOCKED_UNAUTHORIZED_LIVE_RECIPIENT',
-      error: `Safety invariant: Live dispatch is strictly restricted to authorized test contact +91 91756 35165. Attempted dispatch to ${formattedPhone} was blocked.`
+      error: recipientCheck.message
     };
   }
 

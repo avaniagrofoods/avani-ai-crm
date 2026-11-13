@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { evaluateAuthorizedTestRecipient } from './safeguards';
 
 const VAPI_API_KEY = process.env.VAPI_API_KEY || '';
 const VAPI_API_URL = process.env.VAPI_API_URL || 'https://api.vapi.ai';
@@ -6,6 +7,15 @@ const VAPI_ASSISTANT_ID = process.env.VAPI_ASSISTANT_ID || '';
 const VAPI_PHONE_NUMBER_ID = process.env.VAPI_PHONE_NUMBER_ID || '';
 
 export async function triggerOutboundCall(customerPhone: string, customerName: string, loanType: string) {
+  if (process.env.PROVIDER_MODE !== 'live' || process.env.OMNIDM_LIVE_ENABLED !== 'true') {
+    console.warn(`[VAPI][SAFE-MODE] Outbound call blocked because PROVIDER_MODE=${process.env.PROVIDER_MODE || 'unset'} or OMNIDM_LIVE_ENABLED=${process.env.OMNIDM_LIVE_ENABLED || 'unset'}`);
+    return { blocked: true, reason: 'SAFE_MODE_OR_VOICE_DISABLED' };
+  }
+  const recipientCheck = evaluateAuthorizedTestRecipient(customerPhone);
+  if (!recipientCheck.allowed) {
+    console.warn(`[VAPI][SAFEGUARD] Outbound call blocked: ${recipientCheck.reason}`);
+    return { blocked: true, reason: recipientCheck.reason };
+  }
   try {
     const response = await axios.post(
       `${VAPI_API_URL}/call/phone`,

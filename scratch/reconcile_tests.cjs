@@ -23,6 +23,9 @@ const testFiles = [
   { name: 'test_cp25_master_chatbot_and_integrations.test.cjs', type: 'CP-25 Master Chatbot, Checklists, Privacy & Omnichannel Integrations' },
   { name: 'test_cp25_2_inbox_send_pipeline.test.cjs', type: 'CP-25.2 Inbox Send Button Failure Repair, Outbound Pipeline & Live Safety' },
   { name: 'test_cp25_3_1_production_audit_and_branding.test.cjs', type: 'CP-25.3.1 Production Forensic Audit, Branding & Ownership Verification' },
+  { name: 'test_cp25_3_2_live_acceptance.test.cjs', type: 'CP-25.3.2 Final Live WhatsApp Acceptance & AI Ownership' },
+  { name: 'test_cp26_lead_to_revenue_operations.test.cjs', type: 'CP-26 Lead-to-Revenue Operations, Scoring & Conversion' },
+  { name: 'test_cp26_1_synthetic_workflows.test.cjs', type: 'CP-26.1 Synthetic Business Workflows (Tests A through J)' },
 ];
 
 console.log('================================================================================');
@@ -53,7 +56,21 @@ for (const t of testFiles) {
   
   // Also check summary line if present
   let summaryTests = passMatches.length + failMatches.length;
-  const summaryMatch = stdout.match(/(\d+)\s*\/\s*(\d+)\s*(?:TESTS\s+PASSED|tests passed)/i);
+  let summaryMatch = stdout.match(/(\d+)\s*\/\s*(\d+)\s*(?:TESTS\s+PASSED|tests passed)/i);
+  let passedFromMatch = null;
+  let totalFromMatch = null;
+  if (summaryMatch) {
+    passedFromMatch = parseInt(summaryMatch[1], 10);
+    totalFromMatch = parseInt(summaryMatch[2], 10);
+  } else {
+    const resMatch = stdout.match(/Results:\s*(\d+)\s*passed,\s*(\d+)\s*failed/i);
+    if (resMatch) {
+      const p = parseInt(resMatch[1], 10);
+      const f = parseInt(resMatch[2], 10);
+      passedFromMatch = p;
+      totalFromMatch = p + f;
+    }
+  }
   let reportedPassed = passMatches.length;
   let reportedTotal = summaryTests;
   if (summaryMatch) {

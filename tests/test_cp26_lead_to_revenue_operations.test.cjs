@@ -259,7 +259,10 @@ it('CP26-19: Conversion rates compute correctly without division by zero', () =>
 it('CP26-20: Production safeguards remain uncompromised', () => {
   const chatmitraCode = fs.readFileSync(path.join(__dirname, '../src/lib/chatmitra.ts'), 'utf8');
   const workerCode = fs.readFileSync(path.join(__dirname, '../src/app/api/whatsapp-webhook-worker/route.ts'), 'utf8');
-  assert.match(chatmitraCode, /AUTHORIZED_TEST_PHONE_CANONICAL = '919175635165'/);
+  const safeguardsCode = fs.readFileSync(path.join(__dirname, '../src/lib/safeguards.ts'), 'utf8');
+  assert.match(chatmitraCode, /evaluateAuthorizedTestRecipient/);
+  assert.match(safeguardsCode, /AUTHORIZED_TEST_PHONE_CANONICAL/);
+  assert.doesNotMatch(chatmitraCode, /919175635165/);
   assert.match(workerCode, /CHATMITRA_INBOUND_AUTO_REPLY_ENABLED/);
   assert.match(workerCode, /Safe Operating Mode: Inbound AI auto-reply is disabled/);
 });

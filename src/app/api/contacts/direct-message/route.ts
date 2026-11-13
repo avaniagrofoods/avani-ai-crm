@@ -4,6 +4,7 @@ import { Contact } from '@/models/Contact';
 import { Lead } from '@/models/Lead';
 import { ProviderRouter } from '@/lib/provider-router';
 import { requireRole, canAccessLead } from '@/lib/auth';
+import { evaluateAuthorizedTestRecipient } from '@/lib/safeguards';
 import mongoose from 'mongoose';
 
 export const dynamic = 'force-dynamic';
@@ -51,15 +52,18 @@ export async function POST(req: Request) {
       cleanPhone = digitsOnly.length === 10 ? '+91' + digitsOnly : '+' + digitsOnly;
     }
 
-    if (process.env.PROVIDER_MODE === 'live' && digitsOnly !== '919175635165' && digitsOnly !== '9175635165') {
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'LIVE_DISPATCH_RESTRICTED',
-          message: 'Safety invariant: Live WhatsApp dispatch is strictly restricted to authorized test contact +91 91756 35165.'
-        },
-        { status: 403 }
-      );
+    if (process.env.PROVIDER_MODE === 'live') {
+      const recipientCheck = evaluateAuthorizedTestRecipient(cleanPhone);
+      if (!recipientCheck.allowed) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: recipientCheck.error || 'LIVE_DISPATCH_RESTRICTED',
+            message: recipientCheck.message
+          },
+          { status: recipientCheck.status }
+        );
+      }
     }
 
     if (process.env.PROVIDER_MODE === 'live' && !process.env.CHATMITRA_API_KEY && !process.env.CHATMANTRA_API_KEY) {
@@ -85,7 +89,13 @@ export async function POST(req: Request) {
       );
     }
 
-    if (existingLead?.isOptedOut || existingLead?.status === 'OPTED_OUT' || existingContact?.optedIn === false) {
+    if (
+      existingLead?.isOptedOut ||
+      existingLead?.status === 'OPTED_OUT' ||
+      existingLead?.consentStatus === 'DENIED' ||
+      existingLead?.consentStatus === 'WITHDRAWN' ||
+      existingContact?.optedIn === false
+    ) {
       return NextResponse.json(
         {
           success: false,

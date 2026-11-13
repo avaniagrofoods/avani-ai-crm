@@ -3,11 +3,24 @@ import mongoose from 'mongoose';
 import connectToDatabase from '@/lib/db';
 import { Broadcast } from '@/models/Broadcast';
 import { requireRole } from '@/lib/auth';
+import { evaluateBulkBroadcastPolicy } from '@/lib/safeguards';
 
 export async function POST(req: Request) {
   try {
     const auth = await requireRole(req, ['ADMIN']);
     if (!auth.ok) return auth.response;
+
+    const bulkPolicy = evaluateBulkBroadcastPolicy();
+    if (!bulkPolicy.allowed) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: bulkPolicy.error,
+          message: bulkPolicy.message
+        },
+        { status: bulkPolicy.status }
+      );
+    }
 
     await connectToDatabase();
     const body = await req.json();

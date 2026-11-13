@@ -81,6 +81,8 @@ export async function GET(request: Request) {
       appMode: process.env.APP_MODE || 'production',
       providerMode: process.env.PROVIDER_MODE || 'mock',
       autoReplyEnabled: process.env.CHATMITRA_INBOUND_AUTO_REPLY_ENABLED === 'true',
+      whatsappInboundAiReplyEnabled: process.env.WHATSAPP_INBOUND_AI_REPLY_ENABLED === 'true',
+      aisensyInboundWebhookEnabled: process.env.AISENSY_INBOUND_WEBHOOK_ENABLED === 'true',
       bulkBroadcastEnabled: process.env.BULK_BROADCAST_ENABLED === 'true',
       omniLiveEnabled: process.env.OMNIDM_LIVE_ENABLED === 'true'
     },

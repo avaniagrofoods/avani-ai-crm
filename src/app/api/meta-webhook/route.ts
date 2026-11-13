@@ -2,9 +2,11 @@ import { NextResponse } from 'next/server';
 import crypto from 'crypto';
 import connectToDatabase from '@/lib/db';
 import { Lead } from '@/models/Lead';
+import { Contact } from '@/models/Contact';
 import { WebhookInbox } from '@/models/WebhookInbox';
 import { sendAiSensyWhatsApp } from '@/lib/aisensy';
 import { defaultVoiceService } from '@/lib/voice-provider';
+import { isLeadOrContactOptedOut, evaluateWebhookReplyPolicy, maskPhoneForLog } from '@/lib/safeguards';
 import axios from 'axios';
 
 export const dynamic = 'force-dynamic';
@@ -103,7 +105,7 @@ export async function POST(request: Request) {
         eventId,
         provider: 'Meta_LeadAds',
         eventType: 'LEADGEN_EVENT',
-        rawPayload: body,
+        payload: body,
         status: 'PROCESSING',
         attemptCount: 1,
         receivedAt: new Date()
@@ -134,7 +136,7 @@ export async function POST(request: Request) {
         let email = '';
 
         const graphToken = process.env.WHATSAPP_TOKEN || process.env.WHATSAPP_API_TOKEN;
-        if (graphToken && leadgenId) {
+        if (process.env.PROVIDER_MODE === 'live' && graphToken && leadgenId) {
           try {
             const metaRes = await axios.get(`https://graph.facebook.com/v19.0/${leadgenId}`, {
               headers: { Authorization: `Bearer ${graphToken}` }
@@ -206,7 +208,21 @@ export async function POST(request: Request) {
         );
         processedLeadCount++;
 
-        if (process.env.PROVIDER_MODE === 'live') {
+        const contactRecord = await Contact.findOne({
+          $or: [{ phone: normalizedPhone }, { phone: raw10 }, { phone: `91${raw10}` }]
+        }).lean();
+
+        const isOptedOut = isLeadOrContactOptedOut(leadRecord, contactRecord);
+        const replyPolicy = evaluateWebhookReplyPolicy({
+          eventId,
+          provider: 'META',
+          payload: body,
+          inboxRecord: inboxDoc
+        });
+
+        if (isOptedOut || !replyPolicy.canSendAnyProviderMessage || !replyPolicy.canTriggerAutoReply) {
+          console.log(`[MetaWebhook] Outbound welcome/voice suppressed for ${maskPhoneForLog(normalizedPhone)} (optedOut=${isOptedOut}, reason=${replyPolicy.suppressionReason})`);
+        } else if (process.env.PROVIDER_MODE === 'live') {
           try {
             const aiSensyRes = await sendAiSensyWhatsApp({
               destination: normalizedPhone,
@@ -228,18 +244,19 @@ export async function POST(request: Request) {
           } catch (waErr: any) {
             console.error('[MetaWebhook] Welcome dispatch warning:', waErr?.message);
           }
-        }
 
-        if (process.env.OMNIDM_LIVE_ENABLED === 'true') {
-          try {
-            await defaultVoiceService.dispatchCall({
-              phoneNumber: normalizedPhone,
-              customerName: leadName,
-              loanType: canonicalLoanType,
-              language: 'hi'
-            });
-          } catch (voiceErr: any) {
-            console.error('[MetaWebhook] OmniDM warning:', voiceErr?.message);
+          if (process.env.OMNIDM_LIVE_ENABLED === 'true') {
+            try {
+              await defaultVoiceService.dispatchCall({
+                phoneNumber: normalizedPhone,
+                customerName: leadName,
+                loanType: canonicalLoanType,
+                language: 'hi',
+                isOptedOut: false
+              });
+            } catch (voiceErr: any) {
+              console.error('[MetaWebhook] OmniDM warning:', voiceErr?.message);
+            }
           }
         }
       }

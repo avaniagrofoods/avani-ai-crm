@@ -60,18 +60,23 @@ export async function POST(request: Request) {
                    process.env.CHATMANTRA_SECRET || 
                    process.env.CHATMITRA_SECRET;
 
-    // 1. Signature Verification
-    if (signatureHeader && secret) {
-      const isValid = verifyChatMantraSignature(rawBody, signatureHeader, secret);
-      if (!isValid) {
-        console.warn('[ChatMantra Security] Signature verification failed');
-        return NextResponse.json({ success: false, error: 'Invalid Webhook Signature' }, { status: 401 });
-      }
-      console.log('[ChatMantra Security] Signature verified successfully');
-    } else if (!signatureHeader && secret) {
+    // 1. Signature & Secret Verification (Fail-Closed)
+    if (!secret || !secret.trim()) {
+      console.warn('[ChatMantra Security] Webhook secret unconfigured in environment. Rejecting unauthenticated request.');
+      return NextResponse.json({ success: false, error: 'Webhook authentication unconfigured' }, { status: 401 });
+    }
+
+    if (!signatureHeader || !signatureHeader.trim()) {
       console.warn('[ChatMantra Security] Missing required webhook signature header');
       return NextResponse.json({ success: false, error: 'Missing webhook signature' }, { status: 401 });
     }
+
+    const isValid = verifyChatMantraSignature(rawBody, signatureHeader, secret.trim());
+    if (!isValid) {
+      console.warn('[ChatMantra Security] Signature verification failed');
+      return NextResponse.json({ success: false, error: 'Invalid Webhook Signature' }, { status: 401 });
+    }
+    console.log('[ChatMantra Security] Signature verified successfully');
 
     // 2. JSON Parsing & Structure Validation
     let body: any;

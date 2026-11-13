@@ -97,7 +97,10 @@ it('CP25.3.2-08: WebhookInbox enforces idempotency on incoming eventId', () => {
 // 4. Verify Production Safeguards & Compliance
 it('CP25.3.2-09: Live dispatch safety clamp blocks any phone other than +91 91756 35165', () => {
   const chatmitraCode = fs.readFileSync(path.join(__dirname, '../src/lib/chatmitra.ts'), 'utf8');
-  assert.match(chatmitraCode, /AUTHORIZED_TEST_PHONE_CANONICAL = '919175635165'/);
+  const safeguardsCode = fs.readFileSync(path.join(__dirname, '../src/lib/safeguards.ts'), 'utf8');
+  assert.match(chatmitraCode, /evaluateAuthorizedTestRecipient/);
+  assert.match(safeguardsCode, /AUTHORIZED_TEST_PHONE_CANONICAL/);
+  assert.doesNotMatch(chatmitraCode, /919175635165/);
   assert.match(chatmitraCode, /BLOCKED_UNAUTHORIZED_LIVE_RECIPIENT/);
 });
 

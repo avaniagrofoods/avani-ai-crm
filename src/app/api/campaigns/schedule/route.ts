@@ -2,11 +2,24 @@ import { NextResponse } from 'next/server';
 import connectToDatabase from '@/lib/db';
 import { Schedule } from '@/models/Schedule';
 import { requireAuth, requireRole } from '@/lib/auth';
+import { evaluateBulkBroadcastPolicy } from '@/lib/safeguards';
 
 export async function POST(request: Request) {
   try {
     const auth = await requireRole(request, ['ADMIN']);
     if (!auth.ok) return auth.response;
+
+    const bulkPolicy = evaluateBulkBroadcastPolicy();
+    if (!bulkPolicy.allowed) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: bulkPolicy.error,
+          message: bulkPolicy.message
+        },
+        { status: bulkPolicy.status }
+      );
+    }
 
     const conn = await connectToDatabase();
     if (!conn || conn.connection?.readyState !== 1) {
@@ -91,6 +104,19 @@ export async function PATCH(request: Request) {
     }
 
     const targetStatus = action === 'PAUSE' || action === 'CANCEL' ? 'CANCELLED' : 'SCHEDULED';
+    if (targetStatus === 'SCHEDULED') {
+      const bulkPolicy = evaluateBulkBroadcastPolicy();
+      if (!bulkPolicy.allowed) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: bulkPolicy.error,
+            message: bulkPolicy.message
+          },
+          { status: bulkPolicy.status }
+        );
+      }
+    }
     const updated = await Schedule.findOneAndUpdate(
       { $or: [{ scheduleId: campaignId }, { _id: campaignId }] },
       { $set: { status: targetStatus, updatedAt: new Date() } },

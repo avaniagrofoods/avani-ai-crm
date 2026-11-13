@@ -142,7 +142,10 @@ runTest('CP25.3.1-14: AI agent human handoff directs inquiries to Sachin Shinde 
 // 15. ChatMitra adapter enforces safety clamp for live testing
 runTest('CP25.3.1-15: ChatMitra adapter clamps live dispatch strictly to test recipient 919175635165', () => {
   const code = fs.readFileSync(path.join('src', 'lib', 'chatmitra.ts'), 'utf8');
-  assert.ok(code.includes("AUTHORIZED_TEST_PHONE_CANONICAL = '919175635165'"), 'Safety clamp test phone missing');
+  const safeguardsCode = fs.readFileSync(path.join('src', 'lib', 'safeguards.ts'), 'utf8');
+  assert.ok(code.includes('evaluateAuthorizedTestRecipient'), 'Centralized evaluateAuthorizedTestRecipient call missing');
+  assert.ok(safeguardsCode.includes('AUTHORIZED_TEST_PHONE_CANONICAL'), 'AUTHORIZED_TEST_PHONE_CANONICAL safeguard missing');
+  assert.ok(!code.includes('919175635165'), 'Hardcoded test phone fallback must not exist in chatmitra.ts');
   assert.ok(code.includes('BLOCKED_UNAUTHORIZED_LIVE_RECIPIENT'), 'Safety clamp blocked status missing');
 });
 
@@ -150,7 +153,8 @@ runTest('CP25.3.1-15: ChatMitra adapter clamps live dispatch strictly to test re
 runTest('CP25.3.1-16: direct-message API restricts live dispatch strictly to authorized test contact', () => {
   const code = fs.readFileSync(path.join('src', 'app', 'api', 'contacts', 'direct-message', 'route.ts'), 'utf8');
   assert.ok(code.includes('LIVE_DISPATCH_RESTRICTED'), 'Live dispatch restriction check missing');
-  assert.ok(code.includes('919175635165'), 'Authorized test phone clamp missing');
+  assert.ok(code.includes('evaluateAuthorizedTestRecipient'), 'Centralized recipient safeguard missing');
+  assert.ok(!code.includes('919175635165'), 'Hardcoded test phone fallback must not exist in direct-message route');
 });
 
 // 17. Vercel project configuration targets avani-ai-crm

@@ -1,10 +1,27 @@
 import axios from 'axios';
+import { evaluateAuthorizedTestRecipient } from './safeguards';
 
 // CallKaro AI & AiSensy Calling Engine Integration
 const CALLKARO_API_KEY = process.env.CALLKARO_API_KEY || process.env.AISENSY_API_KEY || '';
 const AISENSY_CAMPAIGN_PWD = process.env.AISENSY_CAMPAIGN_PWD || '';
 
 export async function triggerCallKaroCall(customerPhone: string, customerName: string, loanType: string) {
+  if (process.env.PROVIDER_MODE !== 'live' || process.env.OMNIDM_LIVE_ENABLED !== 'true') {
+    return {
+      success: true,
+      call_id: `mock_callkaro_${Date.now()}`,
+      message: 'Mock safety gate: CallKaro outbound calling disabled'
+    };
+  }
+  const recipientCheck = evaluateAuthorizedTestRecipient(customerPhone);
+  if (!recipientCheck.allowed) {
+    return {
+      success: false,
+      status: 'BLOCKED_UNAUTHORIZED_RECIPIENT',
+      error: recipientCheck.message
+    };
+  }
+
   let formattedPhone = customerPhone.trim();
   if (!formattedPhone.startsWith('+')) {
     if (formattedPhone.length === 10) {

@@ -19,31 +19,18 @@ const ADVISOR_PASS = 'AvaniAdvisor!Ui#2026';
 const SCREENSHOT_DIR = process.env.CP26_3_SCREENSHOT_DIR || '';
 
 function loadTestMongoUri() {
-  let rawUri = process.env.TEST_MONGODB_URI || '';
-  if (!rawUri) {
-    const tmpEnv = path.join(process.cwd(), 'scratch', `.tmp_gate8_${process.pid}.env`);
-    try {
-      execFileSync('cmd.exe', ['/c', 'npx', 'vercel', 'env', 'pull', tmpEnv, '--environment=production', '--yes'], {
-        stdio: ['ignore', 'ignore', 'pipe']
-      });
-      if (fs.existsSync(tmpEnv)) {
-        const content = fs.readFileSync(tmpEnv, 'utf8');
-        const m = content.match(/^(?:avani_ai_crm_prod_MONGODB_URI|MONGODB_URI)=["']?(mongodb[^"'\r\n]+)["']?/m);
-        if (m) rawUri = m[1].trim();
-      }
-    } finally {
-      if (fs.existsSync(tmpEnv)) fs.unlinkSync(tmpEnv);
-    }
-  }
-  assert.ok(rawUri, 'Missing TEST_MONGODB_URI or active cluster URI');
+  const rawUri = (process.env.TEST_MONGODB_URI || 'mongodb://127.0.0.1:27017/avani_ai_crm_test').trim();
   const u = new URL(rawUri);
-  u.pathname = '/avani_ai_crm_test';
-  const testUri = u.toString();
+  const host = (u.hostname || '').toLowerCase();
   assert.ok(
-    testUri.includes('/avani_ai_crm_test') && !testUri.includes('avani_ai_crm_prod'),
-    'SAFETY ABORT: UI Browser E2E must target avani_ai_crm_test only'
+    !host.includes('rhpn2gh.mongodb.net') && !host.includes('cluster0.mlcxcp.mongodb.net') && !host.includes('xj6nhak.mongodb.net'),
+    'SAFETY ABORT: Local/isolated tests must NOT target shared production Atlas clusters'
   );
-  return testUri;
+  assert.ok(
+    u.pathname === '/avani_ai_crm_test' && !rawUri.includes('avani_ai_crm_prod'),
+    'SAFETY ABORT: Test DB URI must point exclusively to /avani_ai_crm_test'
+  );
+  return u.toString();
 }
 
 async function waitForServer(url, timeoutMs = 45000) {
@@ -368,51 +355,14 @@ async function runBrowserAcceptance() {
       assert.ok(page.url().includes('/login'), 'Protected route must still redirect to /login after logout');
     });
 
-    await step('9. ADVISOR logs in -> revenue masked ADMIN ONLY, lead scope isolated, financial controls restricted', async () => {
+    await step('9. Single-owner CRM policy: ADVISOR login is denied on /login and stays unauthenticated', async () => {
       await page.goto(`${BASE_URL}/login`, { waitUntil: 'networkidle2' });
       await page.type('#crm-email', ADVISOR_EMAIL);
       await page.type('#crm-password', ADVISOR_PASS);
-      await Promise.all([
-        page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 15000 }),
-        page.click('[data-testid="login-submit"]')
-      ]);
-      assert.ok(page.url().includes('/crm'));
-      await page.waitForSelector('[data-testid="crm-whatsapp-telemetry"]', { timeout: 10000 });
-      const crmText = await page.evaluate(() => document.body.innerText);
-      assert.ok(crmText.includes('ADMIN ONLY'), 'ADVISOR dashboard must show ADMIN ONLY for revenue');
-      await snap('cp26_3_crm_advisor_masked.png');
-
-      await page.goto(`${BASE_URL}/leads`, { waitUntil: 'networkidle2' });
-      await page.waitForFunction(
-        (tag) => document.body.innerText.includes(`Applicant Alpha ${tag}`),
-        { timeout: 10000 },
-        runTag
-      );
-      const advLeadsText = await page.evaluate(() => document.body.innerText);
-      assert.ok(!advLeadsText.includes(`Applicant Beta ${runTag}`), 'ADVISOR must NOT see other advisor Lead Beta');
-
-      await page.evaluate((tag) => {
-        const els = Array.from(document.querySelectorAll('div')).reverse();
-        const card = els.find((el) => el.textContent && el.textContent.includes(`Applicant Alpha ${tag}`) && el.className.includes('cursor-pointer'));
-        if (card) card.click();
-      }, runTag);
-
-      // Verify Stage & Audit has NO assign advisor panel
-      await page.evaluate(() => {
-        const btns = Array.from(document.querySelectorAll('button'));
-        const b = btns.find((x) => x.textContent?.trim() === 'Stage & Audit');
-        if (b) b.click();
-      });
-      const assignPanel = await page.$('[data-testid="assign-advisor-panel"]');
-      assert.strictEqual(assignPanel, null, 'ADVISOR must NOT see Assign Advisor panel');
-
-      // Verify Lender/Revenue restricts Steps 2-4
-      await page.evaluate(() => {
-        const btns = Array.from(document.querySelectorAll('button'));
-        const b = btns.find((x) => x.textContent?.trim() === 'Lender/Revenue');
-        if (b) b.click();
-      });
-      await page.waitForSelector('[data-testid="advisor-financial-restriction"]', { timeout: 5000 });
+      await page.click('[data-testid="login-submit"]');
+      await page.waitForSelector('[data-testid="login-error"]', { timeout: 8000 });
+      assert.ok(page.url().includes('/login'), `Denied ADVISOR must stay on /login, got ${page.url()}`);
+      await snap('cp26_3_crm_advisor_denied.png');
     });
 
     assert.strictEqual(dialogTriggered.length, 0, `No blocking native alerts allowed, got: ${dialogTriggered.join('; ')}`);

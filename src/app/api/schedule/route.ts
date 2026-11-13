@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { requireAuth, requireRole } from '@/lib/auth';
 import connectToDatabase from '@/lib/db';
 import { Schedule } from '@/models/Schedule';
+import { evaluateBulkBroadcastPolicy } from '@/lib/safeguards';
 import mongoose from 'mongoose';
 
 export const dynamic = 'force-dynamic';
@@ -27,8 +28,10 @@ export async function GET(req: Request) {
 
     let schedules = await Schedule.find(query).sort({ scheduledAt: -1 }).limit(100);
 
-    // If fresh, seed initial reference items
+    // If fresh, seed initial reference items (respecting safe mode for Broadcast items)
     if (schedules.length === 0 && !status) {
+      const bulkPolicy = evaluateBulkBroadcastPolicy();
+      const defaultBroadcastStatus = bulkPolicy.allowed ? 'SCHEDULED' : 'CANCELLED';
       const seedItems = [
         {
           scheduleId: 'SCHED-20261015-0001',
@@ -52,7 +55,7 @@ export async function GET(req: Request) {
           time: '11:00 AM',
           targetAudience: 'DOCTOR_LEADS',
           templateName: 'drip_day_1_eligibility',
-          status: 'SCHEDULED'
+          status: defaultBroadcastStatus
         },
         {
           scheduleId: 'SCHED-20261110-0003',
@@ -103,6 +106,20 @@ export async function POST(req: Request) {
     const body = await req.json();
     const { title, date, time, type, targetAudience, templateName, messageText } = body;
 
+    if (!type || type === 'Broadcast') {
+      const bulkPolicy = evaluateBulkBroadcastPolicy();
+      if (!bulkPolicy.allowed) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: bulkPolicy.error,
+            message: bulkPolicy.message
+          },
+          { status: bulkPolicy.status }
+        );
+      }
+    }
+
     if (!title || !date) {
       return NextResponse.json(
         { success: false, error: 'MISSING_FIELDS', message: 'Title and date are required.' },
@@ -113,7 +130,6 @@ export async function POST(req: Request) {
     // Parse scheduled date/time
     let scheduledDateObj: Date;
     if (time) {
-      // Parse e.g. "10:00" or "14:30" or "10:00 AM"
       const cleanTime = time.trim();
       const combined = `${date}T${cleanTime.includes(':') && cleanTime.length <= 5 ? cleanTime + ':00' : '10:00:00'}`;
       scheduledDateObj = new Date(combined);
@@ -240,6 +256,23 @@ export async function PATCH(req: Request) {
       updateFields.status = action === 'CANCEL' ? 'CANCELLED' : (action === 'RESUME' ? 'SCHEDULED' : 'COMPLETED');
     } else if (status) {
       updateFields.status = status;
+    }
+
+    if (updateFields.status === 'SCHEDULED') {
+      const existingDoc = await Schedule.findOne(query).lean();
+      if (!existingDoc || existingDoc.type === 'Broadcast' || body.type === 'Broadcast') {
+        const bulkPolicy = evaluateBulkBroadcastPolicy();
+        if (!bulkPolicy.allowed) {
+          return NextResponse.json(
+            {
+              success: false,
+              error: bulkPolicy.error,
+              message: bulkPolicy.message
+            },
+            { status: bulkPolicy.status }
+          );
+        }
+      }
     }
 
     if (title) updateFields.title = title.trim();

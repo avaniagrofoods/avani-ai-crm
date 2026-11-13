@@ -149,7 +149,7 @@ export async function verifySessionToken(token: string | undefined | null): Prom
 
     const decoded = JSON.parse(new TextDecoder().decode(payloadBytes)) as CrmSession;
     if (!decoded || !decoded.jti || !decoded.sub || !decoded.email || !decoded.role) return null;
-    if (decoded.role !== 'ADMIN' && decoded.role !== 'ADVISOR') return null;
+    if (decoded.role !== 'ADMIN') return null;
     if (typeof decoded.exp !== 'number' || decoded.exp <= Math.floor(Date.now() / 1000)) {
       return null;
     }
@@ -289,8 +289,24 @@ export function verifyCsrfRequest(
 }
 
 export function getConfiguredAccounts(): CrmAccountConfig[] {
-  const accounts: CrmAccountConfig[] = [];
+  const adminEmail = process.env.CRM_ADMIN_EMAIL?.trim().toLowerCase();
+  const adminPassword = process.env.CRM_ADMIN_PASSWORD;
+  const adminPasswordHash = process.env.CRM_ADMIN_PASSWORD_HASH?.trim();
+  if (adminEmail && (adminPassword || adminPasswordHash)) {
+    return [
+      {
+        id: 'ADV-SACHIN-01',
+        name: process.env.CRM_ADMIN_NAME?.trim() || 'Sachin Shinde',
+        email: adminEmail,
+        role: 'ADMIN',
+        passwordPlain: adminPassword,
+        passwordHash: adminPasswordHash
+      }
+    ];
+  }
 
+  // Single-owner CRM policy: CRM_ADVISOR_* and non-ADMIN accounts are disabled.
+  // Fallback to CRM_AUTH_ACCOUNTS_JSON only for a single ADMIN owner entry.
   const jsonRaw = process.env.CRM_AUTH_ACCOUNTS_JSON?.trim();
   if (jsonRaw) {
     try {
@@ -298,15 +314,17 @@ export function getConfiguredAccounts(): CrmAccountConfig[] {
       if (Array.isArray(parsed)) {
         for (const item of parsed) {
           const hashVal = item?.passwordHash || item?.passwordHashScrypt || item?.passwordHashSha256;
-          if (item?.email && (item?.password || hashVal) && (item?.role === 'ADMIN' || item?.role === 'ADVISOR')) {
-            accounts.push({
-              id: String(item.id || item.email),
-              name: String(item.name || item.email),
-              email: String(item.email).trim().toLowerCase(),
-              role: item.role,
-              passwordPlain: item.password ? String(item.password) : undefined,
-              passwordHash: hashVal ? String(hashVal).trim() : undefined
-            });
+          if (item?.email && (item?.password || hashVal) && item?.role === 'ADMIN') {
+            return [
+              {
+                id: String(item.id || item.email),
+                name: String(item.name || item.email),
+                email: String(item.email).trim().toLowerCase(),
+                role: 'ADMIN',
+                passwordPlain: item.password ? String(item.password) : undefined,
+                passwordHash: hashVal ? String(hashVal).trim() : undefined
+              }
+            ];
           }
         }
       }
@@ -315,35 +333,7 @@ export function getConfiguredAccounts(): CrmAccountConfig[] {
     }
   }
 
-  const adminEmail = process.env.CRM_ADMIN_EMAIL?.trim().toLowerCase();
-  const adminPassword = process.env.CRM_ADMIN_PASSWORD;
-  const adminPasswordHash = process.env.CRM_ADMIN_PASSWORD_HASH?.trim();
-  if (adminEmail && (adminPassword || adminPasswordHash)) {
-    accounts.push({
-      id: 'ADV-SACHIN-01',
-      name: process.env.CRM_ADMIN_NAME?.trim() || 'Sachin Shinde',
-      email: adminEmail,
-      role: 'ADMIN',
-      passwordPlain: adminPassword,
-      passwordHash: adminPasswordHash
-    });
-  }
-
-  const advisorEmail = process.env.CRM_ADVISOR_EMAIL?.trim().toLowerCase();
-  const advisorPassword = process.env.CRM_ADVISOR_PASSWORD;
-  const advisorPasswordHash = process.env.CRM_ADVISOR_PASSWORD_HASH?.trim();
-  if (advisorEmail && (advisorPassword || advisorPasswordHash)) {
-    accounts.push({
-      id: 'ADV-OPS-02',
-      name: process.env.CRM_ADVISOR_NAME?.trim() || 'Operations Desk',
-      email: advisorEmail,
-      role: 'ADVISOR',
-      passwordPlain: advisorPassword,
-      passwordHash: advisorPasswordHash
-    });
-  }
-
-  return accounts;
+  return [];
 }
 
 export async function verifyCrmCredentials(emailInput: string, passwordInput: string): Promise<CrmAccountConfig | null> {
@@ -389,6 +379,15 @@ export async function requireAuth(
       response: NextResponse.json(
         { success: false, error: 'UNAUTHORIZED', message: 'Authentication required.' },
         { status: 401 }
+      )
+    };
+  }
+  if (session.role !== 'ADMIN') {
+    return {
+      ok: false,
+      response: NextResponse.json(
+        { success: false, error: 'FORBIDDEN', message: 'Single-owner administrator access only.' },
+        { status: 403 }
       )
     };
   }

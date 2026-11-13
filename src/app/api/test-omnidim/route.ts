@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { requireRole } from '@/lib/auth';
+import { evaluateAuthorizedTestRecipient, getConfiguredAuthorizedTestPhone } from '@/lib/safeguards';
 
 export async function POST(req: Request) {
   try {
@@ -10,9 +11,11 @@ export async function POST(req: Request) {
     const { phoneNumber, mode } = body;
 
     const { defaultVoiceService } = require('@/lib/voice-provider');
+    const configuredTestPhone = getConfiguredAuthorizedTestPhone();
+    const resolvedPhone = phoneNumber || configuredTestPhone.e164 || '';
 
     const callOptions = {
-      phoneNumber: phoneNumber || '919175635165',
+      phoneNumber: resolvedPhone,
       customerName: body.customerName || 'Test Customer',
       loanType: body.loanType || 'Doctor Loan',
       profession: body.profession || 'Doctor / Medical Professional',
@@ -28,6 +31,19 @@ export async function POST(req: Request) {
         t1: true,
         options: callOptions
       });
+    }
+
+    const recipientCheck = evaluateAuthorizedTestRecipient(resolvedPhone);
+    if (!recipientCheck.allowed) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: recipientCheck.error || 'LIVE_DISPATCH_RESTRICTED',
+          message: recipientCheck.message,
+          rawResponse: { status: 'BLOCKED_UNAUTHORIZED_RECIPIENT' }
+        },
+        { status: recipientCheck.status }
+      );
     }
 
     const result = await defaultVoiceService.dispatchCall(callOptions);

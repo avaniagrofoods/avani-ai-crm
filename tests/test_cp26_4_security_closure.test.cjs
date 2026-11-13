@@ -28,31 +28,18 @@ function makeScryptHash(password) {
 }
 
 function loadTestMongoUri() {
-  let rawUri = process.env.TEST_MONGODB_URI || '';
-  if (!rawUri) {
-    const tmpEnv = path.join(process.cwd(), 'scratch', `.tmp_cp264_${process.pid}.env`);
-    try {
-      execFileSync('cmd.exe', ['/c', 'npx', 'vercel', 'env', 'pull', tmpEnv, '--environment=production', '--yes'], {
-        stdio: ['ignore', 'ignore', 'pipe']
-      });
-      if (fs.existsSync(tmpEnv)) {
-        const content = fs.readFileSync(tmpEnv, 'utf8');
-        const m = content.match(/^(?:avani_ai_crm_prod_MONGODB_URI|MONGODB_URI)=["']?(mongodb[^"'\r\n]+)["']?/m);
-        if (m) rawUri = m[1].trim();
-      }
-    } finally {
-      if (fs.existsSync(tmpEnv)) fs.unlinkSync(tmpEnv);
-    }
-  }
-  assert.ok(rawUri, 'Missing TEST_MONGODB_URI or active Atlas URI');
+  const rawUri = (process.env.TEST_MONGODB_URI || 'mongodb://127.0.0.1:27017/avani_ai_crm_test').trim();
   const u = new URL(rawUri);
-  u.pathname = '/avani_ai_crm_test';
-  const testUri = u.toString();
+  const host = (u.hostname || '').toLowerCase();
   assert.ok(
-    testUri.includes('/avani_ai_crm_test') && !testUri.includes('avani_ai_crm_prod'),
-    'SAFETY ABORT: CP-26.4 tests must target avani_ai_crm_test ONLY'
+    !host.includes('rhpn2gh.mongodb.net') && !host.includes('cluster0.mlcxcp.mongodb.net') && !host.includes('xj6nhak.mongodb.net'),
+    'SAFETY ABORT: Local/isolated tests must NOT target shared production Atlas clusters'
   );
-  return testUri;
+  assert.ok(
+    u.pathname === '/avani_ai_crm_test' && !rawUri.includes('avani_ai_crm_prod'),
+    'SAFETY ABORT: Test DB URI must point exclusively to /avani_ai_crm_test'
+  );
+  return u.toString();
 }
 
 async function waitForServer(url, timeoutMs = 45000) {
@@ -311,17 +298,20 @@ async function runTests() {
       assert.ok(rlCount >= 1, 'Rate limit state must persist in MongoDB');
     });
 
-    await assertTest('G3.3 Diagnostics denies ADVISOR (403) and accepts ADMIN cookie (200)', async () => {
+    await assertTest('G3.3 Single-owner policy blocks ADVISOR login (401) and accepts ADMIN cookie (200) on Diagnostics', async () => {
       const advLogin = await fetch(`${BASE_URL}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '198.51.100.13' },
         body: JSON.stringify({ email: SYNTHETIC_ADVISOR_EMAIL, password: SYNTHETIC_ADVISOR_PASS })
       });
-      assert.strictEqual(advLogin.status, 200);
-      advisorCookie = extractCookieValue(advLogin, 'avani_crm_session');
+      assert.strictEqual(advLogin.status, 401);
 
-      const advDiag = await fetch(`${BASE_URL}/api/diagnostics`, { headers: { Cookie: advisorCookie } });
-      assert.strictEqual(advDiag.status, 403);
+      const forgedAdv = forgeSessionCookie(
+        { jti: 'adv-blocked-jti', sub: 'ADV-OPS-02', name: 'Advisor', email: SYNTHETIC_ADVISOR_EMAIL, role: 'ADVISOR', iat: Math.floor(Date.now() / 1000), exp: Math.floor(Date.now() / 1000) + 3600 },
+        SYNTHETIC_SESSION_SECRET
+      );
+      const advDiag = await fetch(`${BASE_URL}/api/diagnostics`, { headers: { Cookie: forgedAdv } });
+      assert.strictEqual(advDiag.status, 401);
 
       const admDiag = await fetch(`${BASE_URL}/api/diagnostics`, { headers: { Cookie: adminCookie } });
       assert.strictEqual(admDiag.status, 200);
@@ -395,43 +385,49 @@ async function runTests() {
       assert.strictEqual(dRes.status, 401);
     });
 
-    await assertTest('G4.4-G4.6 Admin sees all leads; Advisor sees assigned only & IDOR access returns 403 with zero DB mutation', async () => {
+    await assertTest('G4.4-G4.6 Admin sees all leads; forged ADVISOR session returns 401 with zero DB mutation', async () => {
       const admList = await fetch(`${BASE_URL}/api/leads`, { headers: { Cookie: adminCookie } });
       assert.strictEqual(admList.status, 200);
       const admIds = ((await admList.json()).leads || []).map((l) => String(l._id));
       assert.ok(admIds.includes(leadOtherId) && admIds.includes(leadOwnedId));
 
-      const advList = await fetch(`${BASE_URL}/api/leads`, { headers: { Cookie: advisorCookie } });
-      assert.strictEqual(advList.status, 200);
-      const advIds = ((await advList.json()).leads || []).map((l) => String(l._id));
-      assert.ok(advIds.includes(leadOwnedId) && !advIds.includes(leadOtherId));
+      const forgedAdv = forgeSessionCookie(
+        { jti: 'adv-blocked-g4', sub: 'ADV-OPS-02', name: 'Advisor', email: SYNTHETIC_ADVISOR_EMAIL, role: 'ADVISOR', iat: Math.floor(Date.now() / 1000), exp: Math.floor(Date.now() / 1000) + 3600 },
+        SYNTHETIC_SESSION_SECRET
+      );
+      const advList = await fetch(`${BASE_URL}/api/leads`, { headers: { Cookie: forgedAdv } });
+      assert.strictEqual(advList.status, 401);
 
-      const idorGet = await fetch(`${BASE_URL}/api/leads/${leadOtherId}`, { headers: { Cookie: advisorCookie } });
-      assert.strictEqual(idorGet.status, 403);
+      const idorGet = await fetch(`${BASE_URL}/api/leads/${leadOtherId}`, { headers: { Cookie: forgedAdv } });
+      assert.strictEqual(idorGet.status, 401);
       const idorPatch = await fetch(`${BASE_URL}/api/leads/${leadOtherId}`, {
         method: 'PATCH',
-        headers: { Cookie: advisorCookie, 'Content-Type': 'application/json' },
+        headers: { Cookie: forgedAdv, 'Content-Type': 'application/json' },
         body: JSON.stringify({ stage: 'CONTACTED' })
       });
-      assert.strictEqual(idorPatch.status, 403);
+      assert.strictEqual(idorPatch.status, 401);
       const afterOther = await db.collection('leads').findOne({ _id: leadOtherRes.insertedId });
       assert.strictEqual(afterOther.stage, 'NEW_ENQUIRY', 'Rejected IDOR PATCH must not mutate DB');
     });
 
-    await assertTest('G4.7-G4.9 Advisor financial/assignment attempts fail 403 without DB mutation; Admin financial flow succeeds', async () => {
+    await assertTest('G4.7-G4.9 Forged ADVISOR financial/assignment attempts fail 401 without DB mutation; Admin financial flow succeeds', async () => {
+      const forgedAdv = forgeSessionCookie(
+        { jti: 'adv-blocked-g4b', sub: 'ADV-OPS-02', name: 'Advisor', email: SYNTHETIC_ADVISOR_EMAIL, role: 'ADVISOR', iat: Math.floor(Date.now() / 1000), exp: Math.floor(Date.now() / 1000) + 3600 },
+        SYNTHETIC_SESSION_SECRET
+      );
       const advAssign = await fetch(`${BASE_URL}/api/leads/${leadOwnedId}/assign`, {
         method: 'POST',
-        headers: { Cookie: advisorCookie, 'Content-Type': 'application/json' },
+        headers: { Cookie: forgedAdv, 'Content-Type': 'application/json' },
         body: JSON.stringify({ advisorEmail: 'someone.else@avanifinserv.test', advisorName: 'Someone Else' })
       });
-      assert.strictEqual(advAssign.status, 403);
+      assert.strictEqual(advAssign.status, 401);
 
       const advFin = await fetch(`${BASE_URL}/api/leads/${leadOwnedId}/application`, {
         method: 'POST',
-        headers: { Cookie: advisorCookie, 'Content-Type': 'application/json' },
+        headers: { Cookie: forgedAdv, 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'RECORD_SANCTION', sanctionedAmount: 500000 })
       });
-      assert.strictEqual(advFin.status, 403);
+      assert.strictEqual(advFin.status, 401);
 
       const afterAdvAttempts = await db.collection('leads').findOne({ _id: leadOwnedRes.insertedId });
       assert.strictEqual(afterAdvAttempts.assignedAdvisor.email, SYNTHETIC_ADVISOR_EMAIL);
@@ -448,8 +444,8 @@ async function runTests() {
     });
 
     await assertTest('G4.10-G4.12 Logout permanently blocks cookie reuse on UI & API; expired & forged cookies fail 401', async () => {
-      // Capture advisorCookie before logout and replay it after logout
-      const savedCookie = advisorCookie;
+      // Capture adminCookie before logout and replay it after logout
+      const savedCookie = adminCookie;
       const outRes = await fetch(`${BASE_URL}/api/auth/logout`, {
         method: 'POST',
         headers: { Cookie: savedCookie }

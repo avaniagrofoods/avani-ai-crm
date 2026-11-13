@@ -8,6 +8,28 @@ import { ConversationStateManager } from '@/lib/orchestrator/state-manager';
 
 export class OptOutEngine {
   /**
+   * Builds canonical phone variants (+91XXXXXXXXXX, 91XXXXXXXXXX, XXXXXXXXXX, 0XXXXXXXXXX)
+   * so opt-out suppression works uniformly regardless of how a phone number was stored.
+   */
+  static getPhoneVariants(phone: string): { cleanPhone: string; raw10: string; variants: string[] } {
+    const trimmed = String(phone || '').trim();
+    const rawDigits = trimmed.replace(/\D/g, '');
+    const raw10 = rawDigits.length > 10 ? rawDigits.slice(-10) : rawDigits;
+    let cleanPhone = trimmed.replace(/[^0-9+]/g, '');
+    if (!cleanPhone.startsWith('+')) {
+      cleanPhone = cleanPhone.length === 10 ? '+91' + cleanPhone : (raw10.length === 10 ? '+91' + raw10 : '+' + cleanPhone);
+    }
+    const variants = Array.from(new Set([
+      trimmed,
+      cleanPhone,
+      cleanPhone.replace('+91', ''),
+      cleanPhone.replace('+', ''),
+      ...(raw10.length === 10 ? [raw10, `+91${raw10}`, `91${raw10}`, `0${raw10}`] : []),
+    ])).filter(Boolean);
+    return { cleanPhone, raw10, variants };
+  }
+
+  /**
    * Checks if incoming message text contains opt-out intent across English, Marathi, and Hindi.
    */
   static isOptOutMessage(text: string): boolean {
@@ -34,22 +56,30 @@ export class OptOutEngine {
     phone: string;
     messageText: string;
     eventId?: string;
+    suppressAcknowledgement?: boolean;
   }) {
     await connectToDatabase();
 
     const optOutAt = new Date();
-    let cleanPhone = params.phone.trim().replace(/[^0-9+]/g, '');
-    if (!cleanPhone.startsWith('+')) {
-      cleanPhone = cleanPhone.length === 10 ? '+91' + cleanPhone : '+' + cleanPhone;
-    }
+    const { cleanPhone, raw10, variants: phoneVariants } = this.getPhoneVariants(params.phone);
 
-    // 1. Update all matching Leads
-    const leadQuery: any = {
-      phone: { $in: [cleanPhone, cleanPhone.replace('+91', ''), cleanPhone.replace('+', '')] }
-    };
-    if (params.leadId) {
-      leadQuery.$or = [{ leadId: params.leadId }, { phone: cleanPhone }];
+    // 1. Update all matching Leads across phone variants, normalizedMobile, and leadId
+    const leadOrClauses: any[] = [
+      { phone: { $in: phoneVariants } },
+    ];
+    if (raw10.length === 10) {
+      leadOrClauses.push({ normalizedMobile: raw10 });
     }
+    if (params.leadId) {
+      leadOrClauses.push({ leadId: params.leadId });
+    }
+    const leadQuery: any = { $or: leadOrClauses };
+
+    const matchingLeads = await Lead.find(leadQuery, { leadId: 1 }).lean();
+    const matchingLeadIds = Array.from(new Set([
+      ...(params.leadId ? [params.leadId] : []),
+      ...matchingLeads.map((l: any) => l.leadId).filter(Boolean),
+    ]));
 
     await Lead.updateMany(leadQuery, {
       $set: {
@@ -63,9 +93,9 @@ export class OptOutEngine {
       }
     });
 
-    // 2. Update all matching Contacts
+    // 2. Update all matching Contacts across phone variants
     await Contact.updateMany(
-      { phone: { $in: [cleanPhone, cleanPhone.replace('+91', ''), cleanPhone.replace('+', '')] } },
+      { phone: { $in: phoneVariants } },
       {
         $set: {
           optedIn: false,
@@ -74,25 +104,43 @@ export class OptOutEngine {
       }
     );
 
-    // 3. Update Conversation Status
-    if (params.leadId) {
-      await ConversationStateManager.transitionStage(params.leadId, 'OPTED_OUT', 'CUSTOMER_OPTED_OUT', {
+    // 3. Update Conversation Status across phone variants and matching leadIds
+    for (const lid of matchingLeadIds) {
+      await ConversationStateManager.transitionStage(lid, 'OPTED_OUT', 'CUSTOMER_OPTED_OUT', {
         optOutStatus: true
       });
-      await Conversation.updateOne(
-        { conversationId: `CONV_${params.leadId}` },
-        { $set: { optOutStatus: true, currentStage: 'OPTED_OUT' } }
+    }
+    const convOrClauses: any[] = [{ customerPhone: { $in: phoneVariants } }];
+    if (matchingLeadIds.length > 0) {
+      convOrClauses.push({ leadId: { $in: matchingLeadIds } });
+      convOrClauses.push({ conversationId: { $in: matchingLeadIds.map(id => `CONV_${id}`) } });
+    }
+    await Conversation.updateMany(
+      { $or: convOrClauses },
+      { $set: { optOutStatus: true, currentStage: 'OPTED_OUT', currentState: 'OPTED_OUT' } }
+    );
+
+    // 4. Cancel Pending Workflows & Scheduled Follow-ups for all matching leadIds
+    if (matchingLeadIds.length > 0) {
+      await WorkflowTrigger.updateMany(
+        { status: 'PENDING', leadId: { $in: matchingLeadIds } },
+        { $set: { status: 'SUPPRESSED_CUSTOMER_OPTED_OUT', processedAt: optOutAt } }
       );
     }
 
-    // 4. Cancel Pending Workflows & Scheduled Follow-ups
-    const workflowQuery: any = { status: 'PENDING' };
-    if (params.leadId) workflowQuery.leadId = params.leadId;
-    await WorkflowTrigger.updateMany(workflowQuery, {
-      $set: { status: 'SUPPRESSED_CUSTOMER_OPTED_OUT', processedAt: optOutAt }
-    });
+    // 5. Send Approved Opt-Out Acknowledgement Template via ProviderRouter (unless suppressed)
+    if (params.suppressAcknowledgement) {
+      return {
+        success: true,
+        phone: cleanPhone,
+        leadId: params.leadId,
+        status: 'OPTED_OUT',
+        optOutAt,
+        acknowledged: false,
+        suppressed: true
+      };
+    }
 
-    // 5. Send Approved Opt-Out Acknowledgement Template via ProviderRouter
     const dispatchRes = await ProviderRouter.dispatchMessage({
       phone: cleanPhone,
       name: 'Customer',

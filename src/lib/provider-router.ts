@@ -3,6 +3,7 @@ import { sendChatMitraMessage } from './chatmitra';
 import connectToDatabase from './db';
 import { Message } from '@/models/Message';
 import { ProviderLedger } from '@/models/ProviderLedger';
+import { evaluateAuthorizedTestRecipient, maskPhoneForLog } from './safeguards';
 import axios from 'axios';
 
 export interface DispatchMessageOptions {
@@ -63,6 +64,20 @@ export class ProviderRouter {
         idempotencyKey,
         isDuplicate: true
       };
+    }
+
+    if (process.env.PROVIDER_MODE === 'live') {
+      const recipientCheck = evaluateAuthorizedTestRecipient(cleanPhone);
+      if (!recipientCheck.allowed) {
+        console.error(`[ProviderRouter Safety Clamp] Blocked live dispatch via ${selectedProvider} to ${recipientCheck.targetMasked}: ${recipientCheck.reason}`);
+        return {
+          success: false,
+          provider: selectedProvider,
+          status: 'BLOCKED_UNAUTHORIZED_LIVE_RECIPIENT',
+          error: recipientCheck.message,
+          idempotencyKey
+        };
+      }
     }
 
     // 2. Execute Dispatch based on Provider
@@ -204,7 +219,7 @@ export class ProviderRouter {
     } else {
       // META_CLOUD Provider Route
       // Respect Provider Mock Safety Gate
-      if (process.env.PROVIDER_MODE === 'mock') {
+      if (process.env.PROVIDER_MODE !== 'live') {
         const mockWamid = `mock_meta_${Date.now()}_${Math.random().toString(36).substring(7)}`;
         await Message.create({
           idempotencyKey,

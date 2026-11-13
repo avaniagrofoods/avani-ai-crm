@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { evaluateAuthorizedTestRecipient } from './safeguards';
 
 export const MAX_OMNIDM_RETRIES = 2;
 
@@ -173,12 +174,12 @@ export class OmniDMVoiceProvider implements IVoiceProvider {
     }
 
     // 5. Authorized Test Recipient Safety Clamp when live
-    const digits = formattedPhone.replace(/\D/g, '');
-    if (digits !== '919175635165' && digits !== '9175635165') {
+    const recipientCheck = evaluateAuthorizedTestRecipient(formattedPhone);
+    if (!recipientCheck.allowed) {
       return {
         success: false,
         provider: this.name,
-        error: `Safety clamp: Live OmniDM calling is restricted to authorized test number +91 91756 35165.`,
+        error: recipientCheck.message,
         rawResponse: { status: 'BLOCKED_UNAUTHORIZED_RECIPIENT' }
       };
     }

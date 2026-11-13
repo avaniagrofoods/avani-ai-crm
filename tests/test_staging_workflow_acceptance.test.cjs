@@ -37,16 +37,18 @@ if (!password) {
   } catch {}
 }
 
-if (!password) {
-  console.error('❌ MONGODB_PASSWORD not available for staging workflow acceptance.');
+const CRM_TEST_DB = 'avani_ai_crm_test';
+const STAGING_URI = (process.env.TEST_MONGODB_URI || 'mongodb://127.0.0.1:27017/avani_ai_crm_test').trim();
+const parsedStagingUrl = new URL(STAGING_URI);
+const CRM_CLUSTER_HOST = parsedStagingUrl.hostname;
+if (CRM_CLUSTER_HOST.includes('rhpn2gh.mongodb.net') || CRM_CLUSTER_HOST.includes('cluster0.mlcxcp.mongodb.net') || CRM_CLUSTER_HOST.includes('xj6nhak.mongodb.net')) {
+  console.error('❌ SAFETY ABORT: Staging workflow test must NOT target shared production Atlas clusters.');
   process.exit(1);
 }
-
-const CRM_CLUSTER_HOST = 'avani-loan-services-m0.rhpn2gh.mongodb.net';
-const CRM_TEST_DB = 'avani_ai_crm_test';
-const DB_USER = 'starpowerzlatur2210_db_user';
-const ENCODED_PASS = encodeURIComponent(password);
-const STAGING_URI = `mongodb+srv://${DB_USER}:${ENCODED_PASS}@${CRM_CLUSTER_HOST}/${CRM_TEST_DB}?authSource=admin&retryWrites=true&w=majority&appName=AvaniWorkflowAcceptance`;
+if (parsedStagingUrl.pathname !== '/avani_ai_crm_test') {
+  console.error('❌ SAFETY ABORT: Staging workflow test URI must target /avani_ai_crm_test');
+  process.exit(1);
+}
 
 const RUN_TIMESTAMP = Date.now();
 const WORKFLOW_MARKER = `SYNTH-WF-${RUN_TIMESTAMP}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
@@ -85,11 +87,17 @@ async function main() {
     assert.strictEqual(STAGING_URI.includes('xj6nhak.mongodb.net'), false, 'ABORT: ALS Cluster targeted');
     assert.strictEqual(STAGING_URI.includes(CRM_TEST_DB), true, 'Must target avani_ai_crm_test');
 
+    const useTls =
+      STAGING_URI.startsWith('mongodb+srv://') ||
+      STAGING_URI.includes('mongodb.net') ||
+      STAGING_URI.includes('tls=true') ||
+      STAGING_URI.includes('ssl=true');
+
     conn = await mongoose.connect(STAGING_URI, {
       serverSelectionTimeoutMS: 10000,
       connectTimeoutMS: 10000,
       socketTimeoutMS: 45000,
-      tls: true
+      tls: useTls
     });
 
     assert.ok(conn, 'Mongoose client connection failed');

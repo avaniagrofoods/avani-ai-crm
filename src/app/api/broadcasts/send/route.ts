@@ -8,11 +8,24 @@ import { Contact } from '@/models/Contact';
 import { Message } from '@/models/Message';
 import { Call } from '@/models/Call';
 import { Broadcast } from '@/models/Broadcast';
+import { OptOutEngine } from '@/lib/optout-engine';
 import { requireRole } from '@/lib/auth';
+import { evaluateBulkBroadcastPolicy } from '@/lib/safeguards';
 
 export async function POST(req: Request) {
   const auth = await requireRole(req, ['ADMIN']);
   if (!auth.ok) return auth.response;
+  const bulkPolicy = evaluateBulkBroadcastPolicy();
+  if (!bulkPolicy.allowed) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: bulkPolicy.error,
+        message: bulkPolicy.message
+      },
+      { status: bulkPolicy.status }
+    );
+  }
   try {
     await connectToDatabase();
     const body = await req.json();
@@ -30,10 +43,46 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: false, error: 'TEST/DEGRADED MODE: Database unavailable, halting production broadcast to prevent duplicates.' }, { status: 503 });
     }
 
+    if (mongoose.connection.readyState === 1) {
+      const { raw10, variants: phoneVariants } = OptOutEngine.getPhoneVariants(phone);
+      const optedOutLead = await Lead.findOne({
+        $or: [
+          { phone: { $in: phoneVariants } },
+          ...(raw10.length === 10 ? [{ normalizedMobile: raw10 }] : [])
+        ],
+        $and: [
+          {
+            $or: [
+              { isOptedOut: true },
+              { status: 'OPTED_OUT' },
+              { consentStatus: { $in: ['DENIED', 'WITHDRAWN'] } }
+            ]
+          }
+        ]
+      }).lean();
+      const optedOutContact = await Contact.findOne({
+        phone: { $in: phoneVariants },
+        optedIn: false
+      }).lean();
+
+      if (optedOutLead || optedOutContact) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'RECIPIENT_OPTED_OUT',
+            message: 'Recipient has opted out or withdrawn consent. Broadcast dispatch blocked.',
+            suppressed: true,
+            outboundDispatched: false
+          },
+          { status: 403 }
+        );
+      }
+    }
+
     // Idempotency: Atomic Reservation
     let reservedMessageId = null;
     let messageIdString = `mock-${Date.now()}`;
-    
+
     if (idempotencyKey && mongoose.connection.readyState === 1 && !testMode) {
       try {
         const leaseExpiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minute lease
@@ -58,7 +107,7 @@ export async function POST(req: Request) {
           const existingMessage = await Message.findOne({ idempotencyKey });
           if (existingMessage) {
             let currentStatus = existingMessage.status;
-            
+
             // Check for stale PROCESSING lease
             if ((currentStatus === 'PROCESSING' || currentStatus === 'Processing') && existingMessage.leaseExpiresAt && new Date() > existingMessage.leaseExpiresAt) {
               currentStatus = 'UNKNOWN';
@@ -76,7 +125,6 @@ export async function POST(req: Request) {
           }
         } else {
           console.error("DB Create idempotency lock error:", err?.message || err);
-          // Fall back gracefully to proceed with dispatch without failing reservation
         }
       }
     }
@@ -85,14 +133,14 @@ export async function POST(req: Request) {
     try {
       if (mongoose.connection.readyState === 1 && !testMode) {
         const existingLead = await Lead.findOne({ phone: normalizedPhone });
-        let leadIdToUse = existingLead?.leadId || `ALS-${new Date().getFullYear()}-${Math.floor(Math.random() * 1000000).toString().padStart(6, '0')}`;
-        
+        const leadIdToUse = existingLead?.leadId || `ALS-${new Date().getFullYear()}-${Math.floor(Math.random() * 1000000).toString().padStart(6, '0')}`;
+
         const lead = await Lead.findOneAndUpdate(
           { phone: normalizedPhone },
-          { 
-            $set: { 
-              name: name || 'Valued Customer', 
-              phone: normalizedPhone, 
+          {
+            $set: {
+              name: name || 'Valued Customer',
+              phone: normalizedPhone,
               loanType: loanType || 'Personal Loan',
               leadSource: 'Broadcast CSV',
               updatedAt: new Date()
@@ -108,13 +156,13 @@ export async function POST(req: Request) {
 
         await Contact.findOneAndUpdate(
           { phone: normalizedPhone },
-          { 
-            $set: { 
-              name: name || 'Valued Customer', 
-              phone: normalizedPhone, 
-              leadId: lead._id, 
+          {
+            $set: {
+              name: name || 'Valued Customer',
+              phone: normalizedPhone,
+              leadId: lead._id,
               updatedAt: new Date()
-            } 
+            }
           },
           { new: true, upsert: true }
         );
@@ -138,8 +186,8 @@ export async function POST(req: Request) {
       if (isVoice) {
         try {
           const response = await triggerOmnidimCall(
-            phone, 
-            name || 'Valued Customer', 
+            phone,
+            name || 'Valued Customer',
             loanType || 'Personal Loan'
           );
           success = true;
@@ -164,8 +212,6 @@ export async function POST(req: Request) {
         if (success || response.status === 'Unknown') {
           msgId = response.messageId || messageIdString;
           result = response;
-          // If UNKNOWN, we consider the dispatch successful from the API caller perspective 
-          // (we didn't fail definitely, so we don't abort the broadcast run entirely)
           success = true;
         } else {
           errorMsg = response.error || 'Unknown AiSensy Error';
@@ -177,7 +223,6 @@ export async function POST(req: Request) {
       try {
         if (mongoose.connection.readyState === 1) {
           if (broadcastType === 'whatsapp') {
-            // If we reserved it, we need to update leadId if it was newly created
             if (reservedMessageId && leadId) {
               await Message.findByIdAndUpdate(reservedMessageId, { leadId });
             }

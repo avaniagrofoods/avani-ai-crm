@@ -2,14 +2,21 @@ import { NextResponse } from 'next/server';
 import connectToDatabase from '@/lib/db';
 import mongoose from 'mongoose';
 import { Lead } from '@/models/Lead';
+import { Contact } from '@/models/Contact';
 import { Call } from '@/models/Call';
+import { OptOutEngine } from '@/lib/optout-engine';
 import { sendAiSensyWhatsApp } from '@/lib/aisensy';
 import axios from 'axios';
 import { validateProductPayload } from '@/lib/validators';
 import { sendSlackAlert } from '@/lib/alerts';
 import { verifySharedWebhookSecret } from '@/lib/auth';
+import { maskPhoneForLog } from '@/lib/safeguards';
 
 export async function processOutgoingZapierPayload(loanType: string, compiledPayload: any, lead: any) {
+  if (lead?.isOptedOut || lead?.status === 'OPTED_OUT' || lead?.consentStatus === 'DENIED' || lead?.consentStatus === 'WITHDRAWN') {
+    return false;
+  }
+
   const verification = validateProductPayload(loanType, compiledPayload);
 
   if (!verification.isValid) {
@@ -38,6 +45,10 @@ export async function processOutgoingZapierPayload(loanType: string, compiledPay
       await sendAiSensyWhatsApp({ destination: userPhone, userName: compiledPayload.fullName || 'Customer', text: correctiveWhatsAppMessage }, `OMNIDM_CORRECTIVE_${Date.now()}_${userPhone}`);
     }
 
+    return false;
+  }
+
+  if (process.env.PROVIDER_MODE !== 'live') {
     return false;
   }
 
@@ -78,7 +89,9 @@ export async function POST(req: Request) {
   if (!webhookAuth.ok) return webhookAuth.response;
   try {
     const body = await req.json();
-    console.log("OmniDM AI Webhook Event Received:", JSON.stringify(body, null, 2));
+    const callId = body.call_id || body.id || body.requestId;
+    const phone = body.to || body.to_number || body.phone_number || body.request_data?.phone;
+    console.log("OmniDM AI Webhook Event Received:", JSON.stringify({ callId, status: body.status || body.event, phoneMasked: maskPhoneForLog(phone) }));
 
     try {
       await connectToDatabase();
@@ -86,26 +99,36 @@ export async function POST(req: Request) {
       console.warn("DB Connection warning:", dbErr);
     }
 
-    const callId = body.call_id || body.id || body.requestId;
-    const phone = body.to || body.to_number || body.phone_number || body.request_data?.phone;
     const isCompleted = body.completed || body.status === 'completed' || body.event === 'call_ended';
     const variables = body.variables || body.request_data || {};
     const name = variables.customerName || variables.name || 'Valued Customer';
     const loanType = variables.loanType || 'Personal Loan';
     const notes = body.summary || body.transcript || `OmniDM AI Voice Call event: ${body.status || body.event || 'ended'}`;
     let lead: any = null;
+    let isOptedOut = false;
 
     if (mongoose.connection.readyState === 1) {
       try {
         if (callId) lead = await Lead.findOne({ callId });
         if (!lead && phone) {
-          const cleanPhone = phone.replace(/[^0-9]/g, '');
-          lead = await Lead.findOne({ phone: { $regex: cleanPhone, $options: 'i' } });
+          const { raw10, variants: phoneVariants } = OptOutEngine.getPhoneVariants(phone);
+          lead = await Lead.findOne({
+            $or: [
+              { phone: { $in: phoneVariants } },
+              ...(raw10.length === 10 ? [{ normalizedMobile: raw10 }] : [])
+            ]
+          });
+          const optedOutContact = await Contact.findOne({ phone: { $in: phoneVariants }, optedIn: false }).lean();
+          if (optedOutContact) isOptedOut = true;
         }
       } catch (e) { console.warn("Lead query warning:", e); }
 
+      if (lead && (lead.isOptedOut || lead.status === 'OPTED_OUT' || lead.consentStatus === 'DENIED' || lead.consentStatus === 'WITHDRAWN')) {
+        isOptedOut = true;
+      }
+
       const status = isCompleted ? 'Contacted' : 'Follow Up Required';
-      if (lead) {
+      if (lead && !isOptedOut) {
         lead.status = status;
         lead.notes = notes;
         try { await lead.save(); } catch (e) {}
@@ -122,7 +145,7 @@ export async function POST(req: Request) {
     if (body.duration) updateData.duration = body.duration;
     if (body.recording_url) updateData.recordingUrl = body.recording_url;
     if (body.transcript || notes) updateData.transcript = body.transcript || notes;
-    
+
     if (mappedStatus === 'CONVERSATION_COMPLETED' || mappedStatus === 'NO_ANSWER' || mappedStatus === 'FAILED' || mappedStatus === 'BUSY') {
       updateData.completedAt = new Date();
     }
@@ -132,21 +155,25 @@ export async function POST(req: Request) {
         // Idempotency: Check if already processed
         const existingCall = await Call.findOne({ callId });
         if (existingCall && existingCall.status === mappedStatus) {
-           console.log(`[OmniDM Webhook] Call ${callId} already processed with status ${mappedStatus}. Skipping duplicate action.`);
-           return NextResponse.json({ success: true, message: "Duplicate webhook ignored" });
+          console.log(`[OmniDM Webhook] Call ${callId} already processed with status ${mappedStatus}. Skipping duplicate action.`);
+          return NextResponse.json({ success: true, message: "Duplicate webhook ignored" });
         }
-        
-        // Fix duplicate key error by providing a default providerCallId if it exists
+
         updateData.providerCallId = callId;
 
         await Call.findOneAndUpdate(
           { callId },
           { $set: updateData },
-          { new: true, upsert: true } // Upsert just in case it wasn't saved in dispatch
+          { new: true, upsert: true }
         );
       } else {
         console.warn(`[Webhook DB Bypass] DB not connected, skipping status update for callId: ${callId}`);
       }
+    }
+
+    if (isOptedOut) {
+      console.log(`[OmniDM Webhook] Recipient ${maskPhoneForLog(phone)} is opted out. Skipping post-call integrations and WhatsApp follow-up.`);
+      return NextResponse.json({ success: true, callId, status: mappedStatus, optedOutSuppressed: true });
     }
 
     // Capture dynamic variables returned by agent
@@ -157,17 +184,17 @@ export async function POST(req: Request) {
 
     // Update Lead with Agent captured data if changed
     if (lead && mongoose.connection.readyState === 1) {
-       let leadUpdated = false;
-       if (agentCapturedCity && lead.city !== agentCapturedCity) { lead.city = agentCapturedCity; leadUpdated = true; }
-       if (agentCapturedProfession && lead.profession !== agentCapturedProfession) { lead.profession = agentCapturedProfession; leadUpdated = true; }
-       if (agentCapturedIncome && lead.monthlyIncomeRange !== agentCapturedIncome) { lead.monthlyIncomeRange = agentCapturedIncome; leadUpdated = true; }
-       if (agentCapturedAmount && lead.requiredLoanAmount !== agentCapturedAmount) { lead.requiredLoanAmount = agentCapturedAmount; leadUpdated = true; }
-       if (leadUpdated) await lead.save();
+      let leadUpdated = false;
+      if (agentCapturedCity && lead.city !== agentCapturedCity) { lead.city = agentCapturedCity; leadUpdated = true; }
+      if (agentCapturedProfession && lead.profession !== agentCapturedProfession) { lead.profession = agentCapturedProfession; leadUpdated = true; }
+      if (agentCapturedIncome && lead.monthlyIncomeRange !== agentCapturedIncome) { lead.monthlyIncomeRange = agentCapturedIncome; leadUpdated = true; }
+      if (agentCapturedAmount && lead.requiredLoanAmount !== agentCapturedAmount) { lead.requiredLoanAmount = agentCapturedAmount; leadUpdated = true; }
+      if (leadUpdated) await lead.save();
     }
 
     const integrationPayload: any = {
-      eventId: `evt_${callId}_${mappedStatus}`, // Deterministic event ID for idempotency in downstream
-      leadId: lead?.leadId || `LID-${phone.replace(/[^0-9]/g, '')}`,
+      eventId: `evt_${callId}_${mappedStatus}`,
+      leadId: lead?.leadId || `LID-${String(phone || '').replace(/[^0-9]/g, '')}`,
       timestamp: new Date().toISOString(),
       sourceSystem: "Avani AI CRM Pipeline",
       campaign: {
@@ -193,16 +220,16 @@ export async function POST(req: Request) {
         incomeRange: agentCapturedIncome || "Unknown"
       },
       financialRequirements: {
-         loanType: loanType,
-         requiredLoanAmount: agentCapturedAmount || 1000000
+        loanType: loanType,
+        requiredLoanAmount: agentCapturedAmount || 1000000
       },
       productSpecificFields: lead?.financialProfile || {}
     };
 
-    // 1. HubSpot Integration
+    // 1. HubSpot Integration (only in live mode)
     const portalId = process.env.HUBSPOT_PORTAL_ID;
     const formId = process.env.HUBSPOT_FORM_ID;
-    if (portalId && formId) {
+    if (portalId && formId && process.env.PROVIDER_MODE === 'live') {
       try {
         await axios.post(
           `https://api.hsforms.com/submissions/v3/integration/submit/${portalId}/${formId}`,
@@ -220,32 +247,29 @@ export async function POST(req: Request) {
     // 2. Zapier / Google Sheets Integration via processor
     await processOutgoingZapierPayload(loanType, integrationPayload, lead);
 
-    // 3. Post-Call WhatsApp Follow-up (Dispatched for ALL call outcomes: completed, missed, ended, or failed)
+    // 3. Post-Call WhatsApp Follow-up
     if (phone) {
       try {
-        console.log(`[Post-Call WhatsApp] Triggering WhatsApp follow-up for ${phone}... Status: ${mappedStatus}`);
-        
-        // Define templates based on call outcome
-        // Fallback to "avani_loan_intro_v2" for missed calls, "loan_consultation_offer" for answered
+        console.log(`[Post-Call WhatsApp] Triggering WhatsApp follow-up for ${maskPhoneForLog(phone)}... Status: ${mappedStatus}`);
+
         let targetTemplate = "loan_consultation_offer";
         let targetWorkflowState = "loan_consultation_offer_sent";
         let templateParams: string[] = [];
 
         if (mappedStatus === 'NO_ANSWER' || mappedStatus === 'FAILED' || mappedStatus === 'BUSY') {
-             targetTemplate = "avani_loan_intro_v2"; 
-             targetWorkflowState = "missed_call_intro_sent";
-             templateParams = [name]; // avani_loan_intro_v2 needs a param based on earlier logs
+          targetTemplate = "avani_loan_intro_v2";
+          targetWorkflowState = "missed_call_intro_sent";
+          templateParams = [name];
         }
 
-        // Update state
         if (mongoose.connection.readyState === 1) {
-          let leadDoc = await Lead.findOne({ phone: phone });
+          const leadDoc = await Lead.findOne({ phone: phone });
           if (leadDoc && leadDoc.currentWorkflowState !== "awaiting_correction") {
             leadDoc.currentWorkflowState = targetWorkflowState;
             await leadDoc.save();
           }
         }
-        
+
         await sendAiSensyWhatsApp({
           destination: phone,
           userName: name,

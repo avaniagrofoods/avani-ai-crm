@@ -30,13 +30,18 @@ process.env.APP_MODE = 'staging';
 process.env.PROVIDER_MODE = 'mock';
 process.env.MONGODB_DB_NAME = 'avani_ai_crm_test';
 
-const CRM_CLUSTER_HOST = 'avani-loan-services-m0.rhpn2gh.mongodb.net';
 const CRM_TEST_DB = 'avani_ai_crm_test';
-const DB_USER = 'starpowerzlatur2210_db_user';
-const RAW_PASS = process.env.MONGODB_PASSWORD || 'Samarth@1356';
-const ENCODED_PASS = encodeURIComponent(RAW_PASS);
-
-const STAGING_URI = `mongodb+srv://${DB_USER}:${ENCODED_PASS}@${CRM_CLUSTER_HOST}/${CRM_TEST_DB}?authSource=admin&retryWrites=true&w=majority`;
+const STAGING_URI = (process.env.TEST_MONGODB_URI || 'mongodb://127.0.0.1:27017/avani_ai_crm_test').trim();
+const parsedStagingUrl = new URL(STAGING_URI);
+const CRM_CLUSTER_HOST = parsedStagingUrl.hostname;
+if (CRM_CLUSTER_HOST.includes('rhpn2gh.mongodb.net') || CRM_CLUSTER_HOST.includes('cluster0.mlcxcp.mongodb.net') || CRM_CLUSTER_HOST.includes('xj6nhak.mongodb.net')) {
+  console.error('❌ SAFETY ABORT: Staging test must NOT target shared production Atlas clusters.');
+  process.exit(1);
+}
+if (parsedStagingUrl.pathname !== '/avani_ai_crm_test') {
+  console.error('❌ SAFETY ABORT: Staging test URI must target /avani_ai_crm_test');
+  process.exit(1);
+}
 process.env.MONGODB_URI = STAGING_URI;
 
 const TEST_RUN_MARKER = `SYNTH-STAGE-CRM-${Date.now()}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
@@ -72,10 +77,16 @@ async function main() {
     assert.strictEqual(process.env.PROVIDER_MODE, 'mock');
     assert.ok(process.env.MONGODB_URI.includes('avani_ai_crm_test'));
 
+    const useTls =
+      STAGING_URI.startsWith('mongodb+srv://') ||
+      STAGING_URI.includes('mongodb.net') ||
+      STAGING_URI.includes('tls=true') ||
+      STAGING_URI.includes('ssl=true');
+
     conn = await mongoose.connect(STAGING_URI, {
       serverSelectionTimeoutMS: 5000,
       socketTimeoutMS: 45000,
-      tls: true
+      tls: useTls
     });
 
     assert.ok(conn, 'Mongoose connection failed');
@@ -312,7 +323,7 @@ async function main() {
 
     // Verify rejection of ALS cluster host
     assert.throws(() => {
-      const uri = `mongodb+srv://${DB_USER}:${ENCODED_PASS}@${ALS_CLUSTER_HOST}/${CRM_TEST_DB}`;
+      const uri = `mongodb+srv://synth_user:synth_pass@${ALS_CLUSTER_HOST}/${CRM_TEST_DB}`;
       if (uri.includes(ALS_CLUSTER_HOST)) {
         throw new Error(`CROSS-APPLICATION BREACH: AI CRM must never connect to Loan Services cluster [${ALS_CLUSTER_HOST}]`);
       }
@@ -320,7 +331,7 @@ async function main() {
 
     // Verify rejection of production DB in staging mode
     assert.throws(() => {
-      const uri = `mongodb+srv://${DB_USER}:${ENCODED_PASS}@${CRM_CLUSTER_HOST}/avani_ai_crm_prod`;
+      const uri = `mongodb+srv://synth_user:synth_pass@${CRM_CLUSTER_HOST}/avani_ai_crm_prod`;
       if (process.env.APP_MODE === 'staging' && uri.includes('avani_ai_crm_prod')) {
         throw new Error('ISOLATION BREACH: Staging mode cannot connect to production DB [avani_ai_crm_prod]');
       }
@@ -328,7 +339,7 @@ async function main() {
 
     // Verify rejection of ALS database name
     assert.throws(() => {
-      const uri = `mongodb+srv://${DB_USER}:${ENCODED_PASS}@${CRM_CLUSTER_HOST}/avani_loan_services_prod`;
+      const uri = `mongodb+srv://synth_user:synth_pass@${CRM_CLUSTER_HOST}/avani_loan_services_prod`;
       if (uri.includes('avani_loan_services')) {
         throw new Error('ISOLATION BREACH: AI CRM cannot reference Loan Services database');
       }

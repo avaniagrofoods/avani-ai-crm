@@ -3,8 +3,10 @@ import connectToDatabase from '@/lib/db';
 import { Contact } from '@/models/Contact';
 import { Lead } from '@/models/Lead';
 import { Broadcast } from '@/models/Broadcast';
+import { OptOutEngine } from '@/lib/optout-engine';
 import { ProviderRouter } from '@/lib/provider-router';
 import { requireRole } from '@/lib/auth';
+import { evaluateBulkBroadcastPolicy } from '@/lib/safeguards';
 
 export async function POST(req: Request) {
   try {
@@ -29,17 +31,16 @@ export async function POST(req: Request) {
       );
     }
 
-    if (process.env.PROVIDER_MODE === 'live' || process.env.BULK_BROADCAST_ENABLED !== 'true') {
-      if (process.env.PROVIDER_MODE === 'live') {
-        return NextResponse.json(
-          {
-            success: false,
-            error: 'BROADCAST_DISABLED',
-            message: 'Safety invariant: Bulk broadcast messaging is strictly disabled in production live mode to protect consumers.'
-          },
-          { status: 403 }
-        );
-      }
+    const bulkPolicy = evaluateBulkBroadcastPolicy();
+    if (!bulkPolicy.allowed) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: bulkPolicy.error,
+          message: bulkPolicy.message
+        },
+        { status: bulkPolicy.status }
+      );
     }
 
     const contactQuery: any = { optedIn: { $ne: false } };
@@ -58,17 +59,26 @@ export async function POST(req: Request) {
       });
     }
 
-    const phones = contacts.map(c => c.phone);
+    const phones = Array.from(
+      new Set(contacts.flatMap(c => OptOutEngine.getPhoneVariants(c.phone || '').variants))
+    );
     const optedOutLeads = await Lead.find({
       $or: [
         { isOptedOut: true },
         { status: 'OPTED_OUT' },
-        { consentStatus: 'DENIED' }
+        { consentStatus: { $in: ['DENIED', 'WITHDRAWN'] } }
       ],
       phone: { $in: phones }
     }).select('phone');
+    const optedOutContacts = await Contact.find({
+      optedIn: false,
+      phone: { $in: phones }
+    }).select('phone');
 
-    const optedOutPhoneSet = new Set(optedOutLeads.map(l => l.phone));
+    const optedOutPhoneSet = new Set([
+      ...optedOutLeads.flatMap(l => OptOutEngine.getPhoneVariants(l.phone || '').variants),
+      ...optedOutContacts.flatMap(c => OptOutEngine.getPhoneVariants(c.phone || '').variants)
+    ]);
     const eligibleContacts = contacts.filter(c => !optedOutPhoneSet.has(c.phone));
     const suppressedCount = contacts.length - eligibleContacts.length;
 

@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { ProviderRouter } from './provider-router';
 import { sanitizeForLog } from './consent-privacy';
+import { evaluateAuthorizedTestRecipient, maskPhoneForLog } from './safeguards';
 
 export const GOOGLE_SHEETS_RECOMMENDED_TABS = [
   'Master Leads',
@@ -219,7 +220,13 @@ export async function sendMissedCallWhatsApp(phone: string, name: string) {
   const authToken = process.env.TWILIO_AUTH_TOKEN;
   const twilioWhatsApp = process.env.TWILIO_WHATSAPP_NUMBER || '+917249108474';
 
-  if (!accountSid || !authToken || process.env.PROVIDER_MODE === 'mock') return;
+  if (process.env.PROVIDER_MODE !== 'live') return;
+  const recipientCheck = evaluateAuthorizedTestRecipient(phone);
+  if (!recipientCheck.allowed) {
+    console.warn(`[WhatsAppChecklist Safety Clamp] Blocked Twilio fallback for unauthorized recipient: ${recipientCheck.targetMasked}`);
+    return;
+  }
+  if (!accountSid || !authToken) return;
 
   const url = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`;
   const message = `Hello ${name}, we tried calling you from Avani Finserv regarding your loan inquiry but couldn't connect. Are you still looking for a loan? Reply YES to continue chatting with our AI assistant.`;
@@ -322,6 +329,15 @@ export async function sendAiSensyWhatsAppTemplate(
   templateParams: string[] = [],
   attempt: number = 1
 ): Promise<{ success: boolean; message: string }> {
+  if (process.env.PROVIDER_MODE !== 'live') {
+    return { success: true, message: 'Mock safety gate: template dispatch simulated' };
+  }
+  const recipientCheck = evaluateAuthorizedTestRecipient(phone);
+  if (!recipientCheck.allowed) {
+    console.error(`[Integrations Safety Clamp] Blocked live AiSensy template dispatch to ${recipientCheck.targetMasked}: ${recipientCheck.reason}`);
+    return { success: false, message: recipientCheck.message };
+  }
+
   const apiKey = process.env.AISENCY_WABA_API_KEY;
   if (!apiKey) {
     console.warn('AISENCY_WABA_API_KEY is not defined.');
@@ -355,13 +371,13 @@ export async function sendAiSensyWhatsAppTemplate(
 
     const data = await response.json();
     if (response.ok && data.success) {
-      console.log(`AiSensy WhatsApp Template ${templateName} sent to ${cleanPhone}`);
+      console.log(`AiSensy WhatsApp Template ${templateName} sent to ${maskPhoneForLog(cleanPhone)}`);
       return { success: true, message: 'Sent successfully' };
     } else {
       throw new Error(data.message || `API error status ${response.status}`);
     }
   } catch (error: any) {
-    console.error(`AiSensy Attempt ${attempt} failed for ${cleanPhone}:`, error.message);
+    console.error(`AiSensy Attempt ${attempt} failed for ${maskPhoneForLog(cleanPhone)}:`, error.message);
     if (attempt < 3) {
       console.log(`Retrying in 2 seconds (attempt ${attempt + 1})...`);
       await new Promise(resolve => setTimeout(resolve, 2000));
@@ -388,7 +404,13 @@ export async function sendWhatsAppChecklist(phone: string, name: string, loanTyp
   const authToken = process.env.TWILIO_AUTH_TOKEN;
   const twilioWhatsApp = '+917249108474';
 
-  if (!accountSid || !authToken || process.env.PROVIDER_MODE === 'mock') return;
+  if (process.env.PROVIDER_MODE !== 'live') return;
+  const recipientCheck = evaluateAuthorizedTestRecipient(phone);
+  if (!recipientCheck.allowed) {
+    console.warn(`[WhatsAppChecklist Safety Clamp] Blocked Twilio fallback for unauthorized recipient: ${recipientCheck.targetMasked}`);
+    return;
+  }
+  if (!accountSid || !authToken) return;
 
   const url = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`;
 

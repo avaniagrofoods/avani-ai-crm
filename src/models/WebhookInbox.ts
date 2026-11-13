@@ -8,7 +8,7 @@ const WebhookInboxSchema = new mongoose.Schema({
   payload: { type: mongoose.Schema.Types.Mixed },
   status: {
     type: String,
-    enum: ['RECEIVED', 'VERIFIED', 'QUEUED', 'PROCESSING', 'COMPLETED', 'PROCESSED', 'FAILED'],
+    enum: ['RECEIVED', 'VERIFIED', 'QUEUED', 'PROCESSING', 'COMPLETED', 'PROCESSED', 'FAILED', 'ARCHIVED_HISTORICAL'],
     default: 'RECEIVED'
   },
   receivedAt: { type: Date, default: Date.now },
@@ -17,7 +17,9 @@ const WebhookInboxSchema = new mongoose.Schema({
   attemptCount: { type: Number, default: 0 },
   lastError: { type: String },
   leaseExpiresAt: { type: Date },
-  correlationId: { type: String }
+  correlationId: { type: String },
+  archiveOnly: { type: Boolean, default: false },
+  suppressAutoReply: { type: Boolean, default: false }
 });
 
 export const WebhookInbox = mongoose.models.WebhookInbox || mongoose.model('WebhookInbox', WebhookInboxSchema);

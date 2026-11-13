@@ -133,7 +133,10 @@ runTest('CP25.2-13: direct-message API validates minimum 10 digits', () => {
 runTest('CP25.2-14: direct-message restricts live dispatch strictly to test number', () => {
   const code = fs.readFileSync(path.join('src', 'app', 'api', 'contacts', 'direct-message', 'route.ts'), 'utf8');
   assert.ok(code.includes('LIVE_DISPATCH_RESTRICTED'), 'LIVE_DISPATCH_RESTRICTED missing');
-  assert.ok(code.includes('919175635165'), 'Authorized test phone clamp missing');
+  const safeguardsCode = fs.readFileSync(path.join('src', 'lib', 'safeguards.ts'), 'utf8');
+  assert.ok(code.includes('evaluateAuthorizedTestRecipient'), 'Centralized evaluateAuthorizedTestRecipient missing');
+  assert.ok(safeguardsCode.includes('AUTHORIZED_TEST_PHONE_CANONICAL'), 'AUTHORIZED_TEST_PHONE_CANONICAL missing');
+  assert.ok(!code.includes('919175635165'), 'Hardcoded test phone fallback must not exist');
 });
 
 // 15. Verify direct-message checks CHATMITRA_API_KEY when in live mode
