@@ -79,6 +79,22 @@ export async function POST(req: Request) {
     const normalizedPhoneFormatted = phoneData.formatted;
     const normalizedMobileDigits = phoneData.raw10;
 
+    const idempotencyKey = body.idempotencyKey ? String(body.idempotencyKey).trim().slice(0, 120) : undefined;
+    if (idempotencyKey) {
+      const existingByKey = await Lead.findOne({ idempotencyKey });
+      if (existingByKey) {
+        return NextResponse.json(
+          {
+            success: true,
+            leadId: existingByKey.leadId,
+            idempotencyHit: true,
+            message: 'Thank you. Your loan enquiry has already been registered safely.'
+          },
+          { status: 200 }
+        );
+      }
+    }
+
     const existingLead = await Lead.findOne({
       $or: [
         { phone: normalizedPhoneFormatted },
@@ -97,11 +113,18 @@ export async function POST(req: Request) {
       loanType: canonicalLoanCategory,
       leadSource: body.leadSource ? String(body.leadSource).slice(0, 60) : 'WEBSITE_PUBLIC_FORM',
       consentStatus: 'GRANTED',
-      consentPurpose: 'LOAN_ELIGIBILITY_PROCESSING',
+      consentPurpose: body.consentPurpose ? String(body.consentPurpose).slice(0, 80) : 'LOAN_ELIGIBILITY_PROCESSING',
       consentTimestamp: new Date(),
       isOptedOut: false,
       updatedAt: new Date()
     };
+
+    if (idempotencyKey) sanitizedSet.idempotencyKey = idempotencyKey;
+    if (body.utmSource) sanitizedSet.utmSource = String(body.utmSource).slice(0, 80);
+    if (body.utmMedium) sanitizedSet.utmMedium = String(body.utmMedium).slice(0, 80);
+    if (body.utmCampaign) sanitizedSet.utmCampaign = String(body.utmCampaign).slice(0, 120);
+    if (body.utmContent) sanitizedSet.utmContent = String(body.utmContent).slice(0, 120);
+    if (body.utmTerm) sanitizedSet.utmTerm = String(body.utmTerm).slice(0, 120);
 
     if (email) sanitizedSet.email = email;
     if (city) sanitizedSet.city = city;

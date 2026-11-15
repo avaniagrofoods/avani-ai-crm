@@ -13,6 +13,8 @@ interface NotificationState {
   message: string;
 }
 
+const nextTempId = () => `temp_${Date.now()}`;
+
 export default function InboxPage() {
   const [contacts, setContacts] = useState<any[]>([]);
   const [activeContactId, setActiveContactId] = useState<string | null>(null);
@@ -122,7 +124,7 @@ export default function InboxPage() {
       setIsSending(true);
 
       // Optimistic UI update
-      const tempId = `temp_${Date.now()}`;
+      const tempId = nextTempId();
       setMessages(prev => [
         ...prev,
         {
