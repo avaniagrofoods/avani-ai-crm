@@ -30,8 +30,17 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
-.env*
+# env files
+.env
+.env.*
+*.env
+scratch/*.env
+scratch/*.env.*
+!*.example
+!.env.example
+!.env.staging.example
+!.env.sample
+!.env.template
 
 # vercel
 .vercel
@@ -46,7 +55,6 @@ temp-app/
 
 *.ps1
 *.js
-.env*
 
 # Temporary backups, scratch, and local docs
 *.bak
