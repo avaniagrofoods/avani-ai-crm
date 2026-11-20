@@ -11,7 +11,7 @@ import {
 } from '@/lib/password';
 
 export const SESSION_COOKIE_NAME = 'avani_crm_session';
-export const SESSION_MAX_AGE_SECONDS = 60 * 60 * 8; // 8 hours
+export const SESSION_MAX_AGE_SECONDS = 1800; // 30 minutes (Task 5H.7 A-04 interim mitigation)
 
 export type CrmRole = 'ADMIN' | 'ADVISOR';
 

@@ -1,10 +1,7 @@
 import { NextResponse } from 'next/server';
-import connectToDatabase from '@/lib/db';
-import { Lead } from '@/models/Lead';
-import { Conversation } from '@/models/Conversation';
-import { DocumentModel } from '@/models/Document';
 import { QualificationEngine } from '@/lib/qualification-engine';
-import { requireAuth, isValidObjectId, canAccessLead } from '@/lib/auth';
+import { requireAuth, canAccessLead } from '@/lib/auth';
+import { CrmSheetsService, leadRepository, SheetsCrmError } from '@/lib/google-sheets';
 
 export async function POST(
   req: Request,
@@ -14,20 +11,9 @@ export async function POST(
     const auth = await requireAuth(req);
     if (!auth.ok) return auth.response;
 
+    await CrmSheetsService.assertHealthy();
     const resolvedParams = await params;
-    if (!isValidObjectId(resolvedParams.id)) {
-      return NextResponse.json({ success: false, error: 'Invalid lead ID format.' }, { status: 400 });
-    }
-
-    const conn = await connectToDatabase();
-    if (!conn || conn.connection?.readyState !== 1) {
-      return NextResponse.json(
-        { success: false, error: 'DATABASE_UNAVAILABLE' },
-        { status: 503 }
-      );
-    }
-
-    const lead = await Lead.findById(resolvedParams.id);
+    const lead = await CrmSheetsService.findHydratedLeadByIdOrPhone(resolvedParams.id);
     if (!lead) {
       return NextResponse.json({ success: false, error: 'Lead not found' }, { status: 404 });
     }
@@ -39,34 +25,26 @@ export async function POST(
       );
     }
 
-    const conversation = await Conversation.findOne({ customerPhone: lead.phone }).lean();
-    const docs = await DocumentModel.findOne({ leadId: lead.leadId || lead._id.toString() }).lean();
-
-    const result = QualificationEngine.calculateScore(lead, conversation, docs);
-
-    lead.qualificationScore = result.score;
-    lead.qualificationBreakdown = {
-      ...result.breakdown,
-      calculatedAt: new Date()
-    };
-
+    const result = QualificationEngine.calculateScore(lead, null, null);
+    let nextStage = lead.stage;
     if (result.score >= 60 && (lead.stage === 'NEW_ENQUIRY' || lead.stage === 'CONTACT_PENDING')) {
-      lead.stage = 'QUALIFIED';
-      lead.stageHistory.push({
-        stage: 'QUALIFIED',
-        changedBy: `SYSTEM_QUALIFICATION_ENGINE (${auth.session.name})`,
-        changedAt: new Date(),
-        reason: `Automated Qualification: Score ${result.score}/100 (${result.tierLabel})`,
-        notes: result.reasoning.join(' | ')
+      nextStage = 'QUALIFIED';
+      await leadRepository.upsertLead({
+        lead_id: lead.leadId,
+        customer_id: lead.customerId,
+        loan_category: lead.loanType,
+        requested_amount: lead.requestedAmount,
+        lead_status: nextStage,
+        lead_source: lead.leadSource,
+        assigned_advisor_id: lead.assignedAdvisor.id,
+        priority: result.score >= 80 ? 'HIGH' : lead.priority
       });
     }
-
-    lead.updatedAt = new Date();
-    await lead.save();
 
     return NextResponse.json({
       success: true,
       leadId: lead.leadId,
+      stage: nextStage,
       score: result.score,
       tier: result.tier,
       tierLabel: result.tierLabel,
@@ -74,6 +52,8 @@ export async function POST(
       reasoning: result.reasoning
     });
   } catch (error: any) {
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    const status = error instanceof SheetsCrmError ? error.httpStatus : 500;
+    const code = error instanceof SheetsCrmError ? error.code : 'INTERNAL_ERROR';
+    return NextResponse.json({ success: false, error: code, message: error.message }, { status });
   }
 }

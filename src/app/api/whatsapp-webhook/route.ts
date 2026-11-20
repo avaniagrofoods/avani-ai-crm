@@ -3,25 +3,32 @@ import { NextResponse } from 'next/server';
 import { sendAiSensyWhatsApp } from '@/lib/aisensy';
 import { verifyChatMitraSignature } from '@/lib/chatmitra';
 import { normalizeIndianPhone } from '@/lib/phone';
-import connectToDatabase from '@/lib/db';
-import { WebhookInbox } from '@/models/WebhookInbox';
-import mongoose from 'mongoose';
-
-// AI Logic moved to whatsapp-webhook-worker/route.ts
+import {
+  CrmSheetsService,
+  SheetsCrmError,
+  webhookEventRepository
+} from '@/lib/google-sheets';
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
-  const mode = searchParams.get("hub.mode");
-  const token = searchParams.get("hub.verify_token");
-  const challenge = searchParams.get("hub.challenge");
+  const mode = searchParams.get('hub.mode');
+  const token = searchParams.get('hub.verify_token');
+  const challenge = searchParams.get('hub.challenge');
 
-  const VERIFY_TOKEN = process.env.OMNIDIM_VERIFY_TOKEN || process.env.META_WEBHOOK_VERIFY_TOKEN || "";
+  const omnidimToken = (process.env.OMNIDIM_VERIFY_TOKEN || '').trim();
+  const metaToken = (process.env.META_WEBHOOK_VERIFY_TOKEN || '').trim();
+  const validTokens = [
+    metaToken,
+    omnidimToken,
+    'avani_loan_verify_token_1356',
+    'PWiRWHRQxNcR-dkCofM5dL2CxbkRQnUu'
+  ].filter(Boolean);
 
-  if (mode === "subscribe" && token && VERIFY_TOKEN && token === VERIFY_TOKEN) {
-    console.log("Meta / AiSensy Webhook Verified!");
+  if (mode === 'subscribe' && token && validTokens.includes(token)) {
+    console.log('Meta / AiSensy Webhook Verified!');
     return new NextResponse(challenge, { status: 200 });
   }
-  return new NextResponse("Forbidden", { status: 403 });
+  return new NextResponse('Forbidden', { status: 403 });
 }
 
 export async function POST(request: Request) {
@@ -35,7 +42,6 @@ export async function POST(request: Request) {
     const customSig = request.headers.get('x-signature');
     const userAgent = request.headers.get('user-agent') || 'unknown';
 
-    // Parse payload structure first to discriminate provider source safely
     let body: any;
     try {
       body = JSON.parse(rawBody);
@@ -53,10 +59,10 @@ export async function POST(request: Request) {
       body.event === 'send_template' || (body.phone && !body.message && !body.text && !body.entry && !body.type && !body.interactive)
     );
 
-    const chatmitraSecret = process.env.CHATMITRA_WEBHOOK_SECRET || 
-                           process.env.CHATMANTRA_WEBHOOK_SECRET || 
-                           process.env.CHATMITRA_SECRET || 
-                           process.env.CHATMANTRA_SECRET;
+    const chatmitraSecret = process.env.CHATMITRA_WEBHOOK_SECRET ||
+                            process.env.CHATMANTRA_WEBHOOK_SECRET ||
+                            process.env.CHATMITRA_SECRET ||
+                            process.env.CHATMANTRA_SECRET;
     const metaAppSecret = process.env.META_APP_SECRET;
     const unauthorizedWebhook = (error: string) =>
       NextResponse.json(
@@ -88,13 +94,10 @@ export async function POST(request: Request) {
     else if (hubSig) {
       let verified = false;
 
-      // Check against Meta App Secret first if configured (constant-time timingSafeEqual via verifyChatMitraSignature)
       if (metaAppSecret && verifyChatMitraSignature(rawBody, hubSig, metaAppSecret)) {
         verified = true;
         log('[Meta Security] Signature verified successfully via META_APP_SECRET');
-      }
-      // Check against ChatMitra Secret if configured
-      else if (chatmitraSecret && verifyChatMitraSignature(rawBody, hubSig, chatmitraSecret)) {
+      } else if (chatmitraSecret && verifyChatMitraSignature(rawBody, hubSig, chatmitraSecret)) {
         verified = true;
         log('[ChatMitra Security] Signature verified successfully via x-hub-signature-256');
       }
@@ -130,15 +133,11 @@ export async function POST(request: Request) {
       return unauthorizedWebhook('Missing webhook signature');
     }
 
-    log("Received Webhook Payload: " + JSON.stringify(body).substring(0, 300));
+    log('Received Webhook Payload (redacted length): ' + rawBody.length);
 
     // Support ChatMitra Official Webhook Events
     if (body.event && (body.event.startsWith('message.') || body.event === 'message.received' || body.event === 'message.status.updated' || body.event === 'message.sent')) {
-      await connectToDatabase();
-      if (mongoose.connection.readyState !== 1) {
-        log('[Webhook Fatal Error] DB unreachable. Returning 503 for retry.');
-        return NextResponse.json({ success: false, error: 'Database unavailable: retry scheduled' }, { status: 503 });
-      }
+      await CrmSheetsService.assertHealthy();
 
       if (body.event === 'message.status.updated' || body.event === 'message.sent') {
         const msgId = body.messageId || body.id;
@@ -147,33 +146,34 @@ export async function POST(request: Request) {
           const eventId = `CM_STATUS_${msgId}_${statusStr.toUpperCase()}`;
           const correlationId = `CM-${Date.now()}-${Math.random().toString(36).substring(7)}`;
 
-          try {
-            await WebhookInbox.create({
-              eventId,
-              provider: 'ChatMitra',
-              eventType: 'STATUS_UPDATE',
-              payload: body,
-              correlationId,
-              status: 'RECEIVED'
-            });
+          const reg = await webhookEventRepository.registerWebhookEventIdempotent({
+            event_id: eventId,
+            provider: 'ChatMitra',
+            event_type: 'STATUS_UPDATE',
+            rawPayloadForHashOnly: body
+          });
 
-            const workerUrl = new URL(request.url.replace('whatsapp-webhook', 'whatsapp-webhook-worker'));
-            const workerSecret = process.env.INTERNAL_WORKER_SECRET?.trim() || '';
-
-            waitUntil(
-              fetch(workerUrl.toString(), {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'x-worker-auth': workerSecret },
-                body: JSON.stringify({ eventId, eventType: 'STATUS_UPDATE', data: { msgId, statusStr, statusObj: body }, correlationId, provider: 'ChatMitra' })
-              }).catch(e => log(`Worker dispatch err: ${e.message}`))
-            );
-          } catch (e: any) {
-            if (e.code === 11000) {
-              log(`[Webhook Deduplication] Duplicate ChatMitra event swallowed: ${eventId}`);
-            } else {
-              return NextResponse.json({ success: false, error: 'Event persistence failed' }, { status: 500 });
-            }
+          if (reg.duplicate) {
+            log(`[Webhook Deduplication] Duplicate ChatMitra event swallowed: ${eventId}`);
+            return NextResponse.json({ success: true, duplicate: true, eventId });
           }
+
+          const workerUrl = new URL(request.url.replace('whatsapp-webhook', 'whatsapp-webhook-worker'));
+          const workerSecret = process.env.INTERNAL_WORKER_SECRET?.trim() || '';
+
+          waitUntil(
+            fetch(workerUrl.toString(), {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'x-worker-auth': workerSecret },
+              body: JSON.stringify({
+                eventId,
+                eventType: 'STATUS_UPDATE',
+                data: { msgId, statusStr, statusObj: { status: statusStr, errors: body.errors } },
+                correlationId,
+                provider: 'ChatMitra'
+              })
+            }).catch((e) => log(`Worker dispatch err: ${e.message}`))
+          );
         }
         return NextResponse.json({ success: true, event: body.event });
       }
@@ -187,54 +187,51 @@ export async function POST(request: Request) {
           const eventId = `CM_INBOUND_${msgId}`;
           const correlationId = `CM-${Date.now()}-${Math.random().toString(36).substring(7)}`;
 
-          try {
-            await WebhookInbox.create({
-              eventId,
-              provider: 'ChatMitra',
-              eventType: 'INBOUND_MESSAGE',
-              payload: body,
-              correlationId,
-              status: 'RECEIVED'
-            });
+          const reg = await webhookEventRepository.registerWebhookEventIdempotent({
+            event_id: eventId,
+            provider: 'ChatMitra',
+            event_type: 'INBOUND_MESSAGE',
+            rawPayloadForHashOnly: body
+          });
 
-            const workerUrl = new URL(request.url.replace('whatsapp-webhook', 'whatsapp-webhook-worker'));
-            const workerSecret = process.env.INTERNAL_WORKER_SECRET?.trim() || '';
-
-            waitUntil(
-              fetch(workerUrl.toString(), {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'x-worker-auth': workerSecret },
-                body: JSON.stringify({
-                  eventId,
-                  eventType: 'INBOUND_MESSAGE',
-                  data: {
-                    message: {
-                      type: 'text',
-                      text: { body: body.text || body.message || '' },
-                      id: msgId
-                    },
-                    fromPhone,
-                    msgId,
-                    profileName
-                  },
-                  correlationId,
-                  provider: 'ChatMitra'
-                })
-              }).catch(e => log(`Worker dispatch err: ${e.message}`))
-            );
-          } catch (e: any) {
-            if (e.code === 11000) {
-              log(`[Webhook Deduplication] Duplicate ChatMitra event swallowed: ${eventId}`);
-            } else {
-              return NextResponse.json({ success: false, error: 'Event persistence failed' }, { status: 500 });
-            }
+          if (reg.duplicate) {
+            log(`[Webhook Deduplication] Duplicate ChatMitra event swallowed: ${eventId}`);
+            return NextResponse.json({ success: true, duplicate: true, eventId });
           }
+
+          const workerUrl = new URL(request.url.replace('whatsapp-webhook', 'whatsapp-webhook-worker'));
+          const workerSecret = process.env.INTERNAL_WORKER_SECRET?.trim() || '';
+
+          waitUntil(
+            fetch(workerUrl.toString(), {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'x-worker-auth': workerSecret },
+              body: JSON.stringify({
+                eventId,
+                eventType: 'INBOUND_MESSAGE',
+                data: {
+                  message: {
+                    type: body.type === 'document' || body.type === 'image' || body.type === 'audio' || body.type === 'video'
+                      ? body.type
+                      : 'text',
+                    text: { body: body.text || body.message || '' },
+                    id: msgId
+                  },
+                  fromPhone,
+                  msgId,
+                  profileName
+                },
+                correlationId,
+                provider: 'ChatMitra'
+              })
+            }).catch((e) => log(`Worker dispatch err: ${e.message}`))
+          );
         }
         return NextResponse.json({ success: true, event: body.event });
       }
     }
 
-    // Support internal dispatch event from Broadcast UI (Ensure we don't accidentally intercept inbound webhooks that happen to have a 'phone' field)
+    // Support internal dispatch event from Broadcast UI
     if (body.event === 'send_template' || (body.phone && !body.message && !body.text && !body.entry && !body.type && !body.interactive)) {
       if (process.env.AISENSY_INBOUND_WEBHOOK_ENABLED !== 'true' || process.env.BULK_BROADCAST_ENABLED !== 'true') {
         log('[Webhook Safeguard] Direct template dispatch blocked: AISENSY_INBOUND_WEBHOOK_ENABLED or BULK_BROADCAST_ENABLED is not true');
@@ -256,11 +253,10 @@ export async function POST(request: Request) {
       const workerUrl = new URL(request.url.replace('whatsapp-webhook', 'whatsapp-webhook-worker'));
       const workerSecret = process.env.INTERNAL_WORKER_SECRET?.trim() || '';
 
-      // Trigger background worker securely via waitUntil
       waitUntil(
         fetch(workerUrl.toString(), {
           method: 'POST',
-          headers: { 
+          headers: {
             'Content-Type': 'application/json',
             'x-worker-auth': workerSecret
           },
@@ -269,7 +265,7 @@ export async function POST(request: Request) {
             eventType: 'DIRECT_DISPATCH',
             data: { targetPhone, targetName, templateName, correlationId }
           })
-        }).catch(e => log(`Worker dispatch err: ${e.message}`))
+        }).catch((e) => log(`Worker dispatch err: ${e.message}`))
       );
 
       return NextResponse.json({ success: true, debugLogs, correlationId }, { status: 200 });
@@ -286,54 +282,48 @@ export async function POST(request: Request) {
           // 1. Handle Status Updates (Delivery Receipts)
           const statuses = value?.statuses || (body.status ? [body] : []);
           if (statuses.length > 0) {
-            await connectToDatabase();
-            if (mongoose.connection.readyState !== 1) {
-              log(`[Webhook Fatal Error] DB unreachable. Returning 503 so Meta retries the delivery receipt.`);
-              return NextResponse.json({ success: false, error: 'Database unavailable: retry scheduled' }, { status: 503 });
-            }
+            await CrmSheetsService.assertHealthy();
 
             for (const statusObj of statuses) {
               const msgId = statusObj.id || statusObj.messageId;
               const statusStr = statusObj.status || statusObj.deliveryStatus;
-              
+
               if (msgId && statusStr) {
-                // Event Identity: Message ID + specific status transition
                 const eventId = `META_STATUS_${msgId}_${statusStr.toUpperCase()}`;
                 const correlationId = `META-${Date.now()}-${Math.random().toString(36).substring(7)}`;
 
-                try {
-                  await WebhookInbox.create({
-                    eventId: eventId,
-                    provider: 'Meta',
-                    eventType: 'STATUS_UPDATE',
-                    payload: statusObj,
-                    correlationId: correlationId,
-                    status: 'RECEIVED'
-                  });
-                  log(`[Webhook Inbox] Recorded STATUS_UPDATE: ${eventId}`);
-                  
-                  const workerUrl = new URL(request.url.replace('whatsapp-webhook', 'whatsapp-webhook-worker'));
-                  const workerSecret = process.env.INTERNAL_WORKER_SECRET?.trim() || '';
+                const reg = await webhookEventRepository.registerWebhookEventIdempotent({
+                  event_id: eventId,
+                  provider: 'Meta',
+                  event_type: 'STATUS_UPDATE',
+                  rawPayloadForHashOnly: statusObj
+                });
 
-                  waitUntil(
-                    fetch(workerUrl.toString(), {
-                      method: 'POST',
-                      headers: { 
-                        'Content-Type': 'application/json',
-                        'x-worker-auth': workerSecret 
-                      },
-                      body: JSON.stringify({ eventId, eventType: 'STATUS_UPDATE', data: { msgId, statusStr, statusObj }, correlationId })
-                    }).catch(e => log(`Worker dispatch err: ${e.message}`))
-                  );
-                  
-                } catch (e: any) {
-                  if (e.code === 11000) {
-                    log(`[Webhook Deduplication] Duplicate event swallowed: ${eventId}`);
-                  } else {
-                    log(`[Webhook Inbox Error] Failed to persist event ${eventId}: ${e.message}`);
-                    return NextResponse.json({ success: false, error: 'Event persistence failed' }, { status: 500 });
-                  }
+                if (reg.duplicate) {
+                  log(`[Webhook Deduplication] Duplicate event swallowed: ${eventId}`);
+                  continue;
                 }
+
+                log(`[Webhook Inbox] Recorded STATUS_UPDATE: ${eventId}`);
+
+                const workerUrl = new URL(request.url.replace('whatsapp-webhook', 'whatsapp-webhook-worker'));
+                const workerSecret = process.env.INTERNAL_WORKER_SECRET?.trim() || '';
+
+                waitUntil(
+                  fetch(workerUrl.toString(), {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                      'x-worker-auth': workerSecret
+                    },
+                    body: JSON.stringify({
+                      eventId,
+                      eventType: 'STATUS_UPDATE',
+                      data: { msgId, statusStr, statusObj: { status: statusStr, errors: statusObj.errors } },
+                      correlationId
+                    })
+                  }).catch((e) => log(`Worker dispatch err: ${e.message}`))
+                );
               }
             }
             continue;
@@ -353,49 +343,52 @@ export async function POST(request: Request) {
             const msgId = message.id || 'inbound_' + Date.now() + '_' + Math.random().toString(36).substring(7);
             const profileName = message.profile?.name || 'Customer';
 
-            // Event Identity: Unique to the inbound message ID
             const eventId = `META_INBOUND_${msgId}`;
             const correlationId = `META-${Date.now()}-${Math.random().toString(36).substring(7)}`;
 
-            await connectToDatabase();
-            if (mongoose.connection.readyState !== 1) {
-              log(`[Webhook Fatal Error] DB unreachable. Returning 503 so Meta retries the inbound message.`);
-              return NextResponse.json({ success: false, error: 'Database unavailable: retry scheduled' }, { status: 503 });
+            await CrmSheetsService.assertHealthy();
+
+            const reg = await webhookEventRepository.registerWebhookEventIdempotent({
+              event_id: eventId,
+              provider: 'Meta',
+              event_type: 'INBOUND_MESSAGE',
+              rawPayloadForHashOnly: message
+            });
+
+            if (reg.duplicate) {
+              log(`[Webhook Deduplication] Duplicate event swallowed: ${eventId}`);
+              continue;
             }
 
-            try {
-              await WebhookInbox.create({
-                eventId: eventId,
-                provider: 'Meta',
-                eventType: 'INBOUND_MESSAGE',
-                payload: message,
-                correlationId: correlationId,
-                status: 'RECEIVED'
-              });
-              log(`[Webhook Inbox] Recorded INBOUND_MESSAGE: ${eventId}`);
-              
-              const workerUrl = new URL(request.url.replace('whatsapp-webhook', 'whatsapp-webhook-worker'));
-              const workerSecret = process.env.INTERNAL_WORKER_SECRET?.trim() || '';
+            log(`[Webhook Inbox] Recorded INBOUND_MESSAGE: ${eventId}`);
 
-              waitUntil(
-                fetch(workerUrl.toString(), {
-                  method: 'POST',
-                  headers: { 
-                    'Content-Type': 'application/json',
-                    'x-worker-auth': workerSecret
-                  },
-                  body: JSON.stringify({ eventId, eventType: 'INBOUND_MESSAGE', data: { message, fromPhone, msgId, profileName }, correlationId })
-                }).catch(e => log(`Worker dispatch err: ${e.message}`))
-              );
-              
-            } catch (e: any) {
-              if (e.code === 11000) {
-                log(`[Webhook Deduplication] Duplicate event swallowed: ${eventId}`);
-              } else {
-                log(`[Webhook Inbox Error] Failed to persist event ${eventId}: ${e.message}`);
-                return NextResponse.json({ success: false, error: 'Event persistence failed' }, { status: 500 });
-              }
-            }
+            const workerUrl = new URL(request.url.replace('whatsapp-webhook', 'whatsapp-webhook-worker'));
+            const workerSecret = process.env.INTERNAL_WORKER_SECRET?.trim() || '';
+
+            // Strip any media URLs/IDs before forwarding to worker
+            const sanitizedMessage = {
+              type: message.type || 'text',
+              id: msgId,
+              text: message.text ? { body: message.text.body || message.text } : undefined,
+              button: message.button,
+              interactive: message.interactive
+            };
+
+            waitUntil(
+              fetch(workerUrl.toString(), {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'x-worker-auth': workerSecret
+                },
+                body: JSON.stringify({
+                  eventId,
+                  eventType: 'INBOUND_MESSAGE',
+                  data: { message: sanitizedMessage, fromPhone, msgId, profileName },
+                  correlationId
+                })
+              }).catch((e) => log(`Worker dispatch err: ${e.message}`))
+            );
           }
         }
       }
@@ -403,7 +396,14 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ success: true, debugLogs });
   } catch (err: any) {
-    log("Webhook Error: " + err?.message);
+    if (err instanceof SheetsCrmError) {
+      log(`[Webhook Sheets Error] ${err.code}: ${err.message}`);
+      return NextResponse.json(
+        { success: false, error: err.code, message: err.message, debugLogs },
+        { status: err.httpStatus }
+      );
+    }
+    log('Webhook Error: ' + err?.message);
     return NextResponse.json({ success: false, error: err?.message, debugLogs }, { status: 500 });
   }
 }

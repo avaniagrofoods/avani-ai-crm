@@ -1,93 +1,72 @@
 import { NextResponse } from 'next/server';
-import connectToDatabase from '@/lib/db';
-import { Contact } from '@/models/Contact';
-import { Lead } from '@/models/Lead';
-import { Message } from '@/models/Message';
-import { requireAuth, requireRole, buildLeadVisibilityFilter } from '@/lib/auth';
+import {
+  CrmSheetsService,
+  customerRepository,
+  consentRepository,
+  messageEventRepository,
+  SheetsCrmError
+} from '@/lib/google-sheets';
+import { requireAuth, requireRole } from '@/lib/auth';
 
 export async function GET(req: Request) {
   try {
     const auth = await requireAuth(req);
     if (!auth.ok) return auth.response;
 
-    const conn = await connectToDatabase();
-    if (!conn || conn.connection?.readyState !== 1) {
-      return NextResponse.json(
-        { success: false, error: 'DATABASE_UNAVAILABLE', message: 'Database offline. Production persistence unavailable.' },
-        { status: 503 }
-      );
-    }
+    await CrmSheetsService.assertHealthy();
     const { searchParams } = new URL(req.url);
     const phone = searchParams.get('phone');
 
-    let query: Record<string, any> = {};
-    if (phone) query = { phone };
+    const [customers, consents, msgEvents] = await Promise.all([
+      customerRepository.findAll(),
+      consentRepository.findAll(),
+      messageEventRepository.findAll()
+    ]);
 
-    if (auth.session.role !== 'ADMIN') {
-      const visibilityFilter = buildLeadVisibilityFilter(auth.session);
-      const assignedLeads = await Lead.find(visibilityFilter).select('phone normalizedMobile').lean();
-      const allowedPhones = new Set<string>();
-      for (const l of assignedLeads as any[]) {
-        const p = String(l.phone || l.normalizedMobile || '');
-        const digits = p.replace(/\D/g, '').slice(-10);
-        if (digits) {
-          allowedPhones.add(digits);
-          allowedPhones.add(`+91${digits}`);
-          allowedPhones.add(`91${digits}`);
-          allowedPhones.add(`0${digits}`);
-        }
-        if (p) allowedPhones.add(p);
-      }
-      const allowedList = Array.from(allowedPhones);
-      if (allowedList.length === 0) {
-        return NextResponse.json({ success: true, contacts: [] });
-      }
-      query = phone ? { $and: [{ phone }, { phone: { $in: allowedList } }] } : { phone: { $in: allowedList } };
+    const consentMap = new Map(consents.map((c) => [c.customer_id, c]));
+    let filtered = customers;
+    if (phone) {
+      const digits = phone.replace(/\D/g, '').slice(-10);
+      filtered = customers.filter(
+        (c) => c.mobile_number === phone || (digits && c.mobile_number.endsWith(digits))
+      );
     }
 
-    const contacts = await Contact.find(query).sort({ updatedAt: -1, createdAt: -1 }).limit(200).lean();
+    const contactsWithMessages = filtered.map((c) => {
+      const consent = consentMap.get(c.customer_id);
+      const custEvents = msgEvents
+        .filter((m) => m.customer_id === c.customer_id)
+        .sort((a, b) => (a.event_timestamp < b.event_timestamp ? 1 : -1));
+      const lastEvent = custEvents[0];
 
-    const contactsWithMessages = await Promise.all(
-      contacts.map(async (c: any) => {
-        const cPhone = c.phone || c.mobile || c.customerPhone || '';
-        const rawDigits = cPhone.replace(/\D/g, '');
-        const last10 = rawDigits.slice(-10);
-        const phoneVariants = Array.from(new Set([
-          cPhone,
-          last10,
-          `+91${last10}`,
-          `91${last10}`,
-          `0${last10}`
-        ].filter(Boolean)));
-
-        const lastMsg = await Message.findOne({
-          $or: [
-            { phone: { $in: phoneVariants } },
-            { senderPhone: { $in: phoneVariants } },
-            { recipientPhone: { $in: phoneVariants } }
-          ]
-        }).sort({ createdAt: -1 });
-
-        if (lastMsg) {
-          return {
-            ...c,
-            phone: c.phone || last10,
-            messages: [{
-              content: lastMsg.text || (lastMsg.templateName ? `[${lastMsg.templateName}]` : ''),
-              timestamp: lastMsg.createdAt
-            }]
-          };
-        }
-        return {
-          ...c,
-          phone: c.phone || last10
-        };
-      })
-    );
+      return {
+        _id: c.customer_id,
+        customerId: c.customer_id,
+        name: c.customer_name,
+        phone: c.mobile_number,
+        city: c.city,
+        optedIn: consent ? consent.optout_status !== 'OPTED_OUT' : c.record_status !== 'OPTED_OUT',
+        recordStatus: c.record_status,
+        createdAt: c.created_at,
+        updatedAt: c.updated_at,
+        ...(lastEvent
+          ? {
+              messages: [
+                {
+                  content: `[${lastEvent.direction.toUpperCase()}:${lastEvent.message_type}] (${lastEvent.delivery_status})`,
+                  timestamp: lastEvent.event_timestamp
+                }
+              ]
+            }
+          : {})
+      };
+    });
 
     return NextResponse.json({ success: true, contacts: contactsWithMessages });
   } catch (error: any) {
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    const status = error instanceof SheetsCrmError ? error.httpStatus : 500;
+    const code = error instanceof SheetsCrmError ? error.code : 'INTERNAL_ERROR';
+    return NextResponse.json({ success: false, error: code, message: error.message }, { status });
   }
 }
 
@@ -96,33 +75,47 @@ export async function POST(req: Request) {
     const auth = await requireRole(req, ['ADMIN', 'ADVISOR']);
     if (!auth.ok) return auth.response;
 
-    const conn = await connectToDatabase();
-    if (!conn || conn.connection?.readyState !== 1) {
-      return NextResponse.json(
-        { success: false, error: 'DATABASE_UNAVAILABLE', message: 'Database offline. Production persistence unavailable.' },
-        { status: 503 }
-      );
-    }
+    await CrmSheetsService.assertHealthy();
     const body = await req.json();
-
-    const { name, phone, email, city, optedIn } = body;
+    const { name, phone, city, optedIn, enquiry_source } = body;
 
     if (!phone) {
       return NextResponse.json({ success: false, error: 'Phone number is required.' }, { status: 400 });
     }
 
-    const contact = await Contact.findOneAndUpdate(
-      { phone },
-      {
-        $set: {
-          name, phone, email, city, optedIn, updatedAt: new Date()
-        }
-      },
-      { new: true, upsert: true }
-    );
+    const isOptedOut = optedIn === false;
+    const { record: customer } = await customerRepository.upsertCustomer({
+      customer_name: name || 'Valued Customer',
+      mobile_number: phone,
+      city: city || 'Latur',
+      enquiry_source: enquiry_source || 'CRM_MANUAL',
+      record_status: isOptedOut ? 'OPTED_OUT' : 'ACTIVE'
+    });
 
-    return NextResponse.json({ success: true, contact });
+    await consentRepository.upsertConsent({
+      customer_id: customer.customer_id,
+      channel: 'WHATSAPP',
+      consent_status: isOptedOut ? 'WITHDRAWN' : 'GRANTED',
+      consent_source: 'CRM_CONTACT_BOOK',
+      optout_status: isOptedOut ? 'OPTED_OUT' : 'OPTED_IN'
+    });
+
+    return NextResponse.json({
+      success: true,
+      contact: {
+        _id: customer.customer_id,
+        customerId: customer.customer_id,
+        name: customer.customer_name,
+        phone: customer.mobile_number,
+        city: customer.city,
+        optedIn: !isOptedOut,
+        createdAt: customer.created_at,
+        updatedAt: customer.updated_at
+      }
+    });
   } catch (error: any) {
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    const status = error instanceof SheetsCrmError ? error.httpStatus : 500;
+    const code = error instanceof SheetsCrmError ? error.code : 'INTERNAL_ERROR';
+    return NextResponse.json({ success: false, error: code, message: error.message }, { status });
   }
 }

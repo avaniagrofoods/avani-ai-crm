@@ -1,29 +1,20 @@
 import { NextResponse } from 'next/server';
-import connectToDatabase from '@/lib/db';
-import { Lead } from '@/models/Lead';
-import { Contact } from '@/models/Contact';
-import { parseIndianPhone } from '@/lib/phone';
-import { normalizeLoanCategory, generateCanonicalLeadId } from '@/config/pipeline';
-import { CATEGORY_DOCUMENT_CHECKLISTS } from '@/lib/document-checklist';
-import { FollowUpTaskEngine } from '@/lib/followup-task-engine';
+import {
+  CrmSheetsService,
+  SheetsCrmError,
+  normalizeMobileNumber,
+  validateLoanCategory
+} from '@/lib/google-sheets';
 
 export const dynamic = 'force-dynamic';
 
 /**
  * POST /api/public/enquiry
- * Dedicated public intake endpoint for Avani Financial website / Meta landing forms.
- * Strips all privileged CRM workflow, financial, and role fields so external callers
- * cannot escalate privileges, assign advisors, or mutate pipeline revenue.
+ * Public loan enquiry intake endpoint backed exclusively by Google Sheets (CUSTOMERS, LEADS, CONSENTS, FOLLOWUPS).
  */
 export async function POST(req: Request) {
   try {
-    const conn = await connectToDatabase();
-    if (!conn || conn.connection?.readyState !== 1) {
-      return NextResponse.json(
-        { success: false, error: 'DATABASE_UNAVAILABLE', message: 'Service temporarily unavailable.' },
-        { status: 503 }
-      );
-    }
+    await CrmSheetsService.assertHealthy();
 
     const body = await req.json().catch(() => null);
     if (!body || typeof body !== 'object') {
@@ -33,13 +24,8 @@ export async function POST(req: Request) {
     const name = String(body.name || '').trim();
     const phone = String(body.phone || '').trim();
     const loanTypeInput = String(body.loanType || '').trim();
-    const email = body.email ? String(body.email).trim() : undefined;
     const city = body.city ? String(body.city).trim() : undefined;
-    const state = body.state ? String(body.state).trim() : undefined;
-    const monthlyIncome = body.monthlyIncome !== undefined ? Number(body.monthlyIncome) : undefined;
-    const requestedAmount = body.requestedAmount ? String(body.requestedAmount).trim() : undefined;
-    const employmentType = body.employmentType ? String(body.employmentType).trim() : undefined;
-    const preferredLanguage = body.preferredLanguage ? String(body.preferredLanguage).trim() : undefined;
+    const requestedAmount = body.requestedAmount ?? body.requiredLoanAmount ?? '0';
 
     if (!name || !phone || !loanTypeInput) {
       return NextResponse.json(
@@ -48,12 +34,10 @@ export async function POST(req: Request) {
       );
     }
 
-    const phoneData = parseIndianPhone(phone);
-    if (!phoneData) {
-      return NextResponse.json(
-        { success: false, error: 'Invalid phone number. Must be a valid 10-digit Indian mobile number.' },
-        { status: 400 }
-      );
+    try {
+      normalizeMobileNumber(phone);
+    } catch (e: any) {
+      return NextResponse.json({ success: false, error: e.message }, { status: 400 });
     }
 
     const isConsentDenied = body.consentStatus === 'DENIED' || body.consent === false;
@@ -75,131 +59,31 @@ export async function POST(req: Request) {
       );
     }
 
-    const canonicalLoanCategory = normalizeLoanCategory(loanTypeInput);
-    const normalizedPhoneFormatted = phoneData.formatted;
-    const normalizedMobileDigits = phoneData.raw10;
-
-    const idempotencyKey = body.idempotencyKey ? String(body.idempotencyKey).trim().slice(0, 120) : undefined;
-    if (idempotencyKey) {
-      const existingByKey = await Lead.findOne({ idempotencyKey });
-      if (existingByKey) {
-        return NextResponse.json(
-          {
-            success: true,
-            leadId: existingByKey.leadId,
-            idempotencyHit: true,
-            message: 'Thank you. Your loan enquiry has already been registered safely.'
-          },
-          { status: 200 }
-        );
-      }
-    }
-
-    const existingLead = await Lead.findOne({
-      $or: [
-        { phone: normalizedPhoneFormatted },
-        { phone: normalizedMobileDigits },
-        { normalizedMobile: normalizedMobileDigits }
-      ]
-    });
-
-    const leadId = existingLead?.leadId || generateCanonicalLeadId();
-    const checklistDefs = CATEGORY_DOCUMENT_CHECKLISTS[canonicalLoanCategory] || CATEGORY_DOCUMENT_CHECKLISTS['Personal Loan'];
-
-    const sanitizedSet: Record<string, any> = {
+    const { hydrated } = await CrmSheetsService.registerOrUpdateCustomerLead({
       name,
-      phone: normalizedPhoneFormatted,
-      normalizedMobile: normalizedMobileDigits,
-      loanType: canonicalLoanCategory,
+      phone,
+      city,
+      loanCategory: validateLoanCategory(loanTypeInput),
+      requestedAmount,
+      leadStatus: 'NEW_ENQUIRY',
       leadSource: body.leadSource ? String(body.leadSource).slice(0, 60) : 'WEBSITE_PUBLIC_FORM',
       consentStatus: 'GRANTED',
-      consentPurpose: body.consentPurpose ? String(body.consentPurpose).slice(0, 80) : 'LOAN_ELIGIBILITY_PROCESSING',
-      consentTimestamp: new Date(),
-      isOptedOut: false,
-      updatedAt: new Date()
-    };
-
-    if (idempotencyKey) sanitizedSet.idempotencyKey = idempotencyKey;
-    if (body.utmSource) sanitizedSet.utmSource = String(body.utmSource).slice(0, 80);
-    if (body.utmMedium) sanitizedSet.utmMedium = String(body.utmMedium).slice(0, 80);
-    if (body.utmCampaign) sanitizedSet.utmCampaign = String(body.utmCampaign).slice(0, 120);
-    if (body.utmContent) sanitizedSet.utmContent = String(body.utmContent).slice(0, 120);
-    if (body.utmTerm) sanitizedSet.utmTerm = String(body.utmTerm).slice(0, 120);
-
-    if (email) sanitizedSet.email = email;
-    if (city) sanitizedSet.city = city;
-    if (state) sanitizedSet.state = state;
-    if (employmentType) sanitizedSet.employmentType = employmentType;
-    if (preferredLanguage) sanitizedSet.preferredLanguage = preferredLanguage;
-    if (monthlyIncome !== undefined && Number.isFinite(monthlyIncome) && monthlyIncome >= 0) {
-      sanitizedSet.monthlyIncome = monthlyIncome;
-    }
-    if (requestedAmount) {
-      sanitizedSet.requestedAmount = requestedAmount;
-      const numericAmount = Number(requestedAmount.replace(/[^0-9.]/g, ''));
-      if (Number.isFinite(numericAmount) && numericAmount > 0) {
-        sanitizedSet.requiredLoanAmount = numericAmount;
-      }
-    }
-
-    const setOnInsertFields: Record<string, any> = {
-      leadId,
-      stage: 'NEW_ENQUIRY',
-      status: 'New',
-      assignedAdvisor: {
-        name: 'Sachin Shinde',
-        email: 'enquiry@avanifinserv.com',
-        phone: '+91 72491 08474',
-        role: 'CHIEF_LOAN_ADVISOR',
-        assignedAt: new Date()
-      },
-      stageHistory: [
-        {
-          stage: 'NEW_ENQUIRY',
-          changedBy: 'PUBLIC_WEBSITE_ENQUIRY',
-          changedAt: new Date(),
-          reason: 'Public website enquiry submitted',
-          notes: `Source: ${sanitizedSet.leadSource}`
-        }
-      ],
-      followUpTasks: FollowUpTaskEngine.generateInitialTasks(leadId, 'Sachin Shinde'),
-      documentChecklist: checklistDefs.map((def) => ({ ...def, status: 'PENDING', updatedAt: new Date() })),
-      createdAt: new Date()
-    };
-
-    const lead = await Lead.findOneAndUpdate(
-      {
-        $or: [
-          { phone: normalizedPhoneFormatted },
-          { phone: normalizedMobileDigits },
-          { normalizedMobile: normalizedMobileDigits }
-        ]
-      },
-      {
-        $set: sanitizedSet,
-        $setOnInsert: setOnInsertFields
-      },
-      { upsert: true, new: true, setDefaultsOnInsert: true }
-    );
-
-    await Contact.findOneAndUpdate(
-      { $or: [{ phone: normalizedPhoneFormatted }, { phone: normalizedMobileDigits }] },
-      {
-        $set: { name, phone: normalizedPhoneFormatted, updatedAt: new Date() },
-        $setOnInsert: { leadId: lead._id, optedIn: true, createdAt: new Date() }
-      },
-      { upsert: true, new: true }
-    ).catch(() => {});
+      consentSource: 'WEBSITE_PUBLIC_FORM',
+      isOptedOut: false
+    });
 
     return NextResponse.json(
       {
         success: true,
-        leadId: lead.leadId,
+        leadId: hydrated.leadId,
+        customerId: hydrated.customerId,
         message: 'Thank you. Your loan enquiry has been registered safely.'
       },
       { status: 201 }
     );
   } catch (error: any) {
-    return NextResponse.json({ success: false, error: 'Unable to submit enquiry.' }, { status: 500 });
+    const status = error instanceof SheetsCrmError ? error.httpStatus : 500;
+    const code = error instanceof SheetsCrmError ? error.code : 'INTERNAL_ERROR';
+    return NextResponse.json({ success: false, error: code, message: error.message }, { status });
   }
 }

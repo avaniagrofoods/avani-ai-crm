@@ -283,22 +283,17 @@ export function evaluateChatbotFlowStep(params: {
     }
   }
 
-  // 1. Sensitive Data Guard in ordinary WhatsApp chat
+  // 1. Sensitive Data Guard in ordinary WhatsApp chat (Zero Document Upload Policy)
   const sensitiveCheck = detectSensitiveDataInChat(text);
   if (sensitiveCheck.containsSensitiveData) {
-    const portal = generateSecureDocumentUploadLink({
-      leadId: ctx.crm_lead_id || 'PENDING_LEAD',
-      phone: ctx.mobile_number || params.verifiedPhone || '919175635165',
-      loanCategory: ctx.loan_category || 'Loan Inquiry'
-    });
-    const reply = `${sensitiveCheck.warningMessage}\n\nSecure Upload Link: ${portal.uploadUrl}`;
+    const reply = sensitiveCheck.warningMessage;
     return {
       replyText: reply,
       nextStep: ctx.currentStep || 'SECURITY_INTERCEPT',
       updatedContext: ctx,
       tags: computeChatMitraTags(ctx),
       customAttributes: buildChatMitraCustomAttributes(ctx),
-      secureUploadLink: portal.uploadUrl,
+      secureUploadLink: undefined,
       auditRecord: {
         inputMessageRef: params.inputMessageId || `MSG-${Date.now()}`,
         detectedLanguage: (ctx.language as any) || 'en',
@@ -577,19 +572,12 @@ export function evaluateChatbotFlowStep(params: {
     ctx.professional_type = composed.professionalType;
   }
 
-  const portal = generateSecureDocumentUploadLink({
-    leadId: ctx.crm_lead_id || `AVL-${Date.now()}`,
-    phone: ctx.mobile_number,
-    loanCategory: ctx.loan_category
-  });
-
   const checklistFormatted = formatChecklistForWhatsApp(composed);
   const fullReply = [
     checklistFormatted,
     '',
-    '*Secure Document Submission:*',
-    'For your privacy, please do not send Aadhaar, PAN, passports, or bank statements directly in chat. Use your secure, encrypted upload portal link below:',
-    portal.uploadUrl,
+    '*Document Privacy Policy:*',
+    'For your privacy, please do not send Aadhaar, PAN, passports, salary slips, property documents, or bank statements in WhatsApp chat. Our advisor will coordinate document verification directly during bank processing.',
     '',
     AVANI_PRODUCT_DETAILS_MESSAGE,
     '',
@@ -603,7 +591,7 @@ export function evaluateChatbotFlowStep(params: {
     tags: computeChatMitraTags(ctx),
     customAttributes: buildChatMitraCustomAttributes(ctx),
     checklist: composed,
-    secureUploadLink: portal.uploadUrl,
+    secureUploadLink: undefined,
     auditRecord: {
       inputMessageRef: params.inputMessageId || `MSG-${Date.now()}`,
       detectedLanguage: (ctx.language as any) || 'en',

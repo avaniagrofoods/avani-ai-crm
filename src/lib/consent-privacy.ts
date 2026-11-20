@@ -1,18 +1,15 @@
-import crypto from 'crypto';
-
 /**
- * AVANI LOAN SERVICES — CP-25 Consent, Data Privacy & Secure Document Protection Engine
+ * AVANI LOAN SERVICES — Consent, Data Privacy & Zero-Document-Storage Guard Engine
  *
- * Implements:
+ * TASK 5H.4 Update:
  * - Service vs. Marketing Consent Separation
  * - Consent Timestamp, Source, Purpose & Policy Version Tracking
  * - Sensitive Document Chat Interception Guard (blocks Aadhaar/PAN/Bank Statements in raw chat)
- * - Cryptographically Signed, Expiring Document Upload Portal Links
- * - Role-Based Access Control (RBAC) & AES-256-GCM Envelope Encryption Helpers
+ * - Document Upload Portal Permanently Disabled (Zero File/Attachment Storage Policy)
  * - Sensitive Log Sanitizer (redacts Aadhaar, PAN, Passport, Tokens, Bank Accounts)
  */
 
-export const PRIVACY_POLICY_VERSION = 'AVANI-PRIVACY-2026.2';
+export const PRIVACY_POLICY_VERSION = 'AVANI-PRIVACY-2026.5H4';
 
 export const PRIVACY_NOTICE_TEXT = {
   en: 'Privacy Notice: AVANI LOAN SERVICES collects your contact and financial qualification details solely to assess suitable loan options with partner banks/NBFCs and connect you with an authorized loan advisor. Service communications are separate from optional promotional updates. Reply STOP anytime to opt out.',
@@ -55,8 +52,7 @@ export function createConsentRecord(params: {
 
 /**
  * Detects if a user message in ordinary WhatsApp chat contains sensitive KYC identifiers
- * (Aadhaar 12-digit, PAN 10-char, Passport, or raw document attachment) so the bot warns
- * them to use the secure upload link instead of ordinary chat.
+ * (Aadhaar 12-digit, PAN 10-char, or OTP/PIN) so the bot warns them never to send KYC documents in chat.
  */
 export function detectSensitiveDataInChat(text: string): {
   containsSensitiveData: boolean;
@@ -66,12 +62,10 @@ export function detectSensitiveDataInChat(text: string): {
   const raw = String(text || '');
   const detected: string[] = [];
 
-  // Indian PAN pattern: 5 letters, 4 digits, 1 letter (e.g. ABCDE1234F)
   if (/\b[A-Z]{5}[0-9]{4}[A-Z]\b/i.test(raw)) {
     detected.push('PAN_NUMBER');
   }
 
-  // Indian Aadhaar pattern: 12 digits (spaced or continuous, not starting with 0/1, excluding 91-prefixed 12-digit phone)
   const aadhaarMatch = raw.match(/\b[2-9]\d{3}\s?\d{4}\s?\d{4}\b/);
   if (aadhaarMatch) {
     const digitsOnly = aadhaarMatch[0].replace(/\s+/g, '');
@@ -80,7 +74,6 @@ export function detectSensitiveDataInChat(text: string): {
     }
   }
 
-  // OTP / Password / PIN disclosure
   if (/\b(otp|password|netbanking pin|cvv)\s*[:=-]?\s*\d{3,8}\b/i.test(raw)) {
     detected.push('CREDENTIALS_OR_OTP');
   }
@@ -89,138 +82,60 @@ export function detectSensitiveDataInChat(text: string): {
     containsSensitiveData: detected.length > 0,
     detectedTypes: detected,
     warningMessage:
-      'For your security and privacy, please do NOT send Aadhaar numbers, PAN numbers, bank statements, passports, or OTPs in ordinary WhatsApp chat messages. Please use the secure, authenticated AVANI Document Upload Portal link shared by our system.'
+      'For your security and privacy, please do NOT send Aadhaar numbers, PAN numbers, bank statements, salary slips, property documents, or OTPs in WhatsApp chat. Our CRM does not store uploaded documents; your assigned AVANI loan advisor will coordinate verification directly with the partner bank.'
   };
 }
 
 /**
- * Generates a cryptographically signed, time-limited, authenticated document upload link.
+ * TASK 5H.4: Document upload links are permanently disabled under the zero-file-storage policy.
  */
-let ephemeralPortalSecret: string | null = null;
-let ephemeralEncryptionSecret: string | null = null;
-
-export function resolvePrivacySecret(kind: 'portal' | 'encryption'): string {
-  const envVal =
-    kind === 'portal'
-      ? process.env.DOCUMENT_PORTAL_SECRET ||
-        process.env.INTERNAL_WORKER_SECRET ||
-        process.env.SESSION_SECRET
-      : process.env.DOCUMENT_ENCRYPTION_KEY ||
-        process.env.INTERNAL_WORKER_SECRET ||
-        process.env.SESSION_SECRET;
-  const trimmed = String(envVal || '').trim();
-  if (trimmed.length >= 16) return trimmed;
-  if (process.env.NODE_ENV === 'production' || process.env.VERCEL === '1') {
-    throw new Error(
-      `Security configuration error: missing ${
-        kind === 'portal' ? 'DOCUMENT_PORTAL_SECRET' : 'DOCUMENT_ENCRYPTION_KEY'
-      } in production.`
-    );
-  }
-  if (kind === 'portal') {
-    if (!ephemeralPortalSecret) ephemeralPortalSecret = crypto.randomBytes(32).toString('hex');
-    return ephemeralPortalSecret;
-  }
-  if (!ephemeralEncryptionSecret) ephemeralEncryptionSecret = crypto.randomBytes(32).toString('hex');
-  return ephemeralEncryptionSecret;
-}
-
-export function generateSecureDocumentUploadLink(params: {
+export function generateSecureDocumentUploadLink(_params: {
   leadId: string;
   phone: string;
   loanCategory: string;
   expiresInMinutes?: number;
 }): {
   uploadUrl: string;
+  uploadDisabled: boolean;
   tokenExpiresAt: string;
   retentionDays: number;
 } {
-  const baseUrl = (process.env.NEXT_PUBLIC_APP_URL || 'https://avani-ai-crm.vercel.app').replace(/\/$/, '');
-  const secret = resolvePrivacySecret('portal');
-  const expiresAt = Date.now() + (params.expiresInMinutes || 1440) * 60 * 1000; // Default 24h
-
-  const payloadObj = {
-    leadId: params.leadId,
-    phoneHash: crypto.createHash('sha256').update(String(params.phone)).digest('hex').slice(0, 16),
-    loanCategory: params.loanCategory,
-    exp: expiresAt
-  };
-
-  const payloadB64 = Buffer.from(JSON.stringify(payloadObj)).toString('base64url');
-  const sig = crypto.createHmac('sha256', secret).update(payloadB64).digest('base64url');
-  const signedToken = `${payloadB64}.${sig}`;
-
   return {
-    uploadUrl: `${baseUrl}/api/documents/secure-upload?token=${signedToken}`,
-    tokenExpiresAt: new Date(expiresAt).toISOString(),
-    retentionDays: 90
+    uploadUrl: '',
+    uploadDisabled: true,
+    tokenExpiresAt: new Date(0).toISOString(),
+    retentionDays: 0
   };
 }
 
 /**
- * Verifies a signed document upload token.
+ * TASK 5H.4: Document upload token verification always rejects because document uploads are disabled.
  */
-export function verifySecureDocumentUploadToken(token: string): {
+export function verifySecureDocumentUploadToken(_token: string): {
   valid: boolean;
   error?: string;
   payload?: { leadId: string; phoneHash: string; loanCategory: string; exp: number };
 } {
-  if (!token || !token.includes('.')) {
-    return { valid: false, error: 'Malformed upload token' };
-  }
-  const [payloadB64, sig] = token.split('.');
-  const secret = resolvePrivacySecret('portal');
-  const expectedSig = crypto.createHmac('sha256', secret).update(payloadB64).digest('base64url');
-
-  try {
-    const sigBuf = Buffer.from(sig);
-    const expBuf = Buffer.from(expectedSig);
-    if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
-      return { valid: false, error: 'Invalid upload token signature' };
-    }
-    const decoded = JSON.parse(Buffer.from(payloadB64, 'base64url').toString('utf8'));
-    if (Date.now() > decoded.exp) {
-      return { valid: false, error: 'Upload token has expired' };
-    }
-    return { valid: true, payload: decoded };
-  } catch {
-    return { valid: false, error: 'Token verification failed' };
-  }
+  return {
+    valid: false,
+    error: 'DOCUMENT_UPLOAD_DISABLED'
+  };
 }
 
-/**
- * Role-Based Access Control (RBAC) check for viewing or managing customer document metadata.
- */
 export function canAccessDocumentRecord(role?: string | null): boolean {
   if (!role) return false;
   const normalized = role.trim().toUpperCase();
   return ['ADMIN', 'CHIEF_ADVISOR', 'SENIOR_ADVISOR', 'LOAN_ADVISOR'].includes(normalized);
 }
 
-/**
- * Encrypts document metadata / storage reference at rest using AES-256-GCM.
- */
-export function encryptDocumentReference(plainReference: string): string {
-  const secret = resolvePrivacySecret('encryption');
-  const key = crypto.createHash('sha256').update(secret).digest();
-  const iv = crypto.randomBytes(12);
-  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
-  const encrypted = Buffer.concat([cipher.update(plainReference, 'utf8'), cipher.final()]);
-  const tag = cipher.getAuthTag();
-  return `ENCv1:${iv.toString('hex')}:${tag.toString('hex')}:${encrypted.toString('hex')}`;
+export function encryptDocumentReference(_plainReference: string): string {
+  return 'DOCUMENT_STORAGE_DISABLED';
 }
 
-/**
- * Sanitizes strings or objects before logging so sensitive identifiers (Aadhaar, PAN, tokens, secrets)
- * are never written to application logs.
- */
 export function sanitizeForLog(input: any): string {
   let str = typeof input === 'string' ? input : JSON.stringify(input || '');
-  // Redact PAN numbers
   str = str.replace(/\b[A-Z]{5}[0-9]{4}[A-Z]\b/gi, '[REDACTED_PAN]');
-  // Redact 12-digit Aadhaar patterns
   str = str.replace(/\b[2-9]\d{3}\s?\d{4}\s?\d{4}\b/g, '[REDACTED_AADHAAR]');
-  // Redact Bearer tokens / signed upload tokens
   str = str.replace(/Bearer\s+[A-Za-z0-9._-]+/gi, 'Bearer [REDACTED_TOKEN]');
   str = str.replace(/token=[A-Za-z0-9._-]+/gi, 'token=[REDACTED_UPLOAD_TOKEN]');
   return str;

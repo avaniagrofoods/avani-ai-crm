@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
-import connectToDatabase from '@/lib/db';
-import mongoose from 'mongoose';
+import { defaultSheetsClient } from '@/lib/google-sheets';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,7 +18,8 @@ export async function GET(request: Request) {
     return NextResponse.json(
       {
         status: 'HEALTHY',
-        service: 'AVANI LOAN SERVICES — AVANI AI CRM',
+        service: 'AVANI LOAN SERVICES — AVANI AI CRM (Google Sheets Architecture)',
+        dataStore: 'GOOGLE_SHEETS',
         available: true,
         timestamp: new Date().toISOString()
       },
@@ -27,19 +27,18 @@ export async function GET(request: Request) {
     );
   }
 
-  let available = false;
-  try {
-    const conn = await connectToDatabase();
-    available = Boolean(conn && mongoose.connection.readyState === 1);
-  } catch {
-    available = false;
-  }
+  const connectivity = await defaultSheetsClient.checkConnectivity();
+  const available = connectivity.online;
 
   return NextResponse.json(
     {
       status: available ? 'HEALTHY' : 'DEGRADED',
       service: 'AVANI LOAN SERVICES — AVANI AI CRM',
+      dataStore: 'GOOGLE_SHEETS',
+      spreadsheetName: connectivity.spreadsheetName,
+      schemaVersion: connectivity.schemaVersion,
       available,
+      ...(connectivity.error ? { error: connectivity.error } : {}),
       timestamp: new Date().toISOString()
     },
     { status: available ? 200 : 503, headers: PUBLIC_HEALTH_HEADERS }

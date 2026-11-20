@@ -1,11 +1,16 @@
-import connectToDatabase from '@/lib/db';
-import { Lead } from '@/models/Lead';
-import { Contact } from '@/models/Contact';
-import { Conversation } from '@/models/Conversation';
-import { WorkflowTrigger } from '@/models/WorkflowTrigger';
-import { ProviderRouter } from '@/lib/provider-router';
-import { ConversationStateManager } from '@/lib/orchestrator/state-manager';
+import {
+  CrmSheetsService,
+  customerRepository,
+  leadRepository,
+  consentRepository,
+  followupRepository
+} from '@/lib/google-sheets';
 
+/**
+ * TASK 5H.4 — GOOGLE SHEETS OPT-OUT & CONSENT WITHDRAWAL ENGINE
+ * Preserves Task 3B Hindi opt-out ('रोकें'), Marathi ('थांबवा'), and English ('STOP') detection 100%,
+ * while persisting opt-out and consent withdrawal exclusively to Google Sheets (CUSTOMERS, LEADS, CONSENTS, FOLLOWUPS).
+ */
 export class OptOutEngine {
   /**
    * Builds canonical phone variants (+91XXXXXXXXXX, 91XXXXXXXXXX, XXXXXXXXXX, 0XXXXXXXXXX)
@@ -33,7 +38,7 @@ export class OptOutEngine {
    * Checks if incoming message text contains opt-out intent across English, Marathi, and Hindi.
    */
   static isOptOutMessage(text: string): boolean {
-    if (!text) return false;
+    if (!text || typeof text !== 'string') return false;
     const lower = text.trim().toLowerCase();
 
     const optOutPhrases = [
@@ -44,8 +49,8 @@ export class OptOutEngine {
       'थांबवा', 'नको', 'बंद करा', 'मेसेज पाठवू नका', 'संदेश थांबवा',
       'nako', 'nakaye', 'thamba', 'thambwa', 'band kara',
       // Hindi
-      'रोको', 'बंद करो', 'संदेश मत भेजो', 'हटाओ', 'मैसेज मत करो',
-      'roko', 'band karo', 'mat bhejo', 'hatao'
+      'रोकें', 'रोको', 'बंद करो', 'संदेश मत भेजो', 'हटाओ', 'मैसेज मत करो',
+      'roken', 'roko', 'band karo', 'mat bhejo', 'hatao'
     ];
 
     return optOutPhrases.some(phrase => lower === phrase || lower.includes(phrase));
@@ -58,108 +63,66 @@ export class OptOutEngine {
     eventId?: string;
     suppressAcknowledgement?: boolean;
   }) {
-    await connectToDatabase();
+    await CrmSheetsService.assertHealthy();
 
     const optOutAt = new Date();
-    const { cleanPhone, raw10, variants: phoneVariants } = this.getPhoneVariants(params.phone);
+    const { cleanPhone } = this.getPhoneVariants(params.phone);
 
-    // 1. Update all matching Leads across phone variants, normalizedMobile, and leadId
-    const leadOrClauses: any[] = [
-      { phone: { $in: phoneVariants } },
-    ];
-    if (raw10.length === 10) {
-      leadOrClauses.push({ normalizedMobile: raw10 });
-    }
-    if (params.leadId) {
-      leadOrClauses.push({ leadId: params.leadId });
-    }
-    const leadQuery: any = { $or: leadOrClauses };
-
-    const matchingLeads = await Lead.find(leadQuery, { leadId: 1 }).lean();
-    const matchingLeadIds = Array.from(new Set([
-      ...(params.leadId ? [params.leadId] : []),
-      ...matchingLeads.map((l: any) => l.leadId).filter(Boolean),
-    ]));
-
-    await Lead.updateMany(leadQuery, {
-      $set: {
-        isOptedOut: true,
-        status: 'OPTED_OUT',
-        consentStatus: 'DENIED',
-        optedOutAt: optOutAt,
-        optOutSource: 'WHATSAPP_INBOUND',
-        optOutMessage: params.messageText,
-        updatedAt: optOutAt
-      }
+    // 1. Upsert Customer in CUSTOMERS sheet with record_status = 'OPTED_OUT'
+    const existingCustomer = await customerRepository.findByMobile(cleanPhone);
+    const { record: customer } = await customerRepository.upsertCustomer({
+      customer_id: existingCustomer?.customer_id,
+      customer_name: existingCustomer?.customer_name || 'Customer',
+      mobile_number: cleanPhone,
+      city: existingCustomer?.city || 'Latur',
+      enquiry_source: existingCustomer?.enquiry_source || 'WHATSAPP_INBOUND',
+      record_status: 'OPTED_OUT',
+      updated_at: optOutAt
     });
 
-    // 2. Update all matching Contacts across phone variants
-    await Contact.updateMany(
-      { phone: { $in: phoneVariants } },
-      {
-        $set: {
-          optedIn: false,
-          updatedAt: optOutAt
-        }
-      }
-    );
+    // 2. Upsert Consent in CONSENTS sheet with consent_status = 'WITHDRAWN' & optout_status = 'OPTED_OUT'
+    await consentRepository.upsertConsent({
+      customer_id: customer.customer_id,
+      channel: 'WHATSAPP',
+      consent_status: 'WITHDRAWN',
+      consent_source: 'WHATSAPP_OPTOUT_KEYWORD',
+      consent_timestamp: optOutAt,
+      optout_status: 'OPTED_OUT',
+      updated_at: optOutAt
+    });
 
-    // 3. Update Conversation Status across phone variants and matching leadIds
-    for (const lid of matchingLeadIds) {
-      await ConversationStateManager.transitionStage(lid, 'OPTED_OUT', 'CUSTOMER_OPTED_OUT', {
-        optOutStatus: true
+    // 3. Update all matching Leads in LEADS sheet to lead_status = 'OPTED_OUT'
+    const leads = await leadRepository.findByCustomerId(customer.customer_id);
+    if (params.leadId) {
+      const byId = await leadRepository.findById(params.leadId);
+      if (byId && !leads.some((l) => l.lead_id === byId.lead_id)) {
+        leads.push(byId);
+      }
+    }
+    for (const l of leads) {
+      await leadRepository.upsertLead({
+        ...l,
+        lead_status: 'OPTED_OUT',
+        updated_at: optOutAt
       });
     }
-    const convOrClauses: any[] = [{ customerPhone: { $in: phoneVariants } }];
-    if (matchingLeadIds.length > 0) {
-      convOrClauses.push({ leadId: { $in: matchingLeadIds } });
-      convOrClauses.push({ conversationId: { $in: matchingLeadIds.map(id => `CONV_${id}`) } });
-    }
-    await Conversation.updateMany(
-      { $or: convOrClauses },
-      { $set: { optOutStatus: true, currentStage: 'OPTED_OUT', currentState: 'OPTED_OUT' } }
-    );
 
-    // 4. Cancel Pending Workflows & Scheduled Follow-ups for all matching leadIds
-    if (matchingLeadIds.length > 0) {
-      await WorkflowTrigger.updateMany(
-        { status: 'PENDING', leadId: { $in: matchingLeadIds } },
-        { $set: { status: 'SUPPRESSED_CUSTOMER_OPTED_OUT', processedAt: optOutAt } }
-      );
-    }
-
-    // 5. Send Approved Opt-Out Acknowledgement Template via ProviderRouter (unless suppressed)
-    if (params.suppressAcknowledgement) {
-      return {
-        success: true,
-        phone: cleanPhone,
-        leadId: params.leadId,
-        status: 'OPTED_OUT',
-        optOutAt,
-        acknowledged: false,
-        suppressed: true
-      };
-    }
-
-    const dispatchRes = await ProviderRouter.dispatchMessage({
-      phone: cleanPhone,
-      name: 'Customer',
-      templateName: 'opt_out_acknowledgement',
-      templateParams: [],
-      messageText: 'You have been successfully unsubscribed from AVANI LOAN SERVICES updates. You will not receive further promotional messages. If this was a mistake, reply START anytime.',
-      campaignId: 'OPTOUT_ACK_CAMPAIGN',
-      leadId: params.leadId,
-      journeyStage: 'OPTED_OUT'
+    // 4. Cancel any pending Follow-ups in FOLLOWUPS sheet
+    await followupRepository.cancelPendingFollowupsForCustomerOrLead({
+      customer_id: customer.customer_id,
+      lead_id: params.leadId || leads[0]?.lead_id
     });
 
     return {
       success: true,
       phone: cleanPhone,
-      leadId: params.leadId,
+      customerId: customer.customer_id,
+      leadId: params.leadId || leads[0]?.lead_id,
       status: 'OPTED_OUT',
+      consentStatus: 'WITHDRAWN',
       optOutAt,
-      acknowledged: dispatchRes.success,
-      providerMessageId: dispatchRes.providerMessageId
+      acknowledged: false,
+      suppressed: true
     };
   }
 }

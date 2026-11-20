@@ -1,63 +1,23 @@
 import { NextResponse } from 'next/server';
 import {
   requireAuth,
-  buildLeadVisibilityFilter,
   sanitizeLeadPayloadForClient,
   validateStageTransition,
   canAccessLead
 } from '@/lib/auth';
-import connectToDatabase from '@/lib/db';
-import { Lead } from '@/models/Lead';
-import { Contact } from '@/models/Contact';
-import { mapLegacyStatusToStage } from '@/config/pipeline';
-import { FollowUpTaskEngine } from '@/lib/followup-task-engine';
-import { CATEGORY_DOCUMENT_CHECKLISTS } from '@/lib/document-checklist';
-
-function normalizeIndianPhone(input: string): { formatted: string; raw10: string } | null {
-  if (!input) return null;
-  const digits = String(input).replace(/[^0-9]/g, '');
-  const raw10 = digits.length > 10 ? digits.slice(-10) : digits;
-  if (raw10.length !== 10) return null;
-  // Validate Indian mobile starting digit
-  if (!/^[6-9]/.test(raw10)) return null;
-  return {
-    formatted: `+91${raw10}`,
-    raw10
-  };
-}
-
-function normalizeLoanCategory(loanType: string): string {
-  const norm = String(loanType || '').toUpperCase().replace(/[^A-Z]/g, '');
-  if (norm.includes('DOCTOR') || norm.includes('MEDIC')) return 'Doctor Loan';
-  if (norm.includes('BUSIN') || norm.includes('COMMERC') || norm.includes('MSME')) return 'Business Loan';
-  if (norm.includes('MORTG') || norm.includes('LAP') || norm.includes('AGAINSTPROP')) return 'Mortgage Loan / LAP';
-  if (norm.includes('HOME') || norm.includes('HOUS')) return 'Home Loan';
-  if (norm.includes('GLOBAL') || norm.includes('ABROAD') || norm.includes('OVERSEA')) return 'Education Loan — Global Studies';
-  if (norm.includes('EDU') || norm.includes('STUD')) return 'Education Loan — India';
-  if (norm.includes('SCHOOL')) return 'School Funding';
-  if (norm.includes('COLLEGE')) return 'College Funding';
-  if (norm.includes('CA') || norm.includes('CHARTERED')) return 'CA Professional Loan';
-  return 'Personal Loan';
-}
-
-function generateCanonicalLeadId(): string {
-  const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-  const randomNum = Math.floor(100000 + Math.random() * 900000);
-  return `AVL-${dateStr}-${randomNum}`;
-}
+import {
+  CrmSheetsService,
+  SheetsCrmError,
+  normalizeMobileNumber,
+  validateLoanCategory
+} from '@/lib/google-sheets';
 
 export async function GET(req: Request) {
   try {
     const auth = await requireAuth(req);
     if (!auth.ok) return auth.response;
 
-    const conn = await connectToDatabase();
-    if (!conn || conn.connection?.readyState !== 1) {
-      return NextResponse.json(
-        { success: false, error: 'DATABASE_UNAVAILABLE', message: 'Database offline. Production persistence unavailable.' },
-        { status: 503 }
-      );
-    }
+    await CrmSheetsService.assertHealthy();
     const { searchParams } = new URL(req.url);
     const phone = searchParams.get('phone');
     const stage = searchParams.get('stage');
@@ -66,106 +26,70 @@ export async function GET(req: Request) {
     const city = searchParams.get('city');
     const q = searchParams.get('q');
     const followUpDue = searchParams.get('followUpDue');
-    
-    let query: any = {};
-    const andConditions: any[] = [];
+
+    let allLeads = await CrmSheetsService.listHydratedLeads();
 
     if (phone) {
-      const parsed = normalizeIndianPhone(phone);
-      if (parsed) {
-        andConditions.push({
-          $or: [
-            { phone: parsed.formatted },
-            { phone: parsed.raw10 },
-            { normalizedMobile: parsed.raw10 }
-          ]
-        });
-      } else {
-        query.phone = phone;
-      }
+      const digits = phone.replace(/\D/g, '').slice(-10);
+      allLeads = allLeads.filter(
+        (l) => l.phone === phone || (digits && l.normalizedMobile === digits)
+      );
     }
-
     if (stage) {
-      andConditions.push({
-        $or: [
-          { stage: stage },
-          { status: stage }
-        ]
-      });
+      allLeads = allLeads.filter((l) => l.stage === stage || l.status === stage);
     }
-
     if (product) {
-      query.loanType = { $regex: product, $options: 'i' };
+      const pLower = product.toLowerCase();
+      allLeads = allLeads.filter((l) => l.loanType.toLowerCase().includes(pLower));
     }
-
     if (advisor) {
-      andConditions.push({
-        $or: [
-          { 'assignedAdvisor.name': { $regex: advisor, $options: 'i' } },
-          { 'assignedAgent.name': { $regex: advisor, $options: 'i' } }
-        ]
-      });
+      const aLower = advisor.toLowerCase();
+      allLeads = allLeads.filter(
+        (l) =>
+          l.assignedAdvisor.name.toLowerCase().includes(aLower) ||
+          l.assignedAdvisor.id.toLowerCase().includes(aLower)
+      );
     }
-
     if (city) {
-      query.city = { $regex: city, $options: 'i' };
+      const cLower = city.toLowerCase();
+      allLeads = allLeads.filter((l) => l.city.toLowerCase().includes(cLower));
     }
-
     if (q) {
-      const cleanQ = q.trim();
-      andConditions.push({
-        $or: [
-          { name: { $regex: cleanQ, $options: 'i' } },
-          { phone: { $regex: cleanQ } },
-          { leadId: { $regex: cleanQ, $options: 'i' } },
-          { email: { $regex: cleanQ, $options: 'i' } }
-        ]
-      });
+      const qLower = q.trim().toLowerCase();
+      allLeads = allLeads.filter(
+        (l) =>
+          l.name.toLowerCase().includes(qLower) ||
+          l.phone.includes(qLower) ||
+          l.leadId.toLowerCase().includes(qLower)
+      );
     }
-
-    if (andConditions.length > 0) {
-      query.$and = andConditions;
-    }
-
     if (followUpDue === 'true' || followUpDue === 'today') {
       const todayEnd = new Date();
       todayEnd.setHours(23, 59, 59, 999);
-      query['followUpTasks'] = {
-        $elemMatch: {
-          status: { $in: ['PENDING', 'OVERDUE'] },
-          dueDate: { $lte: todayEnd }
-        }
-      };
+      allLeads = allLeads.filter((l) =>
+        l.followUpTasks.some(
+          (t) =>
+            (t.status === 'PENDING' || t.status === 'OVERDUE') &&
+            new Date(t.dueDate) <= todayEnd
+        )
+      );
     }
 
-    const visibilityFilter = buildLeadVisibilityFilter(auth.session);
-    const scopedQuery =
-      Object.keys(visibilityFilter).length > 0 && Object.keys(query).length > 0
-        ? { $and: [query, visibilityFilter] }
-        : Object.keys(visibilityFilter).length > 0
-          ? visibilityFilter
-          : query;
+    const visibleLeads = allLeads
+      .filter((l) => canAccessLead(auth.session, l))
+      .slice(0, 300)
+      .map((l) => sanitizeLeadPayloadForClient(l, auth.session));
 
-    const rawLeads = await Lead.find(scopedQuery).sort({ createdAt: -1 }).limit(300);
-
-    // Map and guarantee canonical stage on output
-    const leads = rawLeads.map((l: any) => {
-      const obj = l.toObject ? l.toObject() : l;
-      if (!obj.stage) {
-        obj.stage = mapLegacyStatusToStage(obj.status);
-      }
-      return sanitizeLeadPayloadForClient(obj, auth.session);
-    });
-
-    return NextResponse.json({ success: true, count: leads.length, leads });
+    return NextResponse.json({ success: true, count: visibleLeads.length, leads: visibleLeads });
   } catch (error: any) {
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    const status = error instanceof SheetsCrmError ? error.httpStatus : 500;
+    const code = error instanceof SheetsCrmError ? error.code : 'INTERNAL_ERROR';
+    return NextResponse.json({ success: false, error: code, message: error.message }, { status });
   }
 }
 
 export async function POST(req: Request) {
   try {
-    // API Key authentication if configured
     const expectedApiKey = process.env.CRM_API_KEY;
     if (expectedApiKey) {
       const authHeader = req.headers.get('x-api-key') || req.headers.get('authorization');
@@ -181,60 +105,21 @@ export async function POST(req: Request) {
     const auth = await requireAuth(req);
     if (!auth.ok) return auth.response;
 
-    const conn = await connectToDatabase();
-    if (!conn || conn.connection?.readyState !== 1) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'DATABASE_UNAVAILABLE',
-          message: 'Database persistence unavailable: connection failed or MONGODB_URI is unconfigured.'
-        },
-        { status: 503 }
-      );
-    }
+    await CrmSheetsService.assertHealthy();
     const body = await req.json();
-    if (auth.session.role !== 'ADMIN' && (body.revenue || body.revenueTracking || body.actualRevenueReceived !== undefined || body.sanction || body.disbursement || body.role)) {
+
+    if (
+      auth.session.role !== 'ADMIN' &&
+      (body.revenue || body.revenueTracking || body.actualRevenueReceived !== undefined || body.sanction || body.disbursement || body.role)
+    ) {
       return NextResponse.json(
-        { success: false, error: 'FORBIDDEN', message: 'Only ADMIN may set financial or role fields.' },
+        { success: false, error: 'FORBIDDEN', message: 'Only ADMIN may set privileged fields.' },
         { status: 403 }
       );
     }
 
-    const {
-      name,
-      phone,
-      loanType,
-      email,
-      city,
-      state,
-      leadSource,
-      source,
-      campaign,
-      campaignId,
-      utmSource,
-      utmMedium,
-      utmCampaign,
-      utmContent,
-      utmTerm,
-      monthlyIncome,
-      requestedAmount,
-      employmentType,
-      preferredLanguage,
-      consentStatus,
-      consentPurpose,
-      consentTimestamp,
-      isOptedOut,
-      idempotencyKey,
-      stage,
-      doctorLoanDetails,
-      businessLoanDetails,
-      homeLoanDetails,
-      lapDetails,
-      educationLoanDetails,
-      institutionalFundingDetails
-    } = body;
+    const { name, phone, loanType, city, leadSource, source, requestedAmount, requiredLoanAmount, consentStatus, isOptedOut, stage, priority } = body;
 
-    // Validate mandatory fields
     if (!name || !phone || !loanType) {
       return NextResponse.json(
         { success: false, error: 'Missing mandatory fields: name, phone, and loanType are required.' },
@@ -242,16 +127,12 @@ export async function POST(req: Request) {
       );
     }
 
-    // Phone normalization
-    const phoneData = normalizeIndianPhone(phone);
-    if (!phoneData) {
-      return NextResponse.json(
-        { success: false, error: 'Invalid phone number. Must be a valid 10-digit Indian mobile number.' },
-        { status: 400 }
-      );
+    try {
+      normalizeMobileNumber(phone);
+    } catch (e: any) {
+      return NextResponse.json({ success: false, error: e.message }, { status: 400 });
     }
 
-    // DPDP Act Consent Check
     const isConsentDenied = consentStatus === 'DENIED' || body.consent === false;
     if (isConsentDenied) {
       return NextResponse.json(
@@ -260,162 +141,45 @@ export async function POST(req: Request) {
       );
     }
 
-    const canonicalLoanCategory = normalizeLoanCategory(loanType);
-    const normalizedPhoneFormatted = phoneData.formatted;
-    const normalizedMobileDigits = phoneData.raw10;
-
-    // Deduplication / Idempotency Check
-    const existingLead = await Lead.findOne({
-      $or: [
-        { phone: normalizedPhoneFormatted },
-        { phone: normalizedMobileDigits },
-        { normalizedMobile: normalizedMobileDigits },
-        ...(idempotencyKey ? [{ idempotencyKey }] : [])
-      ]
-    });
-
-    const leadId = existingLead?.leadId || body.leadId || generateCanonicalLeadId();
-    const initialStage = stage || (existingLead ? (existingLead.stage || mapLegacyStatusToStage(existingLead.status)) : 'NEW_ENQUIRY');
-
-    const updatePayload: any = {
-      name,
-      phone: normalizedPhoneFormatted,
-      normalizedMobile: normalizedMobileDigits,
-      loanType: canonicalLoanCategory,
-      stage: initialStage,
-      updatedAt: new Date(),
-      assignedAdvisor: {
-        name: 'Sachin Shinde',
-        email: 'enquiry@avanifinserv.com',
-        phone: '+91 72491 08474',
-        role: 'CHIEF_LOAN_ADVISOR',
-        assignedAt: new Date()
-      }
-    };
-
-    if (email) updatePayload.email = email;
-    if (city) updatePayload.city = city;
-    if (state) updatePayload.state = state;
-    if (leadSource || source) updatePayload.leadSource = leadSource || source || 'WEBSITE';
-    if (campaign) updatePayload.campaign = campaign;
-    if (campaignId) updatePayload.campaignId = campaignId;
-    if (utmSource) updatePayload.utmSource = utmSource;
-    if (utmMedium) updatePayload.utmMedium = utmMedium;
-    if (utmCampaign) updatePayload.utmCampaign = utmCampaign;
-    if (utmContent) updatePayload.utmContent = utmContent;
-    if (utmTerm) updatePayload.utmTerm = utmTerm;
-    if (monthlyIncome !== undefined) updatePayload.monthlyIncome = Number(monthlyIncome) || 0;
-    if (requestedAmount !== undefined) {
-      updatePayload.requestedAmount = String(requestedAmount);
-      const numAmt = Number(String(requestedAmount).replace(/[^0-9.]/g, ''));
-      if (Number.isFinite(numAmt) && numAmt > 0) updatePayload.requiredLoanAmount = numAmt;
-    }
-    if (body.requiredLoanAmount !== undefined) updatePayload.requiredLoanAmount = Number(body.requiredLoanAmount) || 0;
-    if (employmentType) updatePayload.employmentType = employmentType;
-    if (preferredLanguage) updatePayload.preferredLanguage = preferredLanguage;
-    if (idempotencyKey) updatePayload.idempotencyKey = idempotencyKey;
-
-    // Sub-details if provided
-    if (doctorLoanDetails) updatePayload.doctorLoanDetails = doctorLoanDetails;
-    if (businessLoanDetails) updatePayload.businessLoanDetails = businessLoanDetails;
-    if (homeLoanDetails) updatePayload.homeLoanDetails = homeLoanDetails;
-    if (lapDetails) updatePayload.lapDetails = lapDetails;
-    if (educationLoanDetails) updatePayload.educationLoanDetails = educationLoanDetails;
-    if (institutionalFundingDetails) updatePayload.institutionalFundingDetails = institutionalFundingDetails;
-
-    // Consent fields
-    updatePayload.consentStatus = consentStatus || 'GRANTED';
-    updatePayload.consentPurpose = consentPurpose || 'LOAN_ELIGIBILITY_PROCESSING';
-    updatePayload.consentTimestamp = consentTimestamp ? new Date(consentTimestamp) : new Date();
-    updatePayload.isOptedOut = !!isOptedOut;
-
-    // Stage history initialization
-    if (!existingLead) {
-      updatePayload.stageHistory = [{
-        stage: initialStage,
-        changedBy: 'SYSTEM_INTAKE',
-        changedAt: new Date(),
-        reason: 'New enquiry registered',
-        notes: `Source: ${updatePayload.leadSource}`
-      }];
-      // Initialize default follow-up tasks & product document checklist
-      updatePayload.followUpTasks = FollowUpTaskEngine.generateInitialTasks(leadId, 'Sachin Shinde');
-      const checklistDefs = CATEGORY_DOCUMENT_CHECKLISTS[canonicalLoanCategory] || CATEGORY_DOCUMENT_CHECKLISTS['Personal Loan'];
-      updatePayload.documentChecklist = checklistDefs.map((def) => ({ ...def, status: 'PENDING', updatedAt: new Date() }));
-    }
-
+    const existing = await CrmSheetsService.findHydratedLeadByIdOrPhone(phone);
     if (stage) {
-      const stageCheck = validateStageTransition(auth.session, existingLead?.stage || 'NEW_ENQUIRY', stage);
+      const stageCheck = validateStageTransition(auth.session, existing?.stage || 'NEW_ENQUIRY', stage);
       if (!stageCheck.ok) {
         return NextResponse.json({ success: false, error: stageCheck.error }, { status: stageCheck.status });
       }
     }
-    if (existingLead && !canAccessLead(auth.session, existingLead)) {
+    if (existing && !canAccessLead(auth.session, existing)) {
       return NextResponse.json(
         { success: false, error: 'FORBIDDEN', message: 'Lead is assigned to another advisor.' },
         { status: 403 }
       );
     }
-    if (auth.session.role !== 'ADMIN') {
-      updatePayload.assignedAdvisor = {
-        name: auth.session.name,
-        email: auth.session.email,
-        phone: '+91 72491 08474',
-        role: 'LOAN_ADVISOR',
-        assignedAt: new Date()
-      };
-    }
 
-    const lead = await Lead.findOneAndUpdate(
-      {
-        $or: [
-          { phone: normalizedPhoneFormatted },
-          { phone: normalizedMobileDigits },
-          { normalizedMobile: normalizedMobileDigits },
-          ...(idempotencyKey ? [{ idempotencyKey }] : [])
-        ]
-      },
-      {
-        $set: updatePayload,
-        $setOnInsert: {
-          leadId,
-          createdAt: new Date(),
-          status: 'NEW'
-        }
-      },
-      { upsert: true, new: true, setDefaultsOnInsert: true }
-    );
-
-    // Synchronize Contact entry
-    await Contact.findOneAndUpdate(
-      {
-        $or: [
-          { phone: normalizedPhoneFormatted },
-          { phone: normalizedMobileDigits }
-        ]
-      },
-      {
-        $set: {
-          name,
-          phone: normalizedPhoneFormatted,
-          updatedAt: new Date()
-        },
-        $setOnInsert: {
-          leadId: lead._id,
-          optedIn: !isOptedOut,
-          createdAt: new Date()
-        }
-      },
-      { upsert: true, new: true }
-    ).catch(() => {});
+    const { hydrated } = await CrmSheetsService.registerOrUpdateCustomerLead({
+      leadId: existing?.leadId || body.leadId,
+      name,
+      phone,
+      city,
+      loanCategory: validateLoanCategory(loanType),
+      requestedAmount: requestedAmount ?? requiredLoanAmount ?? '0',
+      leadStatus: stage || existing?.stage || 'NEW_ENQUIRY',
+      leadSource: leadSource || source || 'WEBSITE',
+      assignedAdvisorId: body.assignedAdvisorId || existing?.assignedAdvisor?.id || 'ADV-SACHIN-01',
+      priority: priority || 'MEDIUM',
+      consentStatus: consentStatus || 'GRANTED',
+      consentSource: leadSource || source || 'WEBSITE',
+      isOptedOut: Boolean(isOptedOut)
+    });
 
     return NextResponse.json({
       success: true,
-      leadId: lead.leadId,
-      stage: lead.stage,
-      lead
+      leadId: hydrated.leadId,
+      stage: hydrated.stage,
+      lead: hydrated
     });
   } catch (error: any) {
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    const status = error instanceof SheetsCrmError ? error.httpStatus : 500;
+    const code = error instanceof SheetsCrmError ? error.code : 'INTERNAL_ERROR';
+    return NextResponse.json({ success: false, error: code, message: error.message }, { status });
   }
 }

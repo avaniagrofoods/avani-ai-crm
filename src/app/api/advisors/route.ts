@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
-import connectToDatabase from '@/lib/db';
-import { Advisor, DEFAULT_AVANI_ADVISORS } from '@/models/Advisor';
+import { advisorRepository, CrmSheetsService, SheetsCrmError } from '@/lib/google-sheets';
 import { requireAuth, requireRole } from '@/lib/auth';
 
 export async function GET(req: Request) {
@@ -8,21 +7,23 @@ export async function GET(req: Request) {
     const auth = await requireAuth(req);
     if (!auth.ok) return auth.response;
 
-    const conn = await connectToDatabase();
-    if (!conn || conn.connection?.readyState !== 1) {
-      return NextResponse.json({ success: true, count: DEFAULT_AVANI_ADVISORS.length, advisors: DEFAULT_AVANI_ADVISORS });
-    }
+    await CrmSheetsService.assertHealthy();
+    const rows = await advisorRepository.listActiveAdvisors();
 
-    let advisors = await Advisor.find({ isActive: true }).sort({ name: 1 });
-
-    if (!advisors || advisors.length === 0) {
-      await Advisor.insertMany(DEFAULT_AVANI_ADVISORS).catch(() => {});
-      advisors = await Advisor.find({ isActive: true }).sort({ name: 1 });
-    }
+    const advisors = rows.map((r) => ({
+      advisorId: r.advisor_id,
+      name: r.advisor_name,
+      role: r.role,
+      isActive: r.active_status === 'ACTIVE',
+      createdAt: r.created_at,
+      updatedAt: r.updated_at
+    }));
 
     return NextResponse.json({ success: true, count: advisors.length, advisors });
   } catch (error: any) {
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    const status = error instanceof SheetsCrmError ? error.httpStatus : 500;
+    const code = error instanceof SheetsCrmError ? error.code : 'INTERNAL_ERROR';
+    return NextResponse.json({ success: false, error: code, message: error.message }, { status });
   }
 }
 
@@ -31,31 +32,36 @@ export async function POST(req: Request) {
     const auth = await requireRole(req, ['ADMIN']);
     if (!auth.ok) return auth.response;
 
-    const conn = await connectToDatabase();
-    if (!conn || conn.connection?.readyState !== 1) {
-      return NextResponse.json({ success: false, error: 'DATABASE_UNAVAILABLE' }, { status: 503 });
-    }
+    await CrmSheetsService.assertHealthy();
     const body = await req.json();
-    const { name, email, phone, role, specializations } = body;
+    const name = String(body.name || body.advisor_name || '').trim();
+    const role = body.role || 'LOAN_ADVISOR';
 
-    if (!name || !email || !phone) {
-      return NextResponse.json({ success: false, error: 'Name, email and phone are required' }, { status: 400 });
+    if (!name) {
+      return NextResponse.json({ success: false, error: 'Advisor name is required' }, { status: 400 });
     }
 
-    const advisorId = `ADV-${name.replace(/[^A-Za-z]/g, '').slice(0, 6).toUpperCase()}-${Date.now().toString().slice(-4)}`;
-
-    const advisor = await Advisor.create({
-      advisorId,
-      name,
-      email,
-      phone,
-      role: role || 'LOAN_ADVISOR',
-      specializations: specializations || ['General Loan Advisory'],
-      isActive: true
+    const { record } = await advisorRepository.upsertAdvisor({
+      advisor_id: body.advisorId || body.advisor_id,
+      advisor_name: name,
+      role,
+      active_status: 'ACTIVE'
     });
 
-    return NextResponse.json({ success: true, advisor });
+    return NextResponse.json({
+      success: true,
+      advisor: {
+        advisorId: record.advisor_id,
+        name: record.advisor_name,
+        role: record.role,
+        isActive: record.active_status === 'ACTIVE',
+        createdAt: record.created_at,
+        updatedAt: record.updated_at
+      }
+    });
   } catch (error: any) {
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    const status = error instanceof SheetsCrmError ? error.httpStatus : 500;
+    const code = error instanceof SheetsCrmError ? error.code : 'INTERNAL_ERROR';
+    return NextResponse.json({ success: false, error: code, message: error.message }, { status });
   }
 }

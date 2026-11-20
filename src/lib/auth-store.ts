@@ -1,16 +1,48 @@
 import crypto from 'node:crypto';
-import connectToDatabase from '@/lib/db';
-import mongoose from 'mongoose';
-import { AuthSession } from '@/models/AuthSession';
-import { AuthRateLimit } from '@/models/AuthRateLimit';
+
+/**
+ * TASK 5H.4 — SERVER-SIDE STATELESS SESSION REVOCATION & RATE-LIMIT GUARD
+ *
+ * Security Rules (Section 6 & Section 10):
+ * - Do NOT store passwords, authentication secrets, or session tokens in Google Sheets.
+ * - Do NOT connect to MongoDB.
+ * - Preserves HMAC-SHA256 stateless signed session verification in src/lib/auth.ts
+ *   backed by an isolated server-side in-memory revocation and login rate-limit registry.
+ *
+ * RESIDUAL LIMITATION (Task 5H.7 A-04 — Partially Remediated):
+ * - sessionRegistry and rateLimitRegistry are process-local in-memory Maps.
+ * - Server restarts or secondary serverless instances do not share these Maps; therefore,
+ *   logout revocation and failed-login rate limits are NOT durable across restarts/instances.
+ * - Interim mitigation: SESSION_MAX_AGE_SECONDS is reduced to 1800s (30 min) in src/lib/auth.ts.
+ */
 
 const RATE_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
 const ACCOUNT_MAX_FAILED_ATTEMPTS = 5;
 const IP_MAX_FAILED_ATTEMPTS = 20;
 
+interface SessionRecord {
+  jti: string;
+  sub: string;
+  email: string;
+  role: 'ADMIN' | 'ADVISOR';
+  revoked: boolean;
+  revokedAt?: Date;
+  issuedAt: Date;
+  expireAt: Date;
+}
+
+interface RateLimitEntry {
+  key: string;
+  attempts: number;
+  lockedUntil: Date | null;
+  expireAt: Date;
+}
+
+const sessionRegistry = new Map<string, SessionRecord>();
+const rateLimitRegistry = new Map<string, RateLimitEntry>();
+
 export async function ensureDbReady(): Promise<boolean> {
-  const conn = await connectToDatabase();
-  return Boolean(conn && mongoose.connection.readyState === 1);
+  return true;
 }
 
 export async function registerSessionInDb(session: {
@@ -21,11 +53,7 @@ export async function registerSessionInDb(session: {
   iat: number;
   exp: number;
 }): Promise<void> {
-  const ready = await ensureDbReady();
-  if (!ready) {
-    throw new Error('Authentication session store unavailable.');
-  }
-  await AuthSession.create({
+  sessionRegistry.set(session.jti, {
     jti: session.jti,
     sub: session.sub,
     email: session.email,
@@ -38,34 +66,26 @@ export async function registerSessionInDb(session: {
 
 export async function revokeSessionInDb(jti: string): Promise<void> {
   if (!jti) return;
-  const ready = await ensureDbReady();
-  if (!ready) return;
-  await AuthSession.findOneAndUpdate(
-    { jti },
-    {
-      $set: { revoked: true, revokedAt: new Date() },
-      $setOnInsert: {
-        sub: 'REVOKED',
-        email: 'revoked@local',
-        role: 'ADVISOR',
-        issuedAt: new Date(),
-        expireAt: new Date(Date.now() + 24 * 60 * 60 * 1000)
-      }
-    },
-    { upsert: true }
-  );
+  const existing = sessionRegistry.get(jti);
+  sessionRegistry.set(jti, {
+    jti,
+    sub: existing?.sub || 'REVOKED',
+    email: existing?.email || 'revoked@local',
+    role: existing?.role || 'ADVISOR',
+    revoked: true,
+    revokedAt: new Date(),
+    issuedAt: existing?.issuedAt || new Date(),
+    expireAt: existing?.expireAt || new Date(Date.now() + 24 * 60 * 60 * 1000)
+  });
 }
 
 export async function isSessionActiveInDb(jti: string): Promise<boolean> {
   if (!jti) return false;
-  const ready = await ensureDbReady();
-  if (!ready) return false;
-  const doc = await AuthSession.findOne({ jti })
-    .select({ revoked: 1, expireAt: 1 })
-    .lean<{ revoked?: boolean; expireAt?: Date } | null>();
-  if (!doc) return false;
+  const doc = sessionRegistry.get(jti);
+  // Stateless HMAC-SHA256 tokens verified by verifySessionToken() remain active unless explicitly revoked
+  if (!doc) return true;
   if (doc.revoked === true) return false;
-  if (doc.expireAt && new Date(doc.expireAt).getTime() <= Date.now()) return false;
+  if (doc.expireAt && doc.expireAt.getTime() <= Date.now()) return false;
   return true;
 }
 
@@ -97,30 +117,24 @@ export async function checkLoginRateLimit(
   ip: string,
   email: string
 ): Promise<{ allowed: true } | { allowed: false; retryAfterSeconds: number }> {
-  const ready = await ensureDbReady();
-  if (!ready) return { allowed: true };
-
   const { acctKey, ipKey } = buildRateKeys(ip, email);
   const now = Date.now();
-  const records = await AuthRateLimit.find({ key: { $in: [acctKey, ipKey] } }).lean<
-    Array<{ key: string; attempts: number; lockedUntil?: Date | null; expireAt?: Date }>
-  >();
+  const keys = [acctKey, ipKey];
 
-  for (const rec of records) {
-    if (rec.expireAt && new Date(rec.expireAt).getTime() <= now) continue;
+  for (const key of keys) {
+    const rec = rateLimitRegistry.get(key);
+    if (!rec) continue;
+    if (rec.expireAt && rec.expireAt.getTime() <= now) {
+      rateLimitRegistry.delete(key);
+      continue;
+    }
     const threshold = rec.key === ipKey ? IP_MAX_FAILED_ATTEMPTS : ACCOUNT_MAX_FAILED_ATTEMPTS;
-    if (rec.lockedUntil && new Date(rec.lockedUntil).getTime() > now) {
-      const retryAfterSeconds = Math.max(
-        1,
-        Math.ceil((new Date(rec.lockedUntil).getTime() - now) / 1000)
-      );
+    if (rec.lockedUntil && rec.lockedUntil.getTime() > now) {
+      const retryAfterSeconds = Math.max(1, Math.ceil((rec.lockedUntil.getTime() - now) / 1000));
       return { allowed: false, retryAfterSeconds };
     }
     if (rec.attempts >= threshold) {
-      const retryAfterSeconds = Math.max(
-        1,
-        Math.ceil(((rec.expireAt ? new Date(rec.expireAt).getTime() : now + RATE_WINDOW_MS) - now) / 1000)
-      );
+      const retryAfterSeconds = Math.max(1, Math.ceil((rec.expireAt.getTime() - now) / 1000));
       return { allowed: false, retryAfterSeconds };
     }
   }
@@ -129,9 +143,6 @@ export async function checkLoginRateLimit(
 }
 
 export async function recordFailedLoginAttempt(ip: string, email: string): Promise<void> {
-  const ready = await ensureDbReady();
-  if (!ready) return;
-
   const { acctKey, ipKey } = buildRateKeys(ip, email);
   const now = new Date();
   const nextExpiry = new Date(now.getTime() + RATE_WINDOW_MS);
@@ -142,27 +153,28 @@ export async function recordFailedLoginAttempt(ip: string, email: string): Promi
   ];
 
   for (const item of pairs) {
-    const existing = await AuthRateLimit.findOne({ key: item.key });
+    const existing = rateLimitRegistry.get(item.key);
     if (!existing || (existing.expireAt && existing.expireAt.getTime() <= now.getTime())) {
-      await AuthRateLimit.findOneAndUpdate(
-        { key: item.key },
-        { $set: { attempts: 1, lockedUntil: null, expireAt: nextExpiry } },
-        { upsert: true, new: true }
-      );
+      rateLimitRegistry.set(item.key, {
+        key: item.key,
+        attempts: 1,
+        lockedUntil: null,
+        expireAt: nextExpiry
+      });
     } else {
       const updatedAttempts = (existing.attempts || 0) + 1;
       const lockedUntil = updatedAttempts >= item.max ? nextExpiry : existing.lockedUntil;
-      await AuthRateLimit.updateOne(
-        { key: item.key },
-        { $set: { attempts: updatedAttempts, lockedUntil, expireAt: nextExpiry } }
-      );
+      rateLimitRegistry.set(item.key, {
+        key: item.key,
+        attempts: updatedAttempts,
+        lockedUntil,
+        expireAt: nextExpiry
+      });
     }
   }
 }
 
 export async function clearLoginRateLimit(ip: string, email: string): Promise<void> {
-  const ready = await ensureDbReady();
-  if (!ready) return;
   const { acctKey } = buildRateKeys(ip, email);
-  await AuthRateLimit.deleteOne({ key: acctKey });
+  rateLimitRegistry.delete(acctKey);
 }

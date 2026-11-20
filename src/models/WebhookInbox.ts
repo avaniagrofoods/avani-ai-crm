@@ -1,11 +1,15 @@
 import mongoose from 'mongoose';
 
+/**
+ * TASK 5H.4 — MINIMAL WEBHOOK EVENT MODEL (ZERO RAW PAYLOAD STORAGE)
+ * Active webhook deduplication is persisted in Google Sheets (WEBHOOK_EVENTS tab).
+ * Prohibited raw payload field removed; only deterministic eventId and SHA-256 payloadHash are used.
+ */
 const WebhookInboxSchema = new mongoose.Schema({
-  eventId: { type: String, required: true, unique: true }, // Uniquely indexed for deduplication
+  eventId: { type: String, required: true, unique: true },
   provider: { type: String, required: true },
   eventType: { type: String, required: true },
   payloadHash: { type: String },
-  payload: { type: mongoose.Schema.Types.Mixed },
   status: {
     type: String,
     enum: ['RECEIVED', 'VERIFIED', 'QUEUED', 'PROCESSING', 'COMPLETED', 'PROCESSED', 'FAILED', 'ARCHIVED_HISTORICAL'],

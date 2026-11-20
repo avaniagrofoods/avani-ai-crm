@@ -1,101 +1,21 @@
 import { NextResponse } from 'next/server';
-import connectToDatabase from '@/lib/db';
-import { Lead } from '@/models/Lead';
-import { defaultVoiceService } from '@/lib/voice-provider';
 import { requireRole } from '@/lib/auth';
 
+/**
+ * TASK 5H.7 (A-03 Remediation):
+ * Legacy MongoDB bulk lead upload endpoint disabled.
+ * Zero-Document/File-Upload policy enforced; returns HTTP 410 Gone.
+ */
 export async function POST(request: Request) {
-  try {
-    const auth = await requireRole(request, ['ADMIN']);
-    if (!auth.ok) return auth.response;
+  const auth = await requireRole(request, ['ADMIN']);
+  if (!auth.ok) return auth.response;
 
-    const conn = await connectToDatabase();
-    if (!conn || conn.connection?.readyState !== 1) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'DATABASE_UNAVAILABLE',
-          message: 'Database persistence unavailable: MONGODB_URI is unconfigured or connection failed. Lead upload cannot guarantee durable persistence.'
-        },
-        { status: 503 }
-      );
-    }
-
-    const body = await request.json();
-    const leads = body?.leads || (Array.isArray(body) ? body : null);
-
-    if (!leads || !Array.isArray(leads)) {
-      return NextResponse.json({ error: "Invalid leads data" }, { status: 400 });
-    }
-
-    const savedLeads = [];
-
-    for (const leadData of leads) {
-      const name = leadData.Name || leadData.name;
-      const phone = leadData.Phone || leadData.phone || leadData.PhoneNumber;
-      const loanType = leadData.LoanType || leadData['Loan Type'] || leadData.loanType || "Personal Loan";
-
-      if (!name || !phone) continue;
-
-      let formattedPhone = phone.trim().replace(/[^0-9]/g, '');
-      if (formattedPhone.length === 10) formattedPhone = '+91' + formattedPhone;
-      else if (formattedPhone.startsWith('91') && formattedPhone.length === 12) formattedPhone = '+' + formattedPhone;
-      else formattedPhone = '+' + formattedPhone;
-
-      let city = leadData.City || leadData.city;
-      if (!city) city = 'UNCLASSIFIED';
-
-      const allowedProfessions = ['Salaried', 'Self Employed', 'Business Owner', 'Doctor / Medical Professional', 'Chartered Accountant', 'Other Professional', 'Student', 'Farmer', 'Pensioner', 'Rental Income'];
-      let profession = leadData.Profession || leadData.employmentType;
-      if (!allowedProfessions.includes(profession)) {
-        console.warn(`[CSV Upload] Unknown profession "${profession}" mapped to UNCLASSIFIED`);
-        profession = 'UNCLASSIFIED';
-      }
-
-      const leadId = `AVL-${new Date().toISOString().slice(0,10).replace(/-/g,'')}-${Math.floor(Math.random()*1000000).toString().padStart(6,'0')}`;
-      const correlationId = `AVL-CSV-${Date.now()}`;
-
-      let newLead: any = {
-        leadId, correlationId, name, phone: formattedPhone, loanType,
-        city, profession, employmentType: profession === 'UNCLASSIFIED' ? 'Other' : profession,
-        status: 'New', details: '', source: 'CSV Upload'
-      };
-
-      try {
-        newLead = await Lead.findOneAndUpdate(
-          { phone: formattedPhone },
-          { $setOnInsert: newLead },
-          { new: true, upsert: true }
-        );
-      } catch (dbError: any) {
-        console.error("DB Save failed during upload:", dbError?.message);
-        return NextResponse.json({ success: false, error: 'DATABASE_WRITE_FAILED', message: 'Failed to persist uploaded lead.' }, { status: 500 });
-      }
-
-      try {
-        const ckResponse = await defaultVoiceService.dispatchCall({
-          phoneNumber: formattedPhone,
-          customerName: name,
-          loanType: loanType,
-          language: "mr"
-        });
-
-        newLead.status = 'Initiated';
-        newLead.callId = ckResponse.callId || `omni_${Date.now()}`;
-        newLead.details = 'OmniDM AI Outbound Call Initiated';
-        if (newLead.save) await newLead.save();
-      } catch (callError: any) {
-        console.error(`Failed to trigger OmniDM call for ${name}:`, callError?.message);
-        newLead.status = 'Initiated';
-        newLead.details = 'OmniDM AI Outbound Scheduled';
-      }
-
-      savedLeads.push(newLead);
-    }
-
-    return NextResponse.json({ success: true, count: savedLeads.length, leads: savedLeads });
-  } catch (error: any) {
-    console.error("Upload Error:", error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
+  return NextResponse.json(
+    {
+      success: false,
+      error: 'BULK_LEAD_UPLOAD_DISABLED',
+      message: 'Legacy bulk lead upload to MongoDB is disabled under the Google Sheets Zero-Upload policy.'
+    },
+    { status: 410 }
+  );
 }

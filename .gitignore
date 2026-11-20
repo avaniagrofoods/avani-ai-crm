@@ -47,3 +47,9 @@ temp-app/
 *.ps1
 *.js
 .env*
+
+# Temporary backups, scratch, and local docs
+*.bak
+*.bak.*
+scratch/
+*.docx

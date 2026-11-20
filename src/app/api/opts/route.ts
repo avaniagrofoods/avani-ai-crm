@@ -1,11 +1,12 @@
 import { NextResponse } from 'next/server';
 import { requireAuth, requireRole } from '@/lib/auth';
-import connectToDatabase from '@/lib/db';
-import { Contact } from '@/models/Contact';
-import { Lead } from '@/models/Lead';
-
-import { getDatabaseLastError } from '@/lib/db';
-import mongoose from 'mongoose';
+import {
+  CrmSheetsService,
+  customerRepository,
+  consentRepository,
+  leadRepository,
+  SheetsCrmError
+} from '@/lib/google-sheets';
 
 export const dynamic = 'force-dynamic';
 
@@ -13,86 +14,34 @@ export async function GET(req: Request) {
   const auth = await requireAuth(req);
   if (!auth.ok) return auth.response;
   try {
-    const conn = await connectToDatabase();
-    const readyState = mongoose.connection?.readyState ?? conn?.connection?.readyState;
-    if (!conn || readyState !== 1) {
-      const lastErr = getDatabaseLastError() || `readyState=${readyState}`;
-      return NextResponse.json(
-        { success: false, error: 'DATABASE_UNAVAILABLE', message: `Database offline: ${lastErr}` },
-        { status: 503 }
-      );
-    }
+    await CrmSheetsService.assertHealthy();
 
     const { searchParams } = new URL(req.url);
     const filterStatus = searchParams.get('status');
 
-    // Fetch contacts
-    const contacts = await Contact.find({}).sort({ updatedAt: -1 }).limit(100);
+    const [customers, consents] = await Promise.all([
+      customerRepository.findAll(),
+      consentRepository.findAll()
+    ]);
 
-    // Fetch leads with explicit consent / opt-out states
-    const leads = await Lead.find({
-      $or: [
-        { isOptedOut: true },
-        { consentStatus: { $in: ['GRANTED', 'DENIED'] } }
-      ]
-    }).sort({ updatedAt: -1 }).limit(100);
+    const custMap = new Map(customers.map((c) => [c.customer_id, c]));
+    let items = consents.map((c) => {
+      const cust = custMap.get(c.customer_id);
+      return {
+        id: c.consent_id,
+        customerId: c.customer_id,
+        phone: cust?.mobile_number || '',
+        name: cust?.customer_name || 'Customer',
+        consentStatus: c.consent_status,
+        status: c.optout_status,
+        source: c.consent_source,
+        createdAt: c.consent_timestamp,
+        updatedAt: c.updated_at
+      };
+    });
 
-    const registryMap = new Map<string, any>();
-
-    // First populate from contacts
-    for (const c of contacts) {
-      const cleanPhone = c.phone;
-      registryMap.set(cleanPhone, {
-        id: `c_${c._id}`,
-        phone: cleanPhone,
-        name: c.name || 'Contact',
-        status: c.optedIn === false ? 'OPTED_OUT' : 'OPTED_IN',
-        source: 'Contact Book / Upload',
-        createdAt: c.createdAt ? new Date(c.createdAt).toISOString() : new Date().toISOString()
-      });
-    }
-
-    // Overlay leads (more granular DPDP consent)
-    for (const l of leads) {
-      let phone = l.phone;
-      if (!phone.startsWith('+')) {
-        phone = phone.length === 10 ? '+91' + phone : '+' + phone;
-      }
-
-      const isOptedOut = l.isOptedOut === true || l.status === 'OPTED_OUT' || l.consentStatus === 'DENIED';
-      registryMap.set(phone, {
-        id: `l_${l._id}`,
-        phone,
-        name: l.name || 'Lead',
-        status: isOptedOut ? 'OPTED_OUT' : 'OPTED_IN',
-        source: l.leadSource || l.source || 'Website Form / Ad',
-        createdAt: l.consentTimestamp ? new Date(l.consentTimestamp).toISOString() : (l.createdAt ? new Date(l.createdAt).toISOString() : new Date().toISOString())
-      });
-    }
-
-    // Default seed items if collection is empty
-    if (registryMap.size === 0) {
-      registryMap.set('+91 91756 35165', {
-        id: 'opt_seed_1',
-        phone: '+91 91756 35165',
-        name: 'Sachin Shinde',
-        status: 'OPTED_IN',
-        source: 'Authorized Admin / Test Contact',
-        createdAt: new Date().toISOString()
-      });
-      registryMap.set('+91 72491 08474', {
-        id: 'opt_seed_2',
-        phone: '+91 72491 08474',
-        name: 'Avani Loan Services Helpline',
-        status: 'OPTED_IN',
-        source: 'Official WABA Business Phone',
-        createdAt: new Date().toISOString()
-      });
-    }
-
-    let items = Array.from(registryMap.values());
     if (filterStatus) {
-      items = items.filter(item => item.status === filterStatus);
+      items = items.filter((item) => item.status === filterStatus);
     }
 
     return NextResponse.json({
@@ -100,10 +49,10 @@ export async function GET(req: Request) {
       items,
       total: items.length
     });
-
   } catch (error: any) {
-    console.error('[OptsAPI] Error loading consent registry:', error);
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    const status = error instanceof SheetsCrmError ? error.httpStatus : 500;
+    const code = error instanceof SheetsCrmError ? error.code : 'INTERNAL_ERROR';
+    return NextResponse.json({ success: false, error: code, message: error.message }, { status });
   }
 }
 
@@ -111,77 +60,57 @@ export async function POST(req: Request) {
   const auth = await requireRole(req, ['ADMIN']);
   if (!auth.ok) return auth.response;
   try {
-    const conn = await connectToDatabase();
-    const readyState = mongoose.connection?.readyState ?? conn?.connection?.readyState;
-    if (!conn || readyState !== 1) {
-      const lastErr = getDatabaseLastError() || `readyState=${readyState}`;
-      return NextResponse.json(
-        { success: false, error: 'DATABASE_UNAVAILABLE', message: `Database offline: ${lastErr}` },
-        { status: 503 }
-      );
-    }
+    await CrmSheetsService.assertHealthy();
 
     const body = await req.json();
-    const { phone, status, source } = body;
+    const { phone, name, status, source } = body;
 
     if (!phone) {
       return NextResponse.json({ success: false, error: 'Phone number is required.' }, { status: 400 });
     }
 
-    let cleanPhone = phone.trim().replace(/[^0-9+]/g, '');
-    if (!cleanPhone.startsWith('+')) {
-      cleanPhone = cleanPhone.length === 10 ? '+91' + cleanPhone : '+' + cleanPhone;
+    const isOptedIn = status === 'OPTED_IN';
+    const { record: customer } = await customerRepository.upsertCustomer({
+      customer_name: name || 'Customer',
+      mobile_number: phone,
+      record_status: isOptedIn ? 'ACTIVE' : 'OPTED_OUT'
+    });
+
+    const { record: consent } = await consentRepository.upsertConsent({
+      customer_id: customer.customer_id,
+      channel: 'WHATSAPP',
+      consent_status: isOptedIn ? 'GRANTED' : 'WITHDRAWN',
+      consent_source: source || 'Manual CRM Update',
+      optout_status: isOptedIn ? 'OPTED_IN' : 'OPTED_OUT'
+    });
+
+    const leads = await leadRepository.findByCustomerId(customer.customer_id);
+    for (const l of leads) {
+      await leadRepository.upsertLead({
+        ...l,
+        lead_status: isOptedIn ? 'NEW_ENQUIRY' : 'OPTED_OUT'
+      });
     }
 
-    const isOptedIn = status === 'OPTED_IN';
-
-    // Upsert Contact
-    await Contact.findOneAndUpdate(
-      { phone: cleanPhone },
-      {
-        $set: {
-          optedIn: isOptedIn,
-          updatedAt: new Date()
-        },
-        $setOnInsert: {
-          name: 'Customer',
-          createdAt: new Date()
-        }
-      },
-      { upsert: true }
-    );
-
-    // Update Lead if exists
-    await Lead.updateMany(
-      { phone: { $in: [cleanPhone, cleanPhone.replace('+91', ''), cleanPhone.replace('+', '')] } },
-      {
-        $set: {
-          isOptedOut: !isOptedIn,
-          status: isOptedIn ? 'NEW' : 'OPTED_OUT',
-          consentStatus: isOptedIn ? 'GRANTED' : 'DENIED',
-          optedOutAt: isOptedIn ? null : new Date(),
-          updatedAt: new Date()
-        }
-      }
-    );
-
     const item = {
-      id: `opt_${Date.now()}`,
-      phone: cleanPhone,
-      status: isOptedIn ? 'OPTED_IN' : 'OPTED_OUT',
-      source: source || 'Manual CRM Update',
-      createdAt: new Date().toISOString()
+      id: consent.consent_id,
+      customerId: customer.customer_id,
+      phone: customer.mobile_number,
+      status: consent.optout_status,
+      consentStatus: consent.consent_status,
+      source: consent.consent_source,
+      createdAt: consent.consent_timestamp
     };
 
     return NextResponse.json({
       success: true,
-      message: `Consent updated to ${item.status} for ${cleanPhone}.`,
+      message: `Consent updated to ${item.status} for ${customer.mobile_number}.`,
       item
     });
-
   } catch (error: any) {
-    console.error('[OptsAPI] Error updating consent:', error);
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    const status = error instanceof SheetsCrmError ? error.httpStatus : 500;
+    const code = error instanceof SheetsCrmError ? error.code : 'INTERNAL_ERROR';
+    return NextResponse.json({ success: false, error: code, message: error.message }, { status });
   }
 }
 
@@ -189,37 +118,23 @@ export async function DELETE(req: Request) {
   const auth = await requireRole(req, ['ADMIN']);
   if (!auth.ok) return auth.response;
   try {
-    const conn = await connectToDatabase();
-    const readyState = mongoose.connection?.readyState ?? conn?.connection?.readyState;
-    if (!conn || readyState !== 1) {
-      const lastErr = getDatabaseLastError() || `readyState=${readyState}`;
-      return NextResponse.json(
-        { success: false, error: 'DATABASE_UNAVAILABLE', message: `Database offline: ${lastErr}` },
-        { status: 503 }
-      );
-    }
+    await CrmSheetsService.assertHealthy();
 
     const { searchParams } = new URL(req.url);
-    const phone = searchParams.get('phone');
     const id = searchParams.get('id');
+    const customerId = searchParams.get('customerId');
 
-    if (!phone && !id) {
-      return NextResponse.json({ success: false, error: 'Phone or ID required.' }, { status: 400 });
+    if (!id && !customerId) {
+      return NextResponse.json({ success: false, error: 'Consent ID or Customer ID required.' }, { status: 400 });
     }
 
-    if (id && id.startsWith('c_')) {
-      const contactId = id.replace('c_', '');
-      await Contact.findByIdAndDelete(contactId);
-    } else if (phone) {
-      let cleanPhone = phone.trim().replace(/[^0-9+]/g, '');
-      if (!cleanPhone.startsWith('+')) {
-        cleanPhone = cleanPhone.length === 10 ? '+91' + cleanPhone : '+' + cleanPhone;
-      }
-      await Contact.deleteMany({ phone: cleanPhone });
-    }
+    const targetConsentId = id || `CNS-${customerId}`;
+    await consentRepository.deleteById(targetConsentId);
 
     return NextResponse.json({ success: true, message: 'Consent entry deleted.' });
   } catch (error: any) {
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    const status = error instanceof SheetsCrmError ? error.httpStatus : 500;
+    const code = error instanceof SheetsCrmError ? error.code : 'INTERNAL_ERROR';
+    return NextResponse.json({ success: false, error: code, message: error.message }, { status });
   }
 }

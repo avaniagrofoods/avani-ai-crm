@@ -1,13 +1,12 @@
 import { NextResponse } from 'next/server';
-import connectToDatabase from '@/lib/db';
-import { Lead } from '@/models/Lead';
-import { Message } from '@/models/Message';
-import { DocumentModel } from '@/models/Document';
-import { WebhookInbox } from '@/models/WebhookInbox';
 import { CANONICAL_LEAD_STAGES, mapLegacyStatusToStage } from '@/config/pipeline';
-import { requireAuth, buildLeadVisibilityFilter } from '@/lib/auth';
-import { computeWhatsappTelemetry } from '@/lib/telemetry';
-import mongoose from 'mongoose';
+import { requireAuth, canAccessLead } from '@/lib/auth';
+import {
+  CrmSheetsService,
+  messageEventRepository,
+  webhookEventRepository,
+  SheetsCrmError
+} from '@/lib/google-sheets';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,49 +20,6 @@ export interface DashboardFilterParams {
   stage?: string | null;
   assignedAdvisor?: string | null;
   source?: string | null;
-}
-
-export function buildLeadFilterQuery(params: DashboardFilterParams): Record<string, any> {
-  const query: Record<string, any> = {};
-
-  if (params.dateFrom || params.dateTo) {
-    query.createdAt = {};
-    if (params.dateFrom) query.createdAt.$gte = new Date(params.dateFrom);
-    if (params.dateTo) query.createdAt.$lte = new Date(params.dateTo);
-  }
-
-  if (params.loanCategory && params.loanCategory !== 'ALL') {
-    query.loanType = params.loanCategory;
-  }
-
-  if (params.city && params.city !== 'ALL') {
-    query.city = new RegExp(`^${params.city}$`, 'i');
-  }
-
-  if (params.applicantCategory && params.applicantCategory !== 'ALL') {
-    query.employmentType = params.applicantCategory;
-  }
-
-  if (params.leadStatus && params.leadStatus !== 'ALL') {
-    query.status = params.leadStatus;
-  }
-
-  if (params.stage && params.stage !== 'ALL') {
-    query.stage = params.stage;
-  }
-
-  if (params.assignedAdvisor && params.assignedAdvisor !== 'ALL') {
-    query['assignedAgent.name'] = new RegExp(params.assignedAdvisor, 'i');
-  }
-
-  if (params.source && params.source !== 'ALL') {
-    query.$or = [
-      { leadSource: new RegExp(params.source, 'i') },
-      { source: new RegExp(params.source, 'i') }
-    ];
-  }
-
-  return query;
 }
 
 export async function GET(request: Request) {
@@ -83,28 +39,35 @@ export async function GET(request: Request) {
     source: searchParams.get('source')
   };
 
-  const baseFilter = buildLeadFilterQuery(filterParams);
-  const visibilityFilter = buildLeadVisibilityFilter(auth.session);
-  const finalFilter =
-    Object.keys(visibilityFilter).length > 0 && Object.keys(baseFilter).length > 0
-      ? { $and: [baseFilter, visibilityFilter] }
-      : Object.keys(visibilityFilter).length > 0
-        ? visibilityFilter
-        : baseFilter;
-
   try {
-    const conn = await connectToDatabase();
-    if (!conn || mongoose.connection.readyState !== 1) {
-      return NextResponse.json({ success: false, databaseOnline: false, error: 'Database unavailable' }, { status: 503 });
+    await CrmSheetsService.assertHealthy();
+
+    const [allLeads, msgEvents, webhookEvents] = await Promise.all([
+      CrmSheetsService.listHydratedLeads(),
+      messageEventRepository.findAll(),
+      webhookEventRepository.findAll()
+    ]);
+
+    let leads = allLeads.filter((l) => canAccessLead(auth.session, l));
+
+    if (filterParams.loanCategory && filterParams.loanCategory !== 'ALL') {
+      leads = leads.filter((l) => l.loanType === filterParams.loanCategory);
+    }
+    if (filterParams.city && filterParams.city !== 'ALL') {
+      const cLower = filterParams.city.toLowerCase();
+      leads = leads.filter((l) => l.city.toLowerCase() === cLower);
+    }
+    if (filterParams.stage && filterParams.stage !== 'ALL') {
+      leads = leads.filter((l) => l.stage === filterParams.stage);
+    }
+    if (filterParams.source && filterParams.source !== 'ALL') {
+      const sLower = filterParams.source.toLowerCase();
+      leads = leads.filter((l) => l.leadSource.toLowerCase().includes(sLower));
     }
 
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
-
-    const [leads, whatsappTelemetry] = await Promise.all([
-      Lead.find(finalFilter).lean(),
-      computeWhatsappTelemetry()
-    ]);
+    const now = new Date();
 
     const stageCounts: Record<string, number> = {};
     for (const s of CANONICAL_LEAD_STAGES) {
@@ -113,19 +76,12 @@ export async function GET(request: Request) {
 
     const leadsByLoanCategory: Record<string, number> = {};
     const leadsByCity: Record<string, number> = {};
-    const revenueByProduct: Record<string, number> = {};
-    const revenueByAdvisor: Record<string, number> = {};
 
     let newLeadsToday = 0;
-    let totalDisbursedAmount = 0;
-    let totalExpectedRevenue = 0;
-    let totalActualRevenueReceived = 0;
-    let totalOutstandingAmount = 0;
     let pendingFollowUpsCount = 0;
     let overdueFollowUpsCount = 0;
     let followUpTasksDueCount = 0;
     let unqualifiedLeadsCount = 0;
-    const now = new Date();
 
     let funnelEnquiries = 0;
     let funnelContacted = 0;
@@ -136,7 +92,7 @@ export async function GET(request: Request) {
     let funnelDisbursed = 0;
     let funnelClosedLost = 0;
 
-    for (const l of leads as any[]) {
+    for (const l of leads) {
       const resolvedStage = l.stage || mapLegacyStatusToStage(l.status);
       stageCounts[resolvedStage] = (stageCounts[resolvedStage] || 0) + 1;
 
@@ -152,21 +108,43 @@ export async function GET(request: Request) {
 
       funnelEnquiries++;
       if (!['NEW_ENQUIRY', 'CONTACT_PENDING'].includes(resolvedStage)) funnelContacted++;
-      if (['QUALIFIED', 'DOCUMENTS_PENDING', 'DOCUMENTS_RECEIVED', 'DOCUMENT_VERIFICATION', 'LENDER_MATCHING', 'APPLICATION_PREPARATION', 'APPLICATION_SUBMITTED', 'LENDER_PROCESSING', 'ADDITIONAL_DOCUMENTS_REQUIRED', 'SANCTIONED', 'DISBURSEMENT_PENDING', 'DISBURSED'].includes(resolvedStage)) {
+      if (
+        [
+          'QUALIFIED',
+          'DOCUMENTS_PENDING',
+          'DOCUMENTS_RECEIVED',
+          'DOCUMENT_VERIFICATION',
+          'LENDER_MATCHING',
+          'APPLICATION_PREPARATION',
+          'APPLICATION_SUBMITTED',
+          'LENDER_PROCESSING',
+          'ADDITIONAL_DOCUMENTS_REQUIRED',
+          'SANCTIONED',
+          'DISBURSEMENT_PENDING',
+          'DISBURSED'
+        ].includes(resolvedStage)
+      ) {
         funnelQualified++;
       } else if (['NOT_ELIGIBLE', 'CUSTOMER_NOT_INTERESTED', 'CLOSED_LOST'].includes(resolvedStage)) {
         unqualifiedLeadsCount++;
       }
-      if (['DOCUMENTS_RECEIVED', 'DOCUMENT_VERIFICATION', 'LENDER_MATCHING', 'APPLICATION_PREPARATION', 'APPLICATION_SUBMITTED', 'LENDER_PROCESSING', 'ADDITIONAL_DOCUMENTS_REQUIRED', 'SANCTIONED', 'DISBURSEMENT_PENDING', 'DISBURSED'].includes(resolvedStage)) {
-        funnelDocsReceived++;
-      }
-      if (['APPLICATION_SUBMITTED', 'LENDER_PROCESSING', 'ADDITIONAL_DOCUMENTS_REQUIRED', 'SANCTIONED', 'DISBURSEMENT_PENDING', 'DISBURSED'].includes(resolvedStage) || l.application?.status === 'SUBMITTED') {
+      if (
+        [
+          'APPLICATION_SUBMITTED',
+          'LENDER_PROCESSING',
+          'ADDITIONAL_DOCUMENTS_REQUIRED',
+          'SANCTIONED',
+          'DISBURSEMENT_PENDING',
+          'DISBURSED'
+        ].includes(resolvedStage) ||
+        l.application?.status === 'SUBMITTED'
+      ) {
         funnelAppSubmitted++;
       }
-      if (['SANCTIONED', 'DISBURSEMENT_PENDING', 'DISBURSED'].includes(resolvedStage) || l.sanction?.status === 'SANCTIONED') {
+      if (['SANCTIONED', 'DISBURSEMENT_PENDING', 'DISBURSED'].includes(resolvedStage) || l.application?.status === 'SANCTIONED') {
         funnelSanctioned++;
       }
-      if (resolvedStage === 'DISBURSED' || l.disbursement?.status === 'DISBURSED') {
+      if (resolvedStage === 'DISBURSED' || l.application?.status === 'DISBURSED') {
         funnelDisbursed++;
       }
       if (['NOT_ELIGIBLE', 'CUSTOMER_NOT_INTERESTED', 'CLOSED_LOST'].includes(resolvedStage)) {
@@ -175,7 +153,7 @@ export async function GET(request: Request) {
 
       const tasks = l.followUpTasks || [];
       let leadHasPendingOrDue = false;
-      for (const t of tasks as any[]) {
+      for (const t of tasks) {
         if (t.status === 'COMPLETED' || t.status === 'CANCELLED') continue;
         const isOverdue = t.status === 'OVERDUE' || (t.dueDate && new Date(t.dueDate) < now);
         if (isOverdue) {
@@ -190,29 +168,18 @@ export async function GET(request: Request) {
       if (leadHasPendingOrDue) {
         pendingFollowUpsCount++;
       }
-
-      if (auth.session.role === 'ADMIN') {
-        const disbursed = Number(l.disbursement?.disbursedAmount) || 0;
-        totalDisbursedAmount += disbursed;
-
-        const expected = Number(l.revenue?.expectedRevenue) || 0;
-        totalExpectedRevenue += expected;
-
-        const received = Number(l.revenue?.actualRevenueReceived) || 0;
-        totalActualRevenueReceived += received;
-
-        const outstanding = l.revenue?.outstandingAmount !== undefined
-          ? Math.max(0, Number(l.revenue.outstandingAmount))
-          : Math.max(0, expected - received);
-        totalOutstandingAmount += outstanding;
-
-        if (received > 0) {
-          revenueByProduct[cat] = (revenueByProduct[cat] || 0) + received;
-          const advisorName = l.assignedAdvisor?.name || l.assignedAgent?.name || 'Sachin Shinde';
-          revenueByAdvisor[advisorName] = (revenueByAdvisor[advisorName] || 0) + received;
-        }
-      }
     }
+
+    const whatsappTelemetry = {
+      mockAttempts: msgEvents.filter((m) => m.provider.toLowerCase().includes('mock')).length,
+      providerAccepted: msgEvents.filter((m) => m.direction === 'outbound' && ['SENT', 'DELIVERED', 'READ'].includes(m.delivery_status.toUpperCase())).length,
+      delivered: msgEvents.filter((m) => m.direction === 'outbound' && ['DELIVERED', 'READ'].includes(m.delivery_status.toUpperCase())).length,
+      failed: msgEvents.filter((m) => m.delivery_status.toUpperCase().includes('FAIL')).length,
+      inboundReceived: msgEvents.filter((m) => m.direction === 'inbound').length,
+      webhookProcessingErrors: webhookEvents.filter((w) => w.processing_status === 'FAILED').length,
+      duplicateWebhookEvents: webhookEvents.filter((w) => w.processing_status === 'DUPLICATE').length,
+      pendingDeliveryConfirmations: msgEvents.filter((m) => m.direction === 'outbound' && m.delivery_status.toUpperCase() === 'QUEUED').length
+    };
 
     const leadToAppConversionPct = funnelEnquiries > 0 ? Math.round((funnelAppSubmitted / funnelEnquiries) * 100) : 0;
     const appToSanctionConversionPct = funnelAppSubmitted > 0 ? Math.round((funnelSanctioned / funnelAppSubmitted) * 100) : 0;
@@ -221,6 +188,7 @@ export async function GET(request: Request) {
     return NextResponse.json({
       success: true,
       databaseOnline: true,
+      dataStore: 'GOOGLE_SHEETS',
       userRole: auth.session.role,
       appliedFilters: filterParams,
       kpis: {
@@ -250,28 +218,14 @@ export async function GET(request: Request) {
         appToSanctionPct: appToSanctionConversionPct,
         sanctionToDisbursedPct: sanctionToDisbursedConversionPct
       },
-      revenue: auth.session.role === 'ADMIN'
-        ? {
-            restricted: false,
-            totalDisbursedAmount,
-            totalExpectedRevenue,
-            totalActualRevenueReceived,
-            totalOutstandingAmount,
-            revenueByProduct,
-            revenueByAdvisor
-          }
-        : {
-            restricted: true,
-            totalDisbursedAmount: null,
-            totalExpectedRevenue: null,
-            totalActualRevenueReceived: null,
-            totalOutstandingAmount: null,
-            revenueByProduct: {},
-            revenueByAdvisor: {}
-          },
       whatsappTelemetry
     });
   } catch (error: any) {
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    const status = error instanceof SheetsCrmError ? error.httpStatus : 503;
+    const code = error instanceof SheetsCrmError ? error.code : 'GOOGLE_SHEETS_UNAVAILABLE';
+    return NextResponse.json(
+      { success: false, databaseOnline: false, error: code, message: error.message },
+      { status }
+    );
   }
 }

@@ -1,22 +1,15 @@
 import mongoose, { Schema, Document as MongooseDoc } from 'mongoose';
 
+/**
+ * TASK 5H.4 — DOCUMENT STORAGE ELIMINATION
+ * Customer document and file uploads are disabled. This legacy model is retained solely
+ * as a read-only type stub so legacy imports compile without persisting any file/document data.
+ */
 export interface IDocumentRequest extends MongooseDoc {
   leadId: string;
   product: string;
   customerType: string;
-  requiredDocuments: string[];
-  receivedDocuments: string[];
-  missingDocuments: string[];
-  status:
-    | 'NOT_STARTED'
-    | 'CHECKLIST_GENERATED'
-    | 'DOCUMENTS_PENDING'
-    | 'PARTIAL'
-    | 'DOCUMENTS_SUBMITTED'
-    | 'UNDER_REVIEW'
-    | 'VERIFIED'
-    | 'REJECTED';
-  auditLog: Array<{ action: string; timestamp: Date; detail?: string }>;
+  status: 'DISABLED_BY_POLICY';
   createdAt: Date;
   updatedAt: Date;
 }
@@ -26,24 +19,11 @@ const DocumentSchema: Schema = new Schema(
     leadId: { type: String, required: true, index: true },
     product: { type: String, required: true },
     customerType: { type: String, default: 'INDIVIDUAL' },
-    requiredDocuments: { type: Array, default: [] },
-    receivedDocuments: { type: Array, default: [] },
-    missingDocuments: { type: Array, default: [] },
     status: {
       type: String,
-      enum: [
-        'NOT_STARTED',
-        'CHECKLIST_GENERATED',
-        'DOCUMENTS_PENDING',
-        'PARTIAL',
-        'DOCUMENTS_SUBMITTED',
-        'UNDER_REVIEW',
-        'VERIFIED',
-        'REJECTED'
-      ],
-      default: 'NOT_STARTED'
-    },
-    auditLog: { type: Array, default: [] }
+      enum: ['DISABLED_BY_POLICY'],
+      default: 'DISABLED_BY_POLICY'
+    }
   },
   { timestamps: true }
 );
@@ -51,5 +31,4 @@ const DocumentSchema: Schema = new Schema(
 export const DocumentModel =
   mongoose.models.DocumentModel || mongoose.model<IDocumentRequest>('DocumentModel', DocumentSchema);
 
-// Export Document alias for backward compatibility across legacy routes
 export const Document = DocumentModel;

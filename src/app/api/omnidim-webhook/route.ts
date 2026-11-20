@@ -143,8 +143,7 @@ export async function POST(req: Request) {
 
     const updateData: any = { status: mappedStatus };
     if (body.duration) updateData.duration = body.duration;
-    if (body.recording_url) updateData.recordingUrl = body.recording_url;
-    if (body.transcript || notes) updateData.transcript = body.transcript || notes;
+    // TASK 5H.7 (A-03): Prohibited recordingUrl and transcript persistence removed under Zero-Media-Storage policy.
 
     if (mappedStatus === 'CONVERSATION_COMPLETED' || mappedStatus === 'NO_ANSWER' || mappedStatus === 'FAILED' || mappedStatus === 'BUSY') {
       updateData.completedAt = new Date();
