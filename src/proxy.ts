@@ -20,6 +20,7 @@ const PUBLIC_API_EXACT = new Set([
   '/api/whatsapp-webhook',
   '/api/whatsapp-webhook-worker',
   '/api/omnidim-webhook',
+  '/api/zapier-webhook',
   '/api/vapi-webhook',
   '/api/callkaro-webhook',
   '/api/documents/secure-upload'

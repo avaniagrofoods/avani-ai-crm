@@ -54,6 +54,8 @@ test('T02 [5F Zapier] Inbound /api/zapier-webhook verifies shared secret, HMAC, 
   assert.ok(src.includes('CrmSheetsService.registerOrUpdateCustomerLead'), 'Must hand off CREATE_ENQUIRY to canonical Google Sheets');
   assert.ok(src.includes('cancelPendingFollowupsForCustomerOrLead'), 'RECORD_CONSENT_OPTOUT must cancel pending follow-ups');
   assert.ok(!src.includes('connectToDatabase'), 'Zapier webhook must NEVER import or call MongoDB');
+  const proxySrc = readRel('src/proxy.ts');
+  assert.ok(proxySrc.includes("'/api/zapier-webhook'"), 'src/proxy.ts PUBLIC_API_EXACT must allow /api/zapier-webhook so signed Zapier POST reaches route handler while GET enforces requireAuth');
 });
 
 test('T03 [5F DownstreamOrchestrator] Removed unguarded connectToDatabase & wired ZapierIntegration', () => {
