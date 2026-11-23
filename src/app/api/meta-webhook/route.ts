@@ -89,6 +89,18 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: false, error: 'Invalid JSON payload' }, { status: 400 });
   }
 
+  // Blocker 6: Fail-closed isolation of legacy MongoDB Meta Lead Ads route (canonical CRM store is Google Sheets).
+  if (process.env.LEGACY_MONGODB_ROUTES_ENABLED !== 'true') {
+    return NextResponse.json(
+      {
+        success: false,
+        error: 'LEGACY_MONGODB_ROUTE_DISABLED',
+        message: 'Legacy MongoDB /api/meta-webhook route is disabled; canonical WhatsApp webhooks use /api/whatsapp-webhook and Google Sheets.'
+      },
+      { status: 410, headers: { 'Cache-Control': 'no-store' } }
+    );
+  }
+
   try {
     const conn = await connectToDatabase();
     if (!conn || conn.connection?.readyState !== 1) {

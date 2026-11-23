@@ -22,6 +22,18 @@ export async function POST(req: Request) {
       );
     }
 
+    // APR006-P2-01: Fail-closed isolation of legacy MongoDB broadcast creation route.
+    if (process.env.LEGACY_MONGODB_ROUTES_ENABLED !== 'true') {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'LEGACY_MONGODB_ROUTE_DISABLED',
+          message: 'Legacy MongoDB /api/broadcasts/create route is disabled; canonical CRM persistence is Google Sheets.'
+        },
+        { status: 410, headers: { 'Cache-Control': 'no-store' } }
+      );
+    }
+
     await connectToDatabase();
     const body = await req.json();
 

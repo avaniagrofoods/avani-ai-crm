@@ -14,6 +14,18 @@ export async function POST(request: Request) {
   );
   if (!webhookAuth.ok) return webhookAuth.response;
 
+  // Blocker 6: Fail-closed isolation of legacy MongoDB CallKaro webhook route.
+  if (process.env.LEGACY_MONGODB_ROUTES_ENABLED !== 'true') {
+    return NextResponse.json(
+      {
+        success: false,
+        error: 'LEGACY_MONGODB_ROUTE_DISABLED',
+        message: 'Legacy MongoDB /api/callkaro-webhook route is disabled; canonical CRM persistence is Google Sheets.'
+      },
+      { status: 410, headers: { 'Cache-Control': 'no-store' } }
+    );
+  }
+
   try {
     const body = await request.json();
     console.log("Received CallKaro AI Webhook:", JSON.stringify({ call_id: body?.call_id, status: body?.status, phoneMasked: maskPhoneForLog(body?.phone_number || body?.to || body?.phone) }));

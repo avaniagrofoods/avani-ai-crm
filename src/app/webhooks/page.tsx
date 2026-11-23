@@ -91,7 +91,7 @@ export default function WebhooksPage() {
       {/* Live WebhookInbox Records */}
       <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden shadow-md">
         <div className="p-4 border-b border-zinc-800 bg-zinc-800/40 flex justify-between items-center">
-          <h3 className="text-sm font-bold text-white uppercase tracking-wider">Live Webhook Event Ingestion Log (MongoDB WebhookInbox)</h3>
+          <h3 className="text-sm font-bold text-white uppercase tracking-wider">Live Webhook Event Ingestion Log (Canonical Google Sheets WEBHOOK_EVENTS)</h3>
           <span className="text-xs text-zinc-400">{recentEvents.length} events logged</span>
         </div>
         <table className="w-full text-sm text-left text-zinc-400">

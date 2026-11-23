@@ -1,6 +1,8 @@
 import axios from 'axios';
 import crypto from 'crypto';
-import { evaluateAuthorizedTestRecipient } from './safeguards';
+import { evaluateAuthorizedTestRecipient, maskPhoneForLog } from './safeguards';
+import { PersistenceState, ProviderDispatchOutcome, resolveInboundMessageType, validateProviderMessageId } from './messaging-contract';
+import { redactSensitiveKycPatterns } from './google-sheets/sheet-validation';
 
 /**
  * AVANI AI CRM — Official ChatMitra WhatsApp Platform Integration Adapter
@@ -34,6 +36,12 @@ export type ChatMantraPayload = ChatMitraPayload;
 
 export interface ChatMitraResponse {
   success: boolean;
+  providerAccepted?: boolean;
+  providerOutcome?: ProviderDispatchOutcome;
+  persistenceState?: PersistenceState;
+  httpStatus?: number;
+  retryable?: boolean;
+  reconciliationRequired?: boolean;
   messageId?: string;
   provider: string;
   status: string;
@@ -57,6 +65,8 @@ export interface PayloadValidationResult {
   eventName?: string;
   text?: string;
   profileName?: string;
+  messageType?: string;
+  isMedia?: boolean;
 }
 
 export { 
@@ -288,22 +298,52 @@ export async function sendChatMitraMessage(payload: ChatMitraPayload): Promise<C
       );
     }
 
-    const messageId = res.data?.id || res.data?.messages?.[0]?.id || `CM-${Date.now()}`;
+    const rawMessageId = res.data?.id || res.data?.messages?.[0]?.id;
+    const idCheck = validateProviderMessageId(rawMessageId, 'ChatMitra');
+    if (!idCheck.valid || !idCheck.value) {
+      return {
+        success: false,
+        providerAccepted: false,
+        providerOutcome: 'UNKNOWN_PROVIDER_OUTCOME',
+        persistenceState: 'UNKNOWN_PROVIDER_OUTCOME',
+        httpStatus: res.status || 200,
+        retryable: false,
+        reconciliationRequired: true,
+        provider: 'ChatMitra_Live',
+        status: 'UNKNOWN_PROVIDER_OUTCOME',
+        rawResponse: res.data,
+        error: `ChatMitra API returned HTTP ${res.status || 200} without a valid message ID (${idCheck.reason || 'MISSING'}); outcome ambiguous, do not blindly resend.`
+      };
+    }
     return {
       success: true,
-      messageId,
+      providerAccepted: true,
+      providerOutcome: 'PROVIDER_ACCEPTED',
+      httpStatus: res.status || 200,
+      messageId: idCheck.value,
       provider: 'ChatMitra_Live',
       status: 'API_ACCEPTED',
       rawResponse: res.data
     };
   } catch (err: any) {
-    const errorDetails = err.response?.data ? JSON.stringify(err.response.data) : err.message;
-    const isTimeout = err.code === 'ECONNABORTED' || err.message?.toLowerCase().includes('timeout');
+    const rawErr = err.response?.data ? JSON.stringify(err.response.data) : (err.message || 'Unknown ChatMitra error');
+    const safeErr = redactSensitiveKycPatterns(String(rawErr))
+      .replace(/Bearer\s+[A-Za-z0-9._\-+/=]+/gi, 'Bearer [REDACTED_TOKEN]')
+      .replace(/(?:\+?91[\s-]?)?[6-9]\d{9}\b/g, (m) => maskPhoneForLog(m))
+      .slice(0, 240);
+    const httpStatus = typeof err.response?.status === 'number' ? err.response.status : undefined;
+    const isTimeout = err.code === 'ECONNABORTED' || err.code === 'ETIMEDOUT' || Boolean(err.message?.toLowerCase().includes('timeout'));
     return {
       success: false,
+      providerAccepted: false,
+      providerOutcome: isTimeout ? 'UNKNOWN_PROVIDER_OUTCOME' : 'PROVIDER_REJECTED',
+      persistenceState: isTimeout ? 'UNKNOWN_PROVIDER_OUTCOME' : 'PROVIDER_REJECTED',
+      httpStatus,
+      retryable: !isTimeout && (httpStatus === 429 || (typeof httpStatus === 'number' && httpStatus >= 500)),
+      reconciliationRequired: isTimeout,
       provider: 'ChatMitra',
       status: isTimeout ? 'TIMEOUT' : 'FAILED',
-      error: errorDetails
+      error: safeErr
     };
   }
 }
@@ -336,7 +376,10 @@ export function validateChatMitraInboundPayload(body: any): PayloadValidationRes
     return { valid: false, error: 'Payload must be a non-empty JSON object' };
   }
 
-  const eventName = body.event || body.type;
+  const explicitEvent = typeof body.event === 'string' ? body.event.trim() : '';
+  const eventName =
+    explicitEvent ||
+    (typeof body.type === 'string' && body.type.trim().startsWith('message.') ? body.type.trim() : '');
 
   // 1. Status update payload validation
   if (
@@ -346,11 +389,23 @@ export function validateChatMitraInboundPayload(body: any): PayloadValidationRes
     eventName === 'message.read' ||
     eventName === 'message.failed'
   ) {
-    const msgId = body.messageId || body.id || body.data?.id;
-    if (!msgId) {
-      return { valid: false, error: 'Missing messageId in status callback payload', eventName };
+    const rawMsgId = body.messageId ?? body.id ?? body.data?.id;
+    const idCheck = validateProviderMessageId(rawMsgId, 'ChatMitra');
+    if (!idCheck.valid || !idCheck.value) {
+      return { valid: false, error: 'Missing or invalid messageId in status callback payload', eventName };
     }
-    return { valid: true, msgId, eventName };
+    const statusStr = String(
+      body.status || (eventName !== 'message.status.updated' ? eventName.replace('message.', '') : '')
+    ).trim();
+    if (!statusStr) {
+      return { valid: false, error: 'Missing status in status callback payload', eventName };
+    }
+    return { valid: true, msgId: idCheck.value, eventName };
+  }
+
+  // Reject explicit unsupported events fail-closed
+  if (explicitEvent && explicitEvent !== 'message.received') {
+    return { valid: false, error: `Unsupported event type: ${explicitEvent.slice(0, 64)}`, eventName: explicitEvent };
   }
 
   // 2. Inbound message payload validation
@@ -359,25 +414,44 @@ export function validateChatMitraInboundPayload(body: any): PayloadValidationRes
     return { valid: false, error: 'Missing sender phone number in message payload' };
   }
   const fromPhone = formatChatMitraPhone(String(rawFrom));
-  if (!fromPhone || fromPhone.length < 10) {
+  if (!fromPhone || !/^91[6-9]\d{9}$/.test(fromPhone)) {
     return { valid: false, error: 'Invalid sender phone number format' };
   }
 
-  const msgId = body.id || body.messageId || body.messages?.[0]?.id;
-  if (!msgId) {
-    return { valid: false, error: 'Missing message identifier in inbound message payload' };
+  const rawMsgId = body.id ?? body.messageId ?? body.messages?.[0]?.id;
+  const idCheck = validateProviderMessageId(rawMsgId, 'ChatMitra');
+  if (!idCheck.valid || !idCheck.value) {
+    return { valid: false, error: 'Missing or invalid message identifier in inbound message payload' };
   }
 
-  const text = body.text?.body || (typeof body.text === 'string' ? body.text : '') || (typeof body.message === 'string' ? body.message : '') || body.messages?.[0]?.text?.body || '';
+  // Task 5H.35 F34-04: Explicit sticker/media classification & invalid media payload guard
+  const mediaInfo = resolveInboundMessageType(body);
+  if (!mediaInfo.valid) {
+    return {
+      valid: false,
+      error: mediaInfo.error || 'INVALID_MEDIA_PAYLOAD',
+      eventName: eventName || 'message.received'
+    };
+  }
+
+  const text = mediaInfo.isMedia
+    ? ''
+    : body.text?.body ||
+      (typeof body.text === 'string' ? body.text : '') ||
+      (typeof body.message === 'string' ? body.message : '') ||
+      body.messages?.[0]?.text?.body ||
+      '';
   const profileName = body.profile?.name || body.name || body.contacts?.[0]?.profile?.name || 'Customer';
 
   return {
     valid: true,
-    msgId: String(msgId),
+    msgId: idCheck.value,
     fromPhone,
     eventName: eventName || 'message.received',
     text,
-    profileName
+    profileName,
+    messageType: mediaInfo.messageType,
+    isMedia: mediaInfo.isMedia
   };
 }
 

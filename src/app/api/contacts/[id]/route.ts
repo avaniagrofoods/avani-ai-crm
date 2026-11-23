@@ -27,6 +27,18 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     const auth = await requireAuth(req);
     if (!auth.ok) return auth.response;
 
+    // APR006-P2-01: Fail-closed isolation of legacy MongoDB customer route.
+    if (process.env.LEGACY_MONGODB_ROUTES_ENABLED !== 'true') {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'LEGACY_MONGODB_ROUTE_DISABLED',
+          message: 'Legacy MongoDB /api/contacts/[id] route is disabled; canonical CRM persistence is Google Sheets.'
+        },
+        { status: 410, headers: { 'Cache-Control': 'no-store' } }
+      );
+    }
+
     const resolvedParams = await params;
     if (!isValidObjectId(resolvedParams.id)) {
       return NextResponse.json({ success: false, error: 'Invalid contact ID format.' }, { status: 400 });
@@ -98,6 +110,18 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   try {
     const auth = await requireRole(req, ['ADMIN', 'ADVISOR']);
     if (!auth.ok) return auth.response;
+
+    // APR006-P2-01: Fail-closed isolation of legacy MongoDB customer route.
+    if (process.env.LEGACY_MONGODB_ROUTES_ENABLED !== 'true') {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'LEGACY_MONGODB_ROUTE_DISABLED',
+          message: 'Legacy MongoDB /api/contacts/[id] route is disabled; canonical CRM persistence is Google Sheets.'
+        },
+        { status: 410, headers: { 'Cache-Control': 'no-store' } }
+      );
+    }
 
     const resolvedParams = await params;
     if (!isValidObjectId(resolvedParams.id)) {

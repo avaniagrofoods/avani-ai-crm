@@ -9,6 +9,18 @@ export async function GET(req: Request) {
     const auth = await requireRole(req, ['ADMIN']);
     if (!auth.ok) return auth.response;
 
+    // APR-008 Phase 3B: Fail-closed isolation of obsolete test-harness MongoDB route.
+    if (process.env.LEGACY_MONGODB_ROUTES_ENABLED !== 'true') {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'LEGACY_MONGODB_ROUTE_DISABLED',
+          message: 'Legacy MongoDB /api/golden-test-state test route is disabled; canonical CRM persistence is Google Sheets.'
+        },
+        { status: 410, headers: { 'Cache-Control': 'no-store' } }
+      );
+    }
+
     const conn = await connectToDatabase();
     if (!conn || conn.connection?.readyState !== 1) {
       return NextResponse.json(
@@ -34,7 +46,7 @@ export async function GET(req: Request) {
     }
 
     return NextResponse.json({ success: true, lead, call });
-  } catch (error: any) {
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+  } catch {
+    return NextResponse.json({ success: false, error: 'Internal server error' }, { status: 500 });
   }
 }

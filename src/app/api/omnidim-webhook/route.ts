@@ -9,8 +9,16 @@ import { sendAiSensyWhatsApp } from '@/lib/aisensy';
 import axios from 'axios';
 import { validateProductPayload } from '@/lib/validators';
 import { sendSlackAlert } from '@/lib/alerts';
-import { verifySharedWebhookSecret } from '@/lib/auth';
+import { constantTimeEqualStrings, verifySharedWebhookSecret } from '@/lib/auth';
 import { maskPhoneForLog } from '@/lib/safeguards';
+import {
+  CrmSheetsService,
+  consentRepository,
+  customerRepository,
+  messageEventRepository,
+  normalizeMobileNumber,
+  webhookEventRepository
+} from '@/lib/google-sheets';
 
 export async function processOutgoingZapierPayload(loanType: string, compiledPayload: any, lead: any) {
   if (lead?.isOptedOut || lead?.status === 'OPTED_OUT' || lead?.consentStatus === 'DENIED' || lead?.consentStatus === 'WITHDRAWN') {
@@ -34,7 +42,7 @@ export async function processOutgoingZapierPayload(loanType: string, compiledPay
     await sendSlackAlert(verification.errorMessage || 'Validation Failed', "Outbound Interceptor Guardrail", userPhone);
 
     if (userPhone && userPhone.length === 10) {
-      if (lead) {
+      if (lead && typeof lead.save === 'function') {
         lead.currentWorkflowState = "awaiting_correction";
         lead.pendingCorrectionLog = { targetField: verification.missingFields[0], retryCount: 0 };
         await lead.save();
@@ -42,13 +50,15 @@ export async function processOutgoingZapierPayload(loanType: string, compiledPay
 
       const correctiveWhatsAppMessage = `Hi ${compiledPayload.fullName || "Customer"},\n\nThank you for choosing AVANI LOAN SERVICES. \n\nTo finalize your dynamic pre-qualification calculations for a *${loanType}*, our automated processing engine needs a bit more clarification.\n\n👉 *Please reply directly by typing your: ${missingItemsFriendly.join(', ')}*\n\nOnce received, our engine will instantly compile your verified EMI projections and doc checklists. Thank you!\n\n*Avani Finserv - Fast & Secure Approvals*`;
 
-      await sendAiSensyWhatsApp({ destination: userPhone, userName: compiledPayload.fullName || 'Customer', text: correctiveWhatsAppMessage }, `OMNIDM_CORRECTIVE_${Date.now()}_${userPhone}`);
+      if (process.env.OMNIDM_LIVE_ENABLED === 'true' && process.env.PROVIDER_MODE === 'live') {
+        await sendAiSensyWhatsApp({ destination: userPhone, userName: compiledPayload.fullName || 'Customer', text: correctiveWhatsAppMessage }, `OMNIDM_CORRECTIVE_${Date.now()}_${userPhone}`);
+      }
     }
 
     return false;
   }
 
-  if (process.env.PROVIDER_MODE !== 'live') {
+  if (process.env.PROVIDER_MODE !== 'live' || process.env.ZAPIER_ENABLED !== 'true') {
     return false;
   }
 
@@ -72,7 +82,7 @@ export async function GET(req: Request) {
 
   const VERIFY_TOKEN = process.env.OMNIDIM_VERIFY_TOKEN || process.env.META_WEBHOOK_VERIFY_TOKEN || "";
 
-  if (mode === "subscribe" && token && VERIFY_TOKEN && token === VERIFY_TOKEN) {
+  if (mode === "subscribe" && token && VERIFY_TOKEN && constantTimeEqualStrings(token, VERIFY_TOKEN)) {
     console.log("✅ OmniDM Webhook Verified!");
     return new NextResponse(challenge, { status: 200 });
   }
@@ -88,26 +98,168 @@ export async function POST(req: Request) {
   );
   if (!webhookAuth.ok) return webhookAuth.response;
   try {
-    const body = await req.json();
+    let body: any;
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json({ success: false, error: 'Invalid JSON payload' }, { status: 400 });
+    }
+
     const callId = body.call_id || body.id || body.requestId;
     const phone = body.to || body.to_number || body.phone_number || body.request_data?.phone;
+    if (!callId && !phone) {
+      return NextResponse.json(
+        { success: false, error: 'Missing required OmniDim call identifier or phone number' },
+        { status: 400 }
+      );
+    }
+
     console.log("OmniDM AI Webhook Event Received:", JSON.stringify({ callId, status: body.status || body.event, phoneMasked: maskPhoneForLog(phone) }));
 
-    try {
-      await connectToDatabase();
-    } catch (dbErr) {
-      console.warn("DB Connection warning:", dbErr);
+    // APR-008 Phase 3B & APR-009 Stage 5G: Preserve strict guard against legacy MongoDB fallback.
+    const legacyMongoEnabled = process.env.LEGACY_MONGODB_ROUTES_ENABLED === 'true';
+    if (legacyMongoEnabled) {
+      try {
+        await connectToDatabase();
+      } catch (dbErr) {
+        console.warn("DB Connection warning:", dbErr instanceof Error ? dbErr.message : 'unavailable');
+      }
     }
 
     const isCompleted = body.completed || body.status === 'completed' || body.event === 'call_ended';
     const variables = body.variables || body.request_data || {};
     const name = variables.customerName || variables.name || 'Valued Customer';
     const loanType = variables.loanType || 'Personal Loan';
-    const notes = body.summary || body.transcript || `OmniDM AI Voice Call event: ${body.status || body.event || 'ended'}`;
+    const notes = body.summary || `OmniDM AI Voice Call event: ${body.status || body.event || 'ended'}`;
     let lead: any = null;
     let isOptedOut = false;
+    let canonicalConsentGranted = false;
 
-    if (mongoose.connection.readyState === 1) {
+    let mappedStatus = isCompleted ? 'CONVERSATION_COMPLETED' : 'FAILED';
+    if (body.status === 'no-answer') mappedStatus = 'NO_ANSWER';
+    else if (body.status === 'answered') mappedStatus = 'ANSWERED';
+    else if (body.status === 'calling') mappedStatus = 'RINGING';
+    else if (body.status === 'busy') mappedStatus = 'BUSY';
+
+    // Capture dynamic variables returned by agent
+    const agentCapturedCity = variables.city || variables.City;
+    const agentCapturedProfession = variables.profession || variables.Employment || variables.Profession;
+    const agentCapturedIncome = variables.monthlyIncomeRange || variables.Income;
+    const agentCapturedAmount = variables.Loan_requirement || variables.loanRequirement || variables.Amount;
+
+    // APR-009 Stage 5G: Canonical Google Sheets CRM Handoff (Zero MongoDB Fallback)
+    if (!legacyMongoEnabled) {
+      const eventId = `OMNIDIM_${String(callId || phone).replace(/[^A-Za-z0-9._:-]/g, '_')}_${mappedStatus}`;
+      try {
+        const reg = await webhookEventRepository.registerWebhookEventIdempotent({
+          event_id: eventId,
+          provider: 'OmniDM',
+          event_type: mappedStatus,
+          rawPayloadForHashOnly: {
+            callId: callId || null,
+            status: mappedStatus,
+            phoneMasked: maskPhoneForLog(phone),
+            duration: body.duration || 0
+          }
+        });
+
+        if (reg.duplicate) {
+          return NextResponse.json({
+            success: true,
+            duplicate: true,
+            callId,
+            status: mappedStatus,
+            dataStore: 'GOOGLE_SHEETS',
+            message: 'Duplicate OmniDim webhook ignored idempotently'
+          });
+        }
+
+        if (phone) {
+          const normalized = normalizeMobileNumber(String(phone));
+          const existingCust = await customerRepository.findByMobile(normalized.e164);
+          const existingConsent = existingCust
+            ? await consentRepository.findByCustomerId(existingCust.customer_id)
+            : null;
+
+          if (
+            existingCust?.record_status === 'OPTED_OUT' ||
+            existingConsent?.consent_status === 'DENIED' ||
+            existingConsent?.consent_status === 'WITHDRAWN'
+          ) {
+            isOptedOut = true;
+          } else if (existingConsent?.consent_status === 'GRANTED' || body.consentGranted === true) {
+            canonicalConsentGranted = true;
+          }
+
+          if (isOptedOut) {
+            await webhookEventRepository.markWebhookStatus({
+              event_id: eventId,
+              processing_status: 'COMPLETED',
+              error_code: 'OPTED_OUT_SUPPRESSED'
+            });
+            return NextResponse.json({
+              success: true,
+              callId,
+              status: mappedStatus,
+              dataStore: 'GOOGLE_SHEETS',
+              optedOutSuppressed: true
+            });
+          }
+
+          const crmHandoff = await CrmSheetsService.registerOrUpdateCustomerLead({
+            enquiryKey: `OMNIDIM_${String(callId || normalized.raw10)}`,
+            name,
+            phone: normalized.e164,
+            city: agentCapturedCity || undefined,
+            loanCategory: loanType,
+            requestedAmount: agentCapturedAmount,
+            leadStatus: isCompleted ? 'CONTACTED' : 'FOLLOWUP_REQUIRED',
+            leadSource: 'OMNIDIM_VOICE',
+            consentStatus: canonicalConsentGranted ? 'GRANTED' : 'PENDING',
+            consentSource: 'OMNIDIM_WEBHOOK'
+          });
+
+          lead = {
+            leadId: crmHandoff.lead.lead_id,
+            customerId: crmHandoff.customer.customer_id,
+            city: crmHandoff.customer.city,
+            consentStatus: crmHandoff.consent.consent_status,
+            isOptedOut: crmHandoff.hydrated.isOptedOut
+          };
+
+          // Zero-Media-Storage policy: store ONLY operational metadata (never recordingUrl or transcript)
+          if (callId) {
+            await messageEventRepository.recordMessageEvent({
+              customer_id: crmHandoff.customer.customer_id,
+              provider: 'OmniDM',
+              message_type: 'VOICE_CALL_EVENT',
+              direction: 'inbound',
+              delivery_status: mappedStatus,
+              provider_message_id: String(callId)
+            });
+          }
+        }
+
+        await webhookEventRepository.markWebhookStatus({
+          event_id: eventId,
+          processing_status: 'COMPLETED'
+        });
+      } catch (sheetsErr: unknown) {
+        console.error(
+          '[OmniDM Webhook] Canonical Sheets handoff failed (no MongoDB fallback):',
+          sheetsErr instanceof Error ? sheetsErr.message : 'unavailable'
+        );
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'Canonical CRM store temporarily unavailable',
+            code: 'CANONICAL_SHEETS_UNAVAILABLE',
+            retryable: true
+          },
+          { status: 503 }
+        );
+      }
+    } else if (mongoose.connection.readyState === 1) {
       try {
         if (callId) lead = await Lead.findOne({ callId });
         if (!lead && phone) {
@@ -131,27 +283,18 @@ export async function POST(req: Request) {
       if (lead && !isOptedOut) {
         lead.status = status;
         lead.notes = notes;
-        try { await lead.save(); } catch (e) {}
+        try { await lead.save(); } catch {}
       }
-    }
 
-    let mappedStatus = isCompleted ? 'CONVERSATION_COMPLETED' : 'FAILED';
-    if (body.status === 'no-answer') mappedStatus = 'NO_ANSWER';
-    else if (body.status === 'answered') mappedStatus = 'ANSWERED';
-    else if (body.status === 'calling') mappedStatus = 'RINGING';
-    else if (body.status === 'busy') mappedStatus = 'BUSY';
+      const updateData: any = { status: mappedStatus };
+      if (body.duration) updateData.duration = body.duration;
+      // TASK 5H.7 (A-03): Prohibited recordingUrl and transcript persistence removed under Zero-Media-Storage policy.
 
-    const updateData: any = { status: mappedStatus };
-    if (body.duration) updateData.duration = body.duration;
-    // TASK 5H.7 (A-03): Prohibited recordingUrl and transcript persistence removed under Zero-Media-Storage policy.
+      if (mappedStatus === 'CONVERSATION_COMPLETED' || mappedStatus === 'NO_ANSWER' || mappedStatus === 'FAILED' || mappedStatus === 'BUSY') {
+        updateData.completedAt = new Date();
+      }
 
-    if (mappedStatus === 'CONVERSATION_COMPLETED' || mappedStatus === 'NO_ANSWER' || mappedStatus === 'FAILED' || mappedStatus === 'BUSY') {
-      updateData.completedAt = new Date();
-    }
-
-    if (callId) {
-      if (mongoose.connection.readyState === 1) {
-        // Idempotency: Check if already processed
+      if (callId) {
         const existingCall = await Call.findOne({ callId });
         if (existingCall && existingCall.status === mappedStatus) {
           console.log(`[OmniDM Webhook] Call ${callId} already processed with status ${mappedStatus}. Skipping duplicate action.`);
@@ -159,14 +302,7 @@ export async function POST(req: Request) {
         }
 
         updateData.providerCallId = callId;
-
-        await Call.findOneAndUpdate(
-          { callId },
-          { $set: updateData },
-          { new: true, upsert: true }
-        );
-      } else {
-        console.warn(`[Webhook DB Bypass] DB not connected, skipping status update for callId: ${callId}`);
+        await Call.findOneAndUpdate({ callId }, { $set: updateData }, { new: true, upsert: true });
       }
     }
 
@@ -175,14 +311,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: true, callId, status: mappedStatus, optedOutSuppressed: true });
     }
 
-    // Capture dynamic variables returned by agent
-    const agentCapturedCity = variables.city || variables.City || lead?.city;
-    const agentCapturedProfession = variables.profession || variables.Employment || variables.Profession || lead?.profession || lead?.employmentType;
-    const agentCapturedIncome = variables.monthlyIncomeRange || variables.Income || lead?.monthlyIncomeRange;
-    const agentCapturedAmount = variables.Loan_requirement || variables.loanRequirement || variables.Amount || lead?.requiredLoanAmount;
-
-    // Update Lead with Agent captured data if changed
-    if (lead && mongoose.connection.readyState === 1) {
+    // Update Legacy Lead if active
+    if (legacyMongoEnabled && lead && mongoose.connection.readyState === 1 && typeof lead.save === 'function') {
       let leadUpdated = false;
       if (agentCapturedCity && lead.city !== agentCapturedCity) { lead.city = agentCapturedCity; leadUpdated = true; }
       if (agentCapturedProfession && lead.profession !== agentCapturedProfession) { lead.profession = agentCapturedProfession; leadUpdated = true; }
@@ -207,20 +337,20 @@ export async function POST(req: Request) {
       },
       fullName: name,
       mobileNumber: phone,
-      city: agentCapturedCity || "Unknown",
-      profession: agentCapturedProfession || "Unknown",
-      incomeRange: agentCapturedIncome || "Unknown",
-      loanAmountRequired: agentCapturedAmount || 1000000,
+      city: agentCapturedCity || lead?.city || "Unknown",
+      profession: agentCapturedProfession || lead?.profession || "Unknown",
+      incomeRange: agentCapturedIncome || lead?.monthlyIncomeRange || "Unknown",
+      loanAmountRequired: agentCapturedAmount || lead?.requiredLoanAmount || 1000000,
       leadProfile: {
         fullName: name,
         mobileNumber: phone,
-        city: agentCapturedCity || "Unknown",
-        profession: agentCapturedProfession || "Unknown",
-        incomeRange: agentCapturedIncome || "Unknown"
+        city: agentCapturedCity || lead?.city || "Unknown",
+        profession: agentCapturedProfession || lead?.profession || "Unknown",
+        incomeRange: agentCapturedIncome || lead?.monthlyIncomeRange || "Unknown"
       },
       financialRequirements: {
         loanType: loanType,
-        requiredLoanAmount: agentCapturedAmount || 1000000
+        requiredLoanAmount: agentCapturedAmount || lead?.requiredLoanAmount || 1000000
       },
       productSpecificFields: lead?.financialProfile || {}
     };
@@ -243,11 +373,11 @@ export async function POST(req: Request) {
       } catch (e) { console.error("HubSpot Sync Error", e); }
     }
 
-    // 2. Zapier / Google Sheets Integration via processor
+    // 2. Zapier / Google Sheets Integration via processor (strictly gated)
     await processOutgoingZapierPayload(loanType, integrationPayload, lead);
 
-    // 3. Post-Call WhatsApp Follow-up
-    if (phone) {
+    // 3. Post-Call WhatsApp Follow-up (strictly gated: requires live mode + explicit OmniDim live enable + verified consent)
+    if (phone && process.env.OMNIDM_LIVE_ENABLED === 'true' && process.env.PROVIDER_MODE === 'live' && canonicalConsentGranted) {
       try {
         console.log(`[Post-Call WhatsApp] Triggering WhatsApp follow-up for ${maskPhoneForLog(phone)}... Status: ${mappedStatus}`);
 
@@ -261,7 +391,7 @@ export async function POST(req: Request) {
           templateParams = [name];
         }
 
-        if (mongoose.connection.readyState === 1) {
+        if (legacyMongoEnabled && mongoose.connection.readyState === 1) {
           const leadDoc = await Lead.findOne({ phone: phone });
           if (leadDoc && leadDoc.currentWorkflowState !== "awaiting_correction") {
             leadDoc.currentWorkflowState = targetWorkflowState;
@@ -281,9 +411,15 @@ export async function POST(req: Request) {
       }
     }
 
-    return NextResponse.json({ success: true, callId, status: mappedStatus });
-  } catch (error: any) {
-    console.error("OmniDM Webhook Error:", error.message);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({
+      success: true,
+      callId,
+      status: mappedStatus,
+      dataStore: legacyMongoEnabled ? 'LEGACY_MONGODB' : 'GOOGLE_SHEETS',
+      leadId: lead?.leadId || null
+    });
+  } catch (error: unknown) {
+    console.error("OmniDM Webhook Error:", error instanceof Error ? error.message : 'unknown');
+    return NextResponse.json({ success: false, error: 'Internal server error' }, { status: 500 });
   }
 }

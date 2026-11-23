@@ -31,7 +31,7 @@ async function diagnose() {
 
   // We connect using replicaSet directly to bypass Windows c-ares SRV lookup issues
   const directUri = `mongodb://${DB_USER}:${ENCODED_PASS}@${SHARD_HOSTS}/admin?ssl=true&replicaSet=atlas-8nlnecw-shard-0&authSource=admin&retryWrites=true&w=majority`;
-  const srvUri = `mongodb+srv://${DB_USER}:${ENCODED_PASS}@avani-loan-services-m0.rhpn2gh.mongodb.net/admin?authSource=admin&retryWrites=true&w=majority`;
+  const srvUri = process.env.MONGODB_URI || '' /* APR-008: removed hardcoded MongoDB URI; supply via env */;
 
   let conn;
   try {

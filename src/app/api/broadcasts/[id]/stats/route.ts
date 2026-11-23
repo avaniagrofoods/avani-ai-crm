@@ -14,6 +14,18 @@ export async function GET(
     const auth = await requireRole(request, ['ADMIN']);
     if (!auth.ok) return auth.response;
 
+    // APR-008 Phase 3B: Fail-closed isolation matching /api/broadcasts/create and /api/broadcasts/send.
+    if (process.env.LEGACY_MONGODB_ROUTES_ENABLED !== 'true') {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'LEGACY_MONGODB_ROUTE_DISABLED',
+          message: 'Legacy MongoDB /api/broadcasts/[id]/stats route is disabled; canonical CRM persistence is Google Sheets.'
+        },
+        { status: 410, headers: { 'Cache-Control': 'no-store' } }
+      );
+    }
+
     const { id } = await params;
     if (!isValidObjectId(id)) {
       return NextResponse.json({ error: 'Invalid broadcast ID format' }, { status: 400 });
@@ -79,7 +91,7 @@ export async function GET(
     }
 
     return NextResponse.json({ success: true, stats, broadcast, mode: "production" });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  } catch {
+    return NextResponse.json({ success: false, error: 'Internal server error' }, { status: 500 });
   }
 }

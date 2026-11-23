@@ -163,7 +163,7 @@ export default function CRM() {
             </h3>
             <p className="text-[11px] text-zinc-400 mt-0.5">Every inquiry tracked with zero leakage</p>
           </div>
-          <span className="text-xs text-zinc-500">Live MongoDB Aggregation</span>
+          <span className="text-xs text-zinc-500">Canonical Google Sheets Store</span>
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-3">
@@ -248,7 +248,7 @@ export default function CRM() {
             </div>
             <div className="bg-zinc-950 p-2.5 rounded-lg border border-zinc-850 flex justify-between items-center">
               <span className="text-zinc-300">Authorized Test Recipient Clamp</span>
-              <span className="px-2 py-0.5 rounded bg-zinc-800 text-zinc-400 font-mono text-[10px]">+91 91756 35165</span>
+              <span className="px-2 py-0.5 rounded bg-zinc-800 text-zinc-400 font-mono text-[10px]">ENV-CONTROLLED</span>
             </div>
           </div>
         </div>

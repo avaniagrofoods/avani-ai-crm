@@ -8,9 +8,27 @@ export async function GET(req: Request) {
     const auth = await requireAuth(req);
     if (!auth.ok) return auth.response;
 
+    const { searchParams } = new URL(req.url);
+    const category = searchParams.get('category');
+
+    // APR-008 Phase 3B: Serve non-customer static lender catalog directly when legacy MongoDB is disabled.
+    if (process.env.LEGACY_MONGODB_ROUTES_ENABLED !== 'true') {
+      let catalog = DEFAULT_AVANI_LENDERS;
+      if (category) {
+        const catLower = category.toLowerCase();
+        catalog = catalog.filter((l: any) => l.categories.some((c: string) => c.toLowerCase().includes(catLower)));
+      }
+      return NextResponse.json({ success: true, source: 'STATIC_CATALOG', count: catalog.length, lenders: catalog });
+    }
+
     const conn = await connectToDatabase();
     if (!conn || conn.connection?.readyState !== 1) {
-      return NextResponse.json({ success: true, count: DEFAULT_AVANI_LENDERS.length, lenders: DEFAULT_AVANI_LENDERS });
+      let catalog = DEFAULT_AVANI_LENDERS;
+      if (category) {
+        const catLower = category.toLowerCase();
+        catalog = catalog.filter((l: any) => l.categories.some((c: string) => c.toLowerCase().includes(catLower)));
+      }
+      return NextResponse.json({ success: true, source: 'STATIC_CATALOG', count: catalog.length, lenders: catalog });
     }
 
     let lenders = await Lender.find({ isActive: true }).sort({ name: 1 });
@@ -20,15 +38,13 @@ export async function GET(req: Request) {
       lenders = await Lender.find({ isActive: true }).sort({ name: 1 });
     }
 
-    const { searchParams } = new URL(req.url);
-    const category = searchParams.get('category');
     if (category) {
       lenders = lenders.filter((l: any) => l.categories.some((c: string) => c.toLowerCase().includes(category.toLowerCase())));
     }
 
     return NextResponse.json({ success: true, count: lenders.length, lenders });
-  } catch (error: any) {
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+  } catch {
+    return NextResponse.json({ success: false, error: 'Internal server error' }, { status: 500 });
   }
 }
 
@@ -36,6 +52,18 @@ export async function POST(req: Request) {
   try {
     const auth = await requireRole(req, ['ADMIN']);
     if (!auth.ok) return auth.response;
+
+    // APR-008 Phase 3B: Fail-closed isolation on legacy MongoDB lender write endpoint.
+    if (process.env.LEGACY_MONGODB_ROUTES_ENABLED !== 'true') {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'LEGACY_MONGODB_ROUTE_DISABLED',
+          message: 'Legacy MongoDB POST /api/lenders route is disabled; GET serves the static lender catalog.'
+        },
+        { status: 410, headers: { 'Cache-Control': 'no-store' } }
+      );
+    }
 
     const conn = await connectToDatabase();
     if (!conn || conn.connection?.readyState !== 1) {
@@ -66,7 +94,7 @@ export async function POST(req: Request) {
     });
 
     return NextResponse.json({ success: true, lender });
-  } catch (error: any) {
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+  } catch {
+    return NextResponse.json({ success: false, error: 'Internal server error' }, { status: 500 });
   }
 }

@@ -4,6 +4,7 @@ import { Lead } from '@/models/Lead';
 import { WorkflowTrigger } from '@/models/WorkflowTrigger';
 import { ProviderRouter } from '@/lib/provider-router';
 import { ConversationStateManager } from '@/lib/orchestrator/state-manager';
+import { maskPhoneForLog } from '@/lib/safeguards';
 
 export interface DripStep {
   day: number;
@@ -213,7 +214,7 @@ export class FollowUpEngine {
       // 1. Strict Stop Condition Check
       const stopCheck = this.isStopConditionMet(lead, conversation);
       if (stopCheck.stop) {
-        console.log(`[FollowUpEngine] Follow-up suppressed for lead ${lead.leadId} (${lead.phone}): ${stopCheck.reason}`);
+        console.log(`[FollowUpEngine] Follow-up suppressed for lead ${lead.leadId} (${maskPhoneForLog(lead.phone)}): ${stopCheck.reason}`);
         continue;
       }
 
@@ -238,7 +239,7 @@ export class FollowUpEngine {
       // Idempotency lock check
       const existingTrigger = await WorkflowTrigger.findOne({ idempotencyKey });
       if (existingTrigger) {
-        console.log(`[FollowUpEngine] Drip Day ${targetStep.day} already dispatched for ${lead.phone}. Skipping.`);
+        console.log(`[FollowUpEngine] Drip Day ${targetStep.day} already dispatched for ${maskPhoneForLog(lead.phone)}. Skipping.`);
         continue;
       }
 

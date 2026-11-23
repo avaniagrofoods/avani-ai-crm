@@ -19,6 +19,22 @@ export async function GET(req: Request) {
       if (!auth.ok) return auth.response;
     }
 
+    // APR-008 Phase 3B: Preserve scheduled Vercel Cron health cleanly without MongoDB customer fallback.
+    if (process.env.LEGACY_MONGODB_ROUTES_ENABLED !== 'true') {
+      return NextResponse.json(
+        {
+          success: true,
+          skipped: true,
+          reason: 'CANONICAL_SHEETS_MODE_LEGACY_MONGO_DRIP_PAUSED',
+          timestamp: new Date().toISOString(),
+          workflow: 'AVANI_LOAN_DRIP_D0_D15',
+          processedCount: 0,
+          results: []
+        },
+        { status: 200, headers: { 'Cache-Control': 'no-store' } }
+      );
+    }
+
     const conn = await connectToDatabase();
     const readyState = mongoose.connection?.readyState ?? conn?.connection?.readyState;
     if (!conn || readyState !== 1) {
@@ -37,8 +53,8 @@ export async function GET(req: Request) {
       processedCount: result.processedCount,
       results: result.results
     });
-  } catch (error: any) {
-    console.error('[CronFollowUp] Error processing drip follow-ups:', error);
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+  } catch (error: unknown) {
+    console.error('[CronFollowUp] Error processing drip follow-ups:', error instanceof Error ? error.message : 'unknown');
+    return NextResponse.json({ success: false, error: 'Internal server error' }, { status: 500 });
   }
 }

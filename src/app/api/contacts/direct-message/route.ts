@@ -14,6 +14,18 @@ export async function POST(req: Request) {
     const auth = await requireRole(req, ['ADMIN', 'ADVISOR']);
     if (!auth.ok) return auth.response;
 
+    // Blocker 6: Fail-closed isolation of legacy MongoDB direct-message route.
+    if (process.env.LEGACY_MONGODB_ROUTES_ENABLED !== 'true') {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'LEGACY_MONGODB_ROUTE_DISABLED',
+          message: 'Legacy MongoDB /api/contacts/direct-message route is disabled; use canonical Google Sheets messaging endpoints.'
+        },
+        { status: 410, headers: { 'Cache-Control': 'no-store' } }
+      );
+    }
+
     const conn = await connectToDatabase();
     const readyState = mongoose.connection?.readyState ?? conn?.connection?.readyState;
     if (!conn || readyState !== 1) {

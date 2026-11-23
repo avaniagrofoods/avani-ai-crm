@@ -1,5 +1,5 @@
 /**
- * TASK 5H.4 — GOOGLE SHEETS DATA VALIDATION, FORMULA-INJECTION GUARD & PRIVACY SANITIZER
+ * TASK 5H.4 + WORKSTREAM C — GOOGLE SHEETS DATA VALIDATION, FORMULA-INJECTION GUARD & PRIVACY SANITIZER
  */
 
 import { SHEET_COLUMNS, SheetTabName } from './sheet-schema';
@@ -9,7 +9,11 @@ export const MAX_FIELD_LENGTH = 500;
 export const MAX_SHORT_NOTE_LENGTH = 240;
 
 const FORMULA_PREFIX_REGEX = /^[\s]*[=+\-@]|^[\t\r\n]/;
-const DANGEROUS_FORMULA_TOKEN_REGEX = /^\s*[=+\-@]\s*[A-Za-z0-9_]+\s*\(|IMPORTXML|IMPORTHTML|IMPORTDATA|IMPORTRANGE|IMAGE\s*\(|HYPERLINK\s*\(/i;
+const DANGEROUS_FORMULA_TOKEN_REGEX =
+  /^\s*[=+\-@]\s*[A-Za-z0-9_]+\s*\(|IMPORTXML|IMPORTHTML|IMPORTDATA|IMPORTRANGE|IMAGE\s*\(|HYPERLINK\s*\(/i;
+const BLOCKED_BINARY_OR_DATA_URI_REGEX =
+  /data:[a-z0-9.+-]+\/[a-z0-9.+-]+;base64,|-----BEGIN\s+[A-Z0-9 ]+-----/i;
+const LONG_BASE64_BLOB_REGEX = /(?:^|[\s:=])[A-Za-z0-9+/]{120,}={0,2}(?:$|[\s])/;
 
 export const ALLOWED_LOAN_CATEGORIES = [
   'Personal Loan',
@@ -21,11 +25,110 @@ export const ALLOWED_LOAN_CATEGORIES = [
   'Education Loan — Global Studies',
   'School Funding',
   'College Funding',
-  'CA Professional Loan'
+  'CA Professional Loan',
+  'Vehicle / Commercial Equipment Loan',
+  'Project Finance / Institutional Funding',
+  'Loan Transfer / Balance Transfer'
 ] as const;
 
 export const ALLOWED_CONSENT_STATUSES = ['GRANTED', 'DENIED', 'WITHDRAWN', 'PENDING'] as const;
 export const ALLOWED_OPTOUT_STATUSES = ['OPTED_IN', 'OPTED_OUT'] as const;
+
+/**
+ * Workstream C Data Minimisation: Sensitive KYC, financial document, and binary attachment keys
+ * strictly prohibited at public API boundaries and Google Sheets write paths.
+ */
+export const PROHIBITED_SENSITIVE_FIELD_KEYS = [
+  'aadhaar',
+  'aadhar',
+  'aadhaarnumber',
+  'aadharnumber',
+  'aadhaarcopy',
+  'pan',
+  'pannumber',
+  'pancard',
+  'pancopy',
+  'bankaccount',
+  'bankaccountnumber',
+  'accountnumber',
+  'ifsc',
+  'ifsccode',
+  'bankstatement',
+  'bankstatements',
+  'salaryslip',
+  'salaryslips',
+  'payslip',
+  'payslips',
+  'creditreport',
+  'cibilreport',
+  'passport',
+  'passportnumber',
+  'passportcopy',
+  'propertydocument',
+  'propertydocuments',
+  'identityscan',
+  'kycdoc',
+  'kycdocument',
+  'incomeproof',
+  'document',
+  'documents',
+  'attachment',
+  'attachments',
+  'file',
+  'files',
+  'filedata',
+  'base64',
+  'pdf',
+  'photo',
+  'photograph',
+  'selfie',
+  'audiorecording',
+  'videorecording',
+  'callrecording',
+  'recordingurl'
+] as const;
+
+const PROHIBITED_KEY_SET = new Set<string>(PROHIBITED_SENSITIVE_FIELD_KEYS);
+
+/**
+ * Inspects a request payload recursively (bounded depth) and returns any prohibited
+ * KYC, sensitive financial document, or binary attachment keys present with non-empty values.
+ */
+export function findProhibitedSensitivePayloadKeys(
+  payload: unknown,
+  depth = 0
+): string[] {
+  if (!payload || typeof payload !== 'object' || depth > 4) return [];
+  const hits: string[] = [];
+
+  if (Array.isArray(payload)) {
+    for (const item of payload) {
+      hits.push(...findProhibitedSensitivePayloadKeys(item, depth + 1));
+    }
+    return [...new Set(hits)];
+  }
+
+  for (const [rawKey, val] of Object.entries(payload as Record<string, unknown>)) {
+    const normKey = rawKey.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const hasValue =
+      val !== undefined &&
+      val !== null &&
+      !(typeof val === 'string' && val.trim() === '') &&
+      !(Array.isArray(val) && val.length === 0);
+
+    if (hasValue && PROHIBITED_KEY_SET.has(normKey)) {
+      hits.push(rawKey);
+    } else if (
+      typeof val === 'string' &&
+      (BLOCKED_BINARY_OR_DATA_URI_REGEX.test(val) || LONG_BASE64_BLOB_REGEX.test(val))
+    ) {
+      hits.push(rawKey);
+    } else if (val && typeof val === 'object') {
+      hits.push(...findProhibitedSensitivePayloadKeys(val, depth + 1));
+    }
+  }
+  return [...new Set(hits)];
+}
 
 /**
  * Normalizes an Indian mobile number to E.164 (+91XXXXXXXXXX) and 10-digit raw format.
@@ -45,10 +148,8 @@ export function normalizeMobileNumber(input: string): { e164: string; raw10: str
 }
 
 /**
- * Inspects and sanitizes a value before writing to Google Sheets to prevent Spreadsheet Formula Injection.
- * - Rejects explicit formula payloads (e.g. =cmd|..., =IMPORTXML(...), +SUM(...), @SUM(...)).
- * - Neutralizes any leading '=', '+', '-', '@', '\t', '\r' on untrusted text fields by prefixing a single quote
- *   or rejecting when strictRejectFormula=true.
+ * Inspects and sanitizes a value before writing to Google Sheets to prevent Spreadsheet Formula Injection,
+ * binary/base64 attachment persistence, and accidental sensitive KYC leakage.
  */
 export function sanitizeCellForSheets(
   fieldName: string,
@@ -58,6 +159,13 @@ export function sanitizeCellForSheets(
   if (value === undefined || value === null) return '';
   const str = String(value).trim();
   if (!str) return '';
+
+  // Workstream C Data Minimisation: Reject embedded base64/data-URI/PEM blobs fail-closed
+  if (BLOCKED_BINARY_OR_DATA_URI_REGEX.test(str) || LONG_BASE64_BLOB_REGEX.test(str)) {
+    throw createValidationError(
+      `Field "${fieldName}" contains prohibited binary, data-URI, or base64 attachment content.`
+    );
+  }
 
   const maxLen = options.maxLength ?? MAX_FIELD_LENGTH;
   if (str.length > maxLen) {
@@ -81,13 +189,15 @@ export function sanitizeCellForSheets(
     return `'${str}`;
   }
 
-  // Redact sensitive KYC patterns (Aadhaar / PAN) if accidentally present in free text
+  // Redact sensitive KYC / bank patterns (Aadhaar / PAN / IFSC / 14-19 digit account/card numbers)
   return redactSensitiveKycPatterns(str);
 }
 
 export function redactSensitiveKycPatterns(text: string): string {
   return String(text || '')
     .replace(/\b[A-Z]{5}[0-9]{4}[A-Z]\b/gi, '[REDACTED_PAN]')
+    .replace(/\b[A-Z]{4}0[A-Z0-9]{6}\b/g, '[REDACTED_IFSC]')
+    .replace(/\b\d{14,19}\b/g, '[REDACTED_FINANCIAL_NUM]')
     .replace(/\b[2-9]\d{3}\s?\d{4}\s?\d{4}\b/g, (match) => {
       const digits = match.replace(/\s+/g, '');
       return digits.startsWith('91') ? match : '[REDACTED_AADHAAR]';
@@ -109,14 +219,19 @@ export function validateLoanCategory(input: string): string {
   });
   const upper = clean.toUpperCase().replace(/[^A-Z]/g, '');
   if (upper.includes('DOCTOR') || upper.includes('MEDIC')) return 'Doctor Loan';
-  if (upper.includes('BUSIN') || upper.includes('COMMERC') || upper.includes('MSME')) return 'Business Loan';
+  if (upper.includes('VEHICLE') || upper.includes('EQUIPMENT')) return 'Vehicle / Commercial Equipment Loan';
+  if (upper.includes('PROJECTFIN') || upper.includes('INSTITUTIONAL')) return 'Project Finance / Institutional Funding';
+  if (upper.includes('BALANCETRANSFER') || upper.includes('LOANTRANSFER')) return 'Loan Transfer / Balance Transfer';
+  if (upper.includes('BUSIN') || upper.includes('COMMERC') || upper.includes('MSME') || upper.includes('WORKINGCAP')) {
+    return 'Business Loan';
+  }
   if (upper.includes('MORTG') || upper.includes('LAP') || upper.includes('AGAINSTPROP')) return 'Mortgage Loan / LAP';
   if (upper.includes('HOME') || upper.includes('HOUS')) return 'Home Loan';
   if (upper.includes('GLOBAL') || upper.includes('ABROAD') || upper.includes('OVERSEA')) return 'Education Loan — Global Studies';
   if (upper.includes('EDU') || upper.includes('STUD')) return 'Education Loan — India';
   if (upper.includes('SCHOOL')) return 'School Funding';
   if (upper.includes('COLLEGE')) return 'College Funding';
-  if (upper.includes('CA') || upper.includes('CHARTERED')) return 'CA Professional Loan';
+  if (upper.includes('CA') || upper.includes('CHARTERED') || upper.includes('PROFESSIONAL')) return 'CA Professional Loan';
   if ((ALLOWED_LOAN_CATEGORIES as readonly string[]).includes(clean)) return clean;
   return 'Personal Loan';
 }
@@ -157,7 +272,7 @@ export function validateAdvisorId(input?: string | null): string {
 
 /**
  * Validates that a record object contains only columns permitted for the target sheet tab
- * and sanitizes every cell against formula injection and oversized strings.
+ * and sanitizes every cell against formula injection, binary blobs, and oversized strings.
  */
 export function validateAndSanitizeSheetRecord<T extends Record<string, any>>(
   tab: SheetTabName,

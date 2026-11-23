@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
-import connectToDatabase from '@/lib/db';
-import mongoose from 'mongoose';
+import { defaultSheetsClient } from '@/lib/google-sheets';
 import { constantTimeEqualStrings, requireRole } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
@@ -51,10 +50,15 @@ export async function GET(request: Request) {
     memoryUsageMB: Math.round(process.memoryUsage().rss / (1024 * 1024))
   };
 
+  // APR-008 Phase 3B: Check canonical Google Sheets CRM Gateway (zero MongoDB customer fallback).
   let databaseReady = false;
+  let spreadsheetName = '';
+  let schemaVersion = '';
   try {
-    const conn = await connectToDatabase();
-    databaseReady = Boolean(conn && mongoose.connection.readyState === 1);
+    const connectivity = await defaultSheetsClient.checkConnectivity();
+    databaseReady = Boolean(connectivity.online);
+    spreadsheetName = connectivity.spreadsheetName || '';
+    schemaVersion = connectivity.schemaVersion || '';
   } catch {
     databaseReady = false;
   }
@@ -72,6 +76,7 @@ export async function GET(request: Request) {
     status: databaseReady ? 'HEALTHY' : 'DEGRADED',
     timestamp: new Date().toISOString(),
     service: 'AVANI LOAN SERVICES — AVANI AI CRM',
+    dataStore: 'GOOGLE_SHEETS',
     process: processHealth,
     readiness: {
       status: databaseReady ? 'READY' : 'NOT_READY',
@@ -84,13 +89,16 @@ export async function GET(request: Request) {
       whatsappInboundAiReplyEnabled: process.env.WHATSAPP_INBOUND_AI_REPLY_ENABLED === 'true',
       aisensyInboundWebhookEnabled: process.env.AISENSY_INBOUND_WEBHOOK_ENABLED === 'true',
       bulkBroadcastEnabled: process.env.BULK_BROADCAST_ENABLED === 'true',
-      omniLiveEnabled: process.env.OMNIDM_LIVE_ENABLED === 'true'
+      omniLiveEnabled: process.env.OMNIDM_LIVE_ENABLED === 'true',
+      legacyMongoDbRoutesEnabled: process.env.LEGACY_MONGODB_ROUTES_ENABLED === 'true'
     },
     integrations: {
       database: {
         status: databaseReady ? 'HEALTHY' : 'BLOCKED',
-        provider: 'MongoDB Atlas',
-        configured: Boolean(process.env.MONGODB_URI || process.env.avani_ai_crm_prod_MONGODB_URI)
+        provider: 'Google Sheets Gateway',
+        spreadsheetName,
+        schemaVersion,
+        configured: Boolean(process.env.GOOGLE_SHEETS_GATEWAY_URL || process.env.GOOGLE_SHEET_ID)
       },
       chatmitra: {
         status: chatmitraKey ? 'HEALTHY' : 'READY_MOCK',

@@ -26,6 +26,19 @@ export async function POST(req: Request) {
       { status: bulkPolicy.status }
     );
   }
+
+  // Blocker 6: Fail-closed isolation of legacy MongoDB broadcast route.
+  if (process.env.LEGACY_MONGODB_ROUTES_ENABLED !== 'true') {
+    return NextResponse.json(
+      {
+        success: false,
+        error: 'LEGACY_MONGODB_ROUTE_DISABLED',
+        message: 'Legacy MongoDB /api/broadcasts/send route is disabled; canonical CRM persistence is Google Sheets.'
+      },
+      { status: 410, headers: { 'Cache-Control': 'no-store' } }
+    );
+  }
+
   try {
     await connectToDatabase();
     const body = await req.json();

@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
+import { AppSurface, isPublicWebsitePath } from '@/lib/routing-policy';
 
 export interface ClientSessionUser {
   id: string;
@@ -28,11 +29,21 @@ export function useCrmSession() {
   return useContext(SessionContext);
 }
 
-export function SessionProvider({ children }: { children: React.ReactNode }) {
+export function SessionProvider({
+  children,
+  surface = 'crm'
+}: {
+  children: React.ReactNode;
+  surface?: AppSurface;
+}) {
   const [user, setUser] = useState<ClientSessionUser | null>(null);
   const [loading, setLoading] = useState(true);
-  const pathname = usePathname();
+  const pathname = usePathname() || '/';
   const router = useRouter();
+
+  const isPublicPage =
+    pathname === '/login' ||
+    (pathname === '/' ? surface === 'public' : isPublicWebsitePath(pathname));
 
   const refreshSession = useCallback(async () => {
     try {
@@ -51,8 +62,12 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
+    if (isPublicPage) {
+      setLoading(false);
+      return;
+    }
     refreshSession();
-  }, [pathname, refreshSession]);
+  }, [pathname, isPublicPage, refreshSession]);
 
   const logout = useCallback(async () => {
     try {

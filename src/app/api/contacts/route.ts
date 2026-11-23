@@ -66,7 +66,8 @@ export async function GET(req: Request) {
   } catch (error: any) {
     const status = error instanceof SheetsCrmError ? error.httpStatus : 500;
     const code = error instanceof SheetsCrmError ? error.code : 'INTERNAL_ERROR';
-    return NextResponse.json({ success: false, error: code, message: error.message }, { status });
+    const message = error instanceof SheetsCrmError ? error.message : 'Internal server error';
+    return NextResponse.json({ success: false, error: code, message }, { status });
   }
 }
 
@@ -116,6 +117,7 @@ export async function POST(req: Request) {
   } catch (error: any) {
     const status = error instanceof SheetsCrmError ? error.httpStatus : 500;
     const code = error instanceof SheetsCrmError ? error.code : 'INTERNAL_ERROR';
-    return NextResponse.json({ success: false, error: code, message: error.message }, { status });
+    const message = error instanceof SheetsCrmError ? error.message : 'Internal server error';
+    return NextResponse.json({ success: false, error: code, message }, { status });
   }
 }

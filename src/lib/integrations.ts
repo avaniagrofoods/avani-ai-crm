@@ -206,10 +206,10 @@ export async function triggerMakeWebhook(lead: any) {
 }
 
 export async function triggerPabblyWebhook(lead: any) {
-  if (process.env.PROVIDER_MODE === 'mock') return;
-  const url = 'https://hook.pabbly.com/api/webhook/6a080bc1e6a8ff432d89bea8/6a0811cf22f0d1bfa6095a6d';
+  const url = String(process.env.PABBLY_WEBHOOK_URL || '').trim();
+  if (!url || process.env.PROVIDER_MODE === 'mock') return;
   try {
-    await axios.post(url, lead);
+    await axios.post(url, lead, { timeout: 8000 });
   } catch (error) {
     console.error('Pabbly Webhook error:', sanitizeForLog(error));
   }
@@ -303,7 +303,7 @@ export async function syncToZapier(lead: any, workflowType: ZapierWorkflowType =
     };
   }
 
-  const url = process.env.ZAPIER_WEBHOOK_URL || 'https://hooks.zapier.com/hooks/catch/26860693/44xndib/';
+  const url = String(process.env.ZAPIER_WEBHOOK_URL || '').trim();
   if (process.env.PROVIDER_MODE === 'mock') {
     return {
       success: true,
@@ -312,8 +312,17 @@ export async function syncToZapier(lead: any, workflowType: ZapierWorkflowType =
     };
   }
 
+  if (!url) {
+    return {
+      success: false,
+      skipped: true,
+      reason: 'ZAPIER_WEBHOOK_NOT_CONFIGURED',
+      payload
+    };
+  }
+
   try {
-    await axios.post(url, payload);
+    await axios.post(url, payload, { timeout: 8000 });
     console.log('Logged lead to Zapier');
     return { success: true, mode: 'live', payload };
   } catch (error: any) {

@@ -8,9 +8,11 @@ import {
   ShieldAlert,
   Clock
 } from 'lucide-react';
-import { cookies } from 'next/headers';
+import { cookies, headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { SESSION_COOKIE_NAME, verifyActiveSession, canAccessLead } from '@/lib/auth';
+import { resolveAppSurface } from '@/lib/routing-policy';
+import { PublicHomePage } from '@/components/public/public-home';
 import { WhatsappTelemetrySummary } from '@/lib/telemetry';
 import {
   CrmSheetsService,
@@ -23,6 +25,12 @@ export const dynamic = 'force-dynamic';
 export default async function Dashboard(props: {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
+  const hdrs = await headers();
+  const requestHost = hdrs.get('x-forwarded-host') || hdrs.get('host');
+  if (resolveAppSurface(requestHost) === 'public') {
+    return <PublicHomePage />;
+  }
+
   const cookieStore = await cookies();
   const session = await verifyActiveSession(cookieStore.get(SESSION_COOKIE_NAME)?.value);
   if (!session) {

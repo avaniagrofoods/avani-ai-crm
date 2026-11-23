@@ -90,7 +90,7 @@ INBOUND AI WEBHOOK FLAG     : AISENSY_INBOUND_WEBHOOK_ENABLED = false
 ## 8. Existing Zapier Integration Status
 - **Endpoint**: Zapier Catch Hook
 - **Status**: **`PRODUCTION VERIFIED / 100% OPERATIONAL`**
-- **Hook URL**: `https://hooks.zapier.com/hooks/catch/26860693/44xndib/`
+- **Hook URL**: `https://hooks.zapier.com/hooks/catch/[REDACTED_HOOK_ID]/[REDACTED_HOOK_TOKEN]/`
 - **Capabilities**: Receives structured lead events for downstream CRM automation.
 
 ---

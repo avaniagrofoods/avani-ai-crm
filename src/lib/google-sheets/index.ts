@@ -48,6 +48,8 @@ export * from './followup-repository';
 export * from './consent-repository';
 export * from './message-event-repository';
 export * from './webhook-event-repository';
+export * from './identity-reconciliation';
+export * from './legacy-message-migration-plan';
 
 export class AdvisorRepository extends BaseSheetsRepository<AdvisorRow> {
   constructor() {
@@ -161,6 +163,41 @@ export interface HydratedCrmLeadView {
 }
 
 /**
+ * Process-local serialization chains keyed by normalized customer phone.
+ *
+ * IMPORTANT (Task 5H.35 F34-02 honesty invariant):
+ * - This map is a process-local ordering optimization ONLY (reduces redundant reads/writes
+ *   under burst concurrency within one Node.js worker). It is NOT relied upon for
+ *   cross-instance uniqueness.
+ * - Cross-instance duplicate prevention is provided durably by deterministic business
+ *   primary keys (`CUST-<raw10>`, `CNS-<customer_id>-WHATSAPP`,
+ *   `LeadRepository.buildDeterministicLeadId(customerId, loanCategory, enquiryKey)`,
+ *   and `FUP-<lead_id>-D0`) combined with `gateway.gs` `INSERT_IF_ABSENT`/`UPSERT_ROW`
+ *   serialized under `LockService.getScriptLock()`.
+ * - Kept strictly separate from `sheetsWriteMutex` to prevent non-reentrant deadlock.
+ */
+const customerLeadSerializeChains = new Map<string, Promise<void>>();
+
+async function withCustomerLocalOrderLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const prev = customerLeadSerializeChains.get(key) || Promise.resolve();
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const chained = prev.then(() => gate).catch(() => gate);
+  customerLeadSerializeChains.set(key, chained);
+  await prev;
+  try {
+    return await fn();
+  } finally {
+    release();
+    if (customerLeadSerializeChains.get(key) === chained) {
+      customerLeadSerializeChains.delete(key);
+    }
+  }
+}
+
+/**
  * Composite service coordinating multi-sheet CRM operations across the 9 master sheets.
  */
 export class CrmSheetsService {
@@ -181,6 +218,7 @@ export class CrmSheetsService {
    */
   public static async registerOrUpdateCustomerLead(params: {
     leadId?: string;
+    enquiryKey?: string;
     name: string;
     phone: string;
     city?: string;
@@ -200,61 +238,112 @@ export class CrmSheetsService {
     hydrated: HydratedCrmLeadView;
   }> {
     const mobile = normalizeMobileNumber(params.phone);
-    const existingCustomer = await customerRepository.findByMobile(mobile.e164);
-    const existingConsent = existingCustomer
-      ? await consentRepository.findByCustomerId(existingCustomer.customer_id)
-      : null;
 
-    const alreadyOptedOut =
-      params.isOptedOut === true ||
-      existingCustomer?.record_status === 'OPTED_OUT' ||
-      existingConsent?.optout_status === 'OPTED_OUT' ||
-      existingConsent?.consent_status === 'DENIED' ||
-      existingConsent?.consent_status === 'WITHDRAWN';
+    return withCustomerLocalOrderLock(mobile.raw10, async () => {
+      const existingCustomer = await customerRepository.findByMobile(mobile.e164);
+      const existingConsent = existingCustomer
+        ? await consentRepository.findByCustomerId(existingCustomer.customer_id)
+        : null;
 
-    const { record: customer } = await customerRepository.upsertCustomer({
-      customer_id: existingCustomer?.customer_id,
-      customer_name: params.name || existingCustomer?.customer_name || 'Valued Customer',
-      mobile_number: mobile.e164,
-      city: params.city || existingCustomer?.city || 'Latur',
-      enquiry_source: params.leadSource || existingCustomer?.enquiry_source || 'WEBSITE',
-      record_status: alreadyOptedOut ? 'OPTED_OUT' : 'ACTIVE'
-    });
+      const alreadyOptedOut =
+        params.isOptedOut === true ||
+        existingCustomer?.record_status === 'OPTED_OUT' ||
+        existingConsent?.optout_status === 'OPTED_OUT' ||
+        existingConsent?.consent_status === 'DENIED' ||
+        existingConsent?.consent_status === 'WITHDRAWN';
 
-    const { record: consent } = await consentRepository.upsertConsent({
-      customer_id: customer.customer_id,
-      channel: 'WHATSAPP',
-      consent_status: alreadyOptedOut ? (existingConsent?.consent_status || 'WITHDRAWN') : (params.consentStatus || 'GRANTED'),
-      consent_source: params.consentSource || params.leadSource || 'WEBSITE',
-      optout_status: alreadyOptedOut ? 'OPTED_OUT' : 'OPTED_IN'
-    });
+      const incomingNameClean = String(params.name || '').trim();
+      const isGenericInboundName =
+        !incomingNameClean ||
+        incomingNameClean.toLowerCase() === 'customer' ||
+        incomingNameClean.toLowerCase() === 'valued customer';
+      const resolvedCustomerName =
+        existingCustomer?.customer_name && isGenericInboundName
+          ? existingCustomer.customer_name
+          : incomingNameClean || existingCustomer?.customer_name || 'Valued Customer';
 
-    const { record: lead, created: leadCreated } = await leadRepository.upsertLead({
-      lead_id: params.leadId,
-      customer_id: customer.customer_id,
-      loan_category: params.loanCategory,
-      requested_amount: params.requestedAmount,
-      lead_status: alreadyOptedOut ? 'OPTED_OUT' : (params.leadStatus || 'NEW_ENQUIRY'),
-      lead_source: params.leadSource || customer.enquiry_source,
-      assigned_advisor_id: params.assignedAdvisorId || 'ADV-SACHIN-01',
-      priority: params.priority || 'MEDIUM'
-    });
-
-    if (leadCreated && !alreadyOptedOut) {
-      await followupRepository.createOrUpdateFollowup({
-        followup_id: `FUP-${lead.lead_id}-D0`,
-        lead_id: lead.lead_id,
-        customer_id: customer.customer_id,
-        advisor_id: lead.assigned_advisor_id,
-        followup_date: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
-        followup_type: 'INITIAL_QUALIFICATION_CALL',
-        followup_status: 'PENDING',
-        short_notes: `Initial consultation for ${lead.loan_category}`
+      const { record: customer } = await customerRepository.upsertCustomer({
+        customer_id: existingCustomer?.customer_id,
+        customer_name: resolvedCustomerName,
+        mobile_number: mobile.e164,
+        city: params.city || existingCustomer?.city || 'Latur',
+        enquiry_source: params.leadSource || existingCustomer?.enquiry_source || 'WEBSITE',
+        record_status: alreadyOptedOut ? 'OPTED_OUT' : 'ACTIVE'
       });
-    }
 
-    const hydrated = await this.hydrateLeadView(lead, customer, consent);
-    return { customer, lead, consent, hydrated };
+      const { record: consent } = await consentRepository.upsertConsent({
+        customer_id: customer.customer_id,
+        channel: 'WHATSAPP',
+        consent_status: alreadyOptedOut
+          ? (existingConsent?.consent_status || 'WITHDRAWN')
+          : (params.consentStatus || existingConsent?.consent_status || 'GRANTED'),
+        consent_source: params.consentSource || existingConsent?.consent_source || params.leadSource || 'WEBSITE',
+        optout_status: alreadyOptedOut ? 'OPTED_OUT' : 'OPTED_IN'
+      });
+
+      // Task 5H.33 D-01 + Task 5H.35 F34-02:
+      // - Verify optional leadId belongs strictly to this customer.
+      // - When leadId is omitted, match ONLY an active lead for the SAME (customer_id, loan_category)
+      //   (or explicit deterministic enquiryKey) so genuinely distinct loan requirements are never
+      //   merged merely because the mobile number matches.
+      const safeLeadId = params.leadId ? String(params.leadId).trim() : undefined;
+      let existingLeadForAdvisor: LeadRow | null = null;
+      if (safeLeadId) {
+        const foundLead = await leadRepository.findById(safeLeadId);
+        if (foundLead && foundLead.customer_id && foundLead.customer_id !== customer.customer_id) {
+          throw createValidationError(
+            `Lead ownership mismatch: lead "${safeLeadId}" does not belong to customer "${customer.customer_id}".`
+          );
+        }
+        existingLeadForAdvisor = foundLead;
+      } else if (params.enquiryKey) {
+        const detId = LeadRepository.buildDeterministicLeadId({
+          customerId: customer.customer_id,
+          loanCategory: params.loanCategory,
+          enquiryKey: params.enquiryKey
+        });
+        existingLeadForAdvisor = await leadRepository.findById(detId);
+      } else {
+        existingLeadForAdvisor = await leadRepository.findActiveByCustomerAndCategory(
+          customer.customer_id,
+          params.loanCategory
+        );
+      }
+
+      const { record: lead, created: leadCreated } = await leadRepository.upsertLead({
+        lead_id: safeLeadId,
+        customer_id: customer.customer_id,
+        loan_category: params.loanCategory,
+        enquiry_key: params.enquiryKey,
+        requested_amount: params.requestedAmount,
+        lead_status: alreadyOptedOut ? 'OPTED_OUT' : (params.leadStatus || existingLeadForAdvisor?.lead_status || 'NEW_ENQUIRY'),
+        lead_source: params.leadSource || existingLeadForAdvisor?.lead_source || customer.enquiry_source,
+        assigned_advisor_id: params.assignedAdvisorId || existingLeadForAdvisor?.assigned_advisor_id || 'ADV-SACHIN-01',
+        priority: params.priority || existingLeadForAdvisor?.priority || 'MEDIUM'
+      });
+
+      if (!alreadyOptedOut) {
+        const initialFollowupId = `FUP-${lead.lead_id}-D0`;
+        const needsInitialFollowup =
+          leadCreated ||
+          (lead.lead_status === 'NEW_ENQUIRY' && !(await followupRepository.findById(initialFollowupId)));
+        if (needsInitialFollowup) {
+          await followupRepository.createOrUpdateFollowup({
+            followup_id: initialFollowupId,
+            lead_id: lead.lead_id,
+            customer_id: customer.customer_id,
+            advisor_id: lead.assigned_advisor_id,
+            followup_date: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
+            followup_type: 'INITIAL_QUALIFICATION_CALL',
+            followup_status: 'PENDING',
+            short_notes: `Initial consultation for ${lead.loan_category}`
+          });
+        }
+      }
+
+      const hydrated = await this.hydrateLeadView(lead, customer, consent);
+      return { customer, lead, consent, hydrated };
+    });
   }
 
   public static async hydrateLeadView(

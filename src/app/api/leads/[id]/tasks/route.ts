@@ -12,6 +12,18 @@ export async function GET(
     const auth = await requireAuth(req);
     if (!auth.ok) return auth.response;
 
+    // APR006-P2-01: Fail-closed isolation of legacy MongoDB lead tasks route.
+    if (process.env.LEGACY_MONGODB_ROUTES_ENABLED !== 'true') {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'LEGACY_MONGODB_ROUTE_DISABLED',
+          message: 'Legacy MongoDB /api/leads/[id]/tasks route is disabled; canonical CRM persistence is Google Sheets.'
+        },
+        { status: 410, headers: { 'Cache-Control': 'no-store' } }
+      );
+    }
+
     const resolvedParams = await params;
     if (!isValidObjectId(resolvedParams.id)) {
       return NextResponse.json({ success: false, error: 'Invalid lead ID format.' }, { status: 400 });
@@ -43,6 +55,18 @@ export async function POST(
   try {
     const auth = await requireAuth(req);
     if (!auth.ok) return auth.response;
+
+    // APR006-P2-01: Fail-closed isolation of legacy MongoDB lead tasks route.
+    if (process.env.LEGACY_MONGODB_ROUTES_ENABLED !== 'true') {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'LEGACY_MONGODB_ROUTE_DISABLED',
+          message: 'Legacy MongoDB /api/leads/[id]/tasks route is disabled; canonical CRM persistence is Google Sheets.'
+        },
+        { status: 410, headers: { 'Cache-Control': 'no-store' } }
+      );
+    }
 
     const resolvedParams = await params;
     if (!isValidObjectId(resolvedParams.id)) {
@@ -108,6 +132,18 @@ export async function PATCH(
   try {
     const auth = await requireAuth(req);
     if (!auth.ok) return auth.response;
+
+    // APR006-P2-01: Fail-closed isolation of legacy MongoDB lead tasks route.
+    if (process.env.LEGACY_MONGODB_ROUTES_ENABLED !== 'true') {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'LEGACY_MONGODB_ROUTE_DISABLED',
+          message: 'Legacy MongoDB /api/leads/[id]/tasks route is disabled; canonical CRM persistence is Google Sheets.'
+        },
+        { status: 410, headers: { 'Cache-Control': 'no-store' } }
+      );
+    }
 
     const resolvedParams = await params;
     if (!isValidObjectId(resolvedParams.id)) {

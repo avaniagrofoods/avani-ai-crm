@@ -13,6 +13,30 @@ export async function POST(req: Request) {
     const auth = await requireRole(req, ['ADMIN']);
     if (!auth.ok) return auth.response;
 
+    const bulkPolicy = evaluateBulkBroadcastPolicy();
+    if (!bulkPolicy.allowed) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: bulkPolicy.error,
+          message: bulkPolicy.message
+        },
+        { status: bulkPolicy.status }
+      );
+    }
+
+    // APR006-P2-01: Fail-closed isolation of legacy MongoDB bulk-message route.
+    if (process.env.LEGACY_MONGODB_ROUTES_ENABLED !== 'true') {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'LEGACY_MONGODB_ROUTE_DISABLED',
+          message: 'Legacy MongoDB /api/contacts/bulk-message route is disabled; canonical CRM persistence is Google Sheets.'
+        },
+        { status: 410, headers: { 'Cache-Control': 'no-store' } }
+      );
+    }
+
     const conn = await connectToDatabase();
     if (!conn || conn.connection?.readyState !== 1) {
       return NextResponse.json(
@@ -28,18 +52,6 @@ export async function POST(req: Request) {
       return NextResponse.json(
         { success: false, error: 'CONTENT_REQUIRED', message: 'Please provide message text or templateName.' },
         { status: 400 }
-      );
-    }
-
-    const bulkPolicy = evaluateBulkBroadcastPolicy();
-    if (!bulkPolicy.allowed) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: bulkPolicy.error,
-          message: bulkPolicy.message
-        },
-        { status: bulkPolicy.status }
       );
     }
 

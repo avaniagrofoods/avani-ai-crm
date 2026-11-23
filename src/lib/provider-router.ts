@@ -30,6 +30,15 @@ export interface DispatchResult {
 
 export class ProviderRouter {
   static async dispatchMessage(options: DispatchMessageOptions): Promise<DispatchResult> {
+    if (process.env.LEGACY_MONGODB_ROUTES_ENABLED !== 'true') {
+      return {
+        success: false,
+        provider: options.provider || 'CHATMITRA',
+        status: 'LEGACY_MONGODB_ROUTE_DISABLED',
+        error: 'Legacy MongoDB ProviderRouter is disabled; use canonical Google Sheets messaging services.',
+        idempotencyKey: ''
+      };
+    }
     await connectToDatabase();
 
     // Central Provider Selection: Check option override, then process.env.WHATSAPP_PROVIDER, defaulting to CHATMITRA

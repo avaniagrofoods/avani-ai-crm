@@ -19,7 +19,7 @@ This plan outlines the steps to securely integrate your provided OmniDim API key
 We will add the new OmniDim API key into your local and production environment settings. Since OmniDim acts as a drop-in replacement/extension for Vapi, we will ensure it is available for outbound AI calling scenarios.
 
 #### [MODIFY] `4-AVANI LOAN AGENTS/.env.local`
-- Inject `OMNIDIM_API_KEY=w-uV11bJBZ3g5icPI-uw97k2Fz8VswFsCUCcMIjBqok` securely into the file.
+- Inject `OMNIDIM_API_KEY=[REDACTED_OMNIDIM_API_KEY]` securely into the file.
 - Inject `OMNIDIM_API_KEY` into the standard `.env` file as well.
 
 #### [MODIFY] `4-AVANI LOAN AGENTS/app/api/vapi/route.ts` (or create `omnidim/route.ts`)

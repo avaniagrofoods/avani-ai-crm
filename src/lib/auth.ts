@@ -3,6 +3,7 @@ import { CANONICAL_LEAD_STAGES, CanonicalLeadStage } from '@/config/pipeline';
 import {
   isSessionActiveInDb,
   registerSessionInDb,
+  revokeAllUserSessionsInDb,
   revokeSessionInDb
 } from '@/lib/auth-store';
 import {
@@ -162,7 +163,7 @@ export async function verifySessionToken(token: string | undefined | null): Prom
 export async function verifyActiveSession(token: string | undefined | null): Promise<CrmSession | null> {
   const session = await verifySessionToken(token);
   if (!session) return null;
-  const active = await isSessionActiveInDb(session.jti);
+  const active = await isSessionActiveInDb(session.jti, { sub: session.sub, iat: session.iat });
   if (!active) return null;
   return session;
 }
@@ -174,7 +175,7 @@ export async function issueRotatedSession(
   if (previousToken) {
     const oldSession = await verifySessionToken(previousToken);
     if (oldSession?.jti) {
-      await revokeSessionInDb(oldSession.jti);
+      await revokeSessionInDb(oldSession.jti, oldSession.exp);
     }
   }
   const result = await signSessionTokenWithDetails({
@@ -191,8 +192,17 @@ export async function revokeSessionToken(token: string | undefined | null): Prom
   if (!token) return;
   const session = await verifySessionToken(token);
   if (session?.jti) {
-    await revokeSessionInDb(session.jti);
+    await revokeSessionInDb(session.jti, session.exp);
   }
+}
+
+export async function revokeAllUserSessions(token: string | undefined | null): Promise<boolean> {
+  if (!token) return false;
+  const session = await verifySessionToken(token);
+  if (!session?.sub) return false;
+  await revokeSessionInDb(session.jti, session.exp);
+  await revokeAllUserSessionsInDb(session.sub, Math.floor(Date.now() / 1000));
+  return true;
 }
 
 export function parseCookieHeader(cookieHeader: string | null, name: string): string | null {

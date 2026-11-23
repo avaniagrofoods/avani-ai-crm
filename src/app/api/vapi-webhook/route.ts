@@ -16,6 +16,19 @@ export async function POST(request: Request) {
     ['x-vapi-secret', 'x-webhook-secret']
   );
   if (!webhookAuth.ok) return webhookAuth.response;
+
+  // Blocker 6: Fail-closed isolation of legacy MongoDB/PostgreSQL Vapi webhook route.
+  if (process.env.LEGACY_MONGODB_ROUTES_ENABLED !== 'true') {
+    return NextResponse.json(
+      {
+        success: false,
+        error: 'LEGACY_MONGODB_ROUTE_DISABLED',
+        message: 'Legacy MongoDB /api/vapi-webhook route is disabled; canonical CRM persistence is Google Sheets.'
+      },
+      { status: 410, headers: { 'Cache-Control': 'no-store' } }
+    );
+  }
+
   try {
     const body = await request.json();
 

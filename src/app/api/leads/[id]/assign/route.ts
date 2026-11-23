@@ -12,6 +12,18 @@ export async function POST(
     const auth = await requireRole(req, ['ADMIN']);
     if (!auth.ok) return auth.response;
 
+    // APR006-P2-01: Fail-closed isolation of legacy MongoDB lead assignment route.
+    if (process.env.LEGACY_MONGODB_ROUTES_ENABLED !== 'true') {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'LEGACY_MONGODB_ROUTE_DISABLED',
+          message: 'Legacy MongoDB /api/leads/[id]/assign route is disabled; canonical CRM persistence is Google Sheets.'
+        },
+        { status: 410, headers: { 'Cache-Control': 'no-store' } }
+      );
+    }
+
     const resolvedParams = await params;
     if (!isValidObjectId(resolvedParams.id)) {
       return NextResponse.json({ success: false, error: 'Invalid lead ID format.' }, { status: 400 });

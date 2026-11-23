@@ -5,11 +5,24 @@ import { triggerOmnidimCall } from '@/lib/omnidim';
 import { sendAiSensyWhatsApp } from '@/lib/aisensy';
 import { normalizeIndianPhone } from '@/lib/phone';
 import { requireRole } from '@/lib/auth';
+import { maskPhoneForLog } from '@/lib/safeguards';
 
 export async function POST(request: Request) {
   try {
     const auth = await requireRole(request, ['ADMIN']);
     if (!auth.ok) return auth.response;
+
+    // APR006-P2-01: Fail-closed isolation of legacy MongoDB lead trigger route.
+    if (process.env.LEGACY_MONGODB_ROUTES_ENABLED !== 'true') {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'LEGACY_MONGODB_ROUTE_DISABLED',
+          message: 'Legacy MongoDB /api/leads/trigger route is disabled; canonical CRM persistence is Google Sheets.'
+        },
+        { status: 410, headers: { 'Cache-Control': 'no-store' } }
+      );
+    }
 
     try {
       await connectToDatabase();
@@ -36,12 +49,12 @@ export async function POST(request: Request) {
       if (process.env.MONGODB_URI && !process.env.MONGODB_URI.includes('localhost')) {
         newLead = await Lead.create({ name, phone: formattedPhone, loanType: effectiveLoanType, status: 'New' });
       }
-    } catch (dbError) {
-      console.warn("MongoDB lead save fallback:", dbError);
+    } catch (dbError: unknown) {
+      console.warn("MongoDB lead save fallback:", dbError instanceof Error ? dbError.message : 'unavailable');
     }
 
     try {
-      console.log(`[Auto WhatsApp Workflow] Triggering WhatsApp qualification message for ${formattedPhone}...`);
+      console.log(`[Auto WhatsApp Workflow] Triggering WhatsApp qualification message for ${maskPhoneForLog(formattedPhone)}...`);
       await sendAiSensyWhatsApp({
         destination: formattedPhone,
         userName: name || 'Valued Customer',

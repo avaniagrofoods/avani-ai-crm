@@ -3,6 +3,7 @@ import { sendAiSensyWhatsApp } from '@/lib/aisensy';
 import { resolveTenureAndThresholds } from '@/lib/financials';
 import { Lead } from '@/models/Lead';
 import { getDatabase } from '@/lib/db';
+import { maskPhoneForLog } from '@/lib/safeguards';
 
 /**
  * Main handler to process incoming webhook interactive payloads
@@ -25,7 +26,7 @@ export async function handleInboundButtonWorkflow(userPhoneNumber: string, butto
     return true;
   } else {
     // Other button types not explicitly defined in the webhook blueprint
-    console.log(`Unmapped text/button received: ${buttonTitle}`);
+    console.log(`Unmapped text/button received (len=${String(buttonTitle || '').length})`);
     await logInteraction(userPhoneNumber, buttonTitle, buttonId, "unmapped_input");
     return false;
   }
@@ -35,7 +36,7 @@ async function logInteraction(phone: string, text: string, buttonId: string, wor
   let lead = await Lead.findOne({ phone: phone });
   
   if (!lead) {
-    console.error(`Webhook Match Failed: No lead document discovered for normalized phone key: ${phone}`);
+    console.error(`Webhook Match Failed: No lead document discovered for normalized phone key: ${maskPhoneForLog(phone)}`);
     lead = new Lead({
       name: "Valued Customer",
       phone: phone,

@@ -154,7 +154,7 @@ Respond with ONLY raw JSON, no markdown blocks.
 `;
 
     if (process.env.PROVIDER_MODE === 'mock' || !GEMINI_API_KEY.length) {
-      console.log(`[MOCK GEMINI] Extracting entities for: "${text}"`);
+      console.log(`[MOCK GEMINI] Extracting entities (length=${text.length})`);
       const lower = text.toLowerCase();
       const extracted: any = {};
       let lang = 'en';
@@ -283,7 +283,7 @@ Respond with ONLY raw JSON, no markdown blocks.
   static async translateText(text: string, language: string) {
     if (language === 'en') return text;
     if (process.env.PROVIDER_MODE === 'mock' || !GEMINI_API_KEY.length) {
-      console.log(`[MOCK GEMINI] Translating to ${language}: "${text}"`);
+      console.log(`[MOCK GEMINI] Translating to ${language} (length=${text.length})`);
       if (language === 'mr') {
         if (text.includes("What is your full name?")) return "तुमचे पूर्ण नाव काय आहे?";
         if (text.includes("monthly income range")) return "तुमचे मासिक उत्पन्न किती आहे? (₹25K–₹50K, ₹50K–₹1L, ₹1L–₹2L, ₹2L+)";

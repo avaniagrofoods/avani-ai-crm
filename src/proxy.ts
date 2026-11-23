@@ -4,6 +4,7 @@ import {
   verifyActiveSession,
   verifyCsrfRequest
 } from '@/lib/auth';
+import { isPubliclyAccessiblePage } from '@/lib/routing-policy';
 
 const PUBLIC_PAGE_PATHS = new Set(['/login']);
 
@@ -32,6 +33,8 @@ export async function proxy(request: NextRequest) {
   if (
     pathname.startsWith('/_next/') ||
     pathname === '/favicon.ico' ||
+    pathname === '/robots.txt' ||
+    pathname === '/sitemap.xml' ||
     /\.(?:png|jpg|jpeg|svg|gif|webp|ico|css|js|map|woff2?)$/i.test(pathname)
   ) {
     return NextResponse.next();
@@ -41,8 +44,11 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // Monitoring callers authenticating via Bearer secret reach /api/diagnostics handler directly
-  if (pathname === '/api/diagnostics' && request.headers.get('authorization')?.startsWith('Bearer ')) {
+  // Monitoring & internal automation callers authenticating via Bearer secret reach route handlers directly
+  if (
+    (pathname === '/api/diagnostics' || pathname === '/api/internal/reconcile-identities') &&
+    request.headers.get('authorization')?.startsWith('Bearer ')
+  ) {
     return NextResponse.next();
   }
 
@@ -54,6 +60,17 @@ export async function proxy(request: NextRequest) {
         { status: csrf.status, headers: { 'Cache-Control': 'no-store' } }
       );
     }
+  }
+
+  const requestHost =
+    request.headers.get('x-forwarded-host') ||
+    request.headers.get('host') ||
+    request.nextUrl.hostname;
+
+  // Public AVANI LOAN SERVICES website routes are served directly on public website hosts
+  // without redirecting to /login, while all CRM pages and private APIs remain protected.
+  if (!pathname.startsWith('/api/') && !PUBLIC_PAGE_PATHS.has(pathname) && isPubliclyAccessiblePage(pathname, requestHost)) {
+    return NextResponse.next();
   }
 
   const token = request.cookies.get(SESSION_COOKIE_NAME)?.value;

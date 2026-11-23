@@ -86,16 +86,16 @@ The verified connection strings for each application environment are:
 
 ### A. AVANI LOAN SERVICES:
 ```
-MONGODB_URI=mongodb+srv://starpowerzlatur2210_db_user:Samarth%401356@avani-loan-services-m0.xj6nhak.mongodb.net/avani_loan_services_prod?authSource=admin&retryWrites=true&w=majority
+MONGODB_URI=mongodb+srv://[REDACTED_DB_USER]:[REDACTED_DB_PASSWORD]@avani-loan-services-m0.xj6nhak.mongodb.net/avani_loan_services_prod?authSource=admin&retryWrites=true&w=majority
 MONGODB_DB_NAME=avani_loan_services_prod
-MONGODB_MODEL_API_KEY=al-IID5nQ50D36ieenethTYBq0jG5QMPo9TAiAWLK4Q1Kg
+MONGODB_MODEL_API_KEY=[REDACTED_MONGODB_MODEL_API_KEY]
 ```
 
 ### B. AVANI AI CRM:
 ```
-MONGODB_URI=mongodb+srv://starpowerzlatur2210_db_user:Samarth%401356@avani-loan-services-m0.rhpn2gh.mongodb.net/avani_ai_crm_prod?authSource=admin&retryWrites=true&w=majority
+MONGODB_URI=mongodb+srv://[REDACTED_DB_USER]:[REDACTED_DB_PASSWORD]@avani-loan-services-m0.rhpn2gh.mongodb.net/avani_ai_crm_prod?authSource=admin&retryWrites=true&w=majority
 MONGODB_DB_NAME=avani_ai_crm_prod
-MONGODB_MODEL_API_KEY=al-NBweuWR0w1PN-PV0wqMwoH3o-iIoqTF7yH4tXdEHgW6
+MONGODB_MODEL_API_KEY=[REDACTED_MONGODB_MODEL_API_KEY]
 ```
 
 *(Notice: The password `@` character is URL-encoded as `%40` in accordance with standard MongoDB URI specifications to prevent connection parser ambiguities).*

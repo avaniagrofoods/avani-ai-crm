@@ -3,6 +3,7 @@ import {
   SESSION_COOKIE_NAME,
   buildSessionCookieOptions,
   parseCookieHeader,
+  revokeAllUserSessions,
   revokeSessionToken,
   verifyCsrfRequest
 } from '@/lib/auth';
@@ -24,10 +25,22 @@ export async function POST(req: Request) {
   }
 
   const token = parseCookieHeader(req.headers.get('cookie'), SESSION_COOKIE_NAME);
-  await revokeSessionToken(token).catch(() => {});
+  let revokeAll = false;
+  try {
+    const body = await req.json().catch(() => null);
+    revokeAll = body?.revokeAll === true;
+  } catch {
+    revokeAll = false;
+  }
+
+  if (revokeAll) {
+    await revokeAllUserSessions(token).catch(() => {});
+  } else {
+    await revokeSessionToken(token).catch(() => {});
+  }
 
   const response = NextResponse.json(
-    { success: true, message: 'Logged out' },
+    { success: true, message: revokeAll ? 'All active sessions revoked' : 'Logged out', revokedAll: revokeAll },
     { headers: NO_STORE_HEADERS }
   );
   response.cookies.set({

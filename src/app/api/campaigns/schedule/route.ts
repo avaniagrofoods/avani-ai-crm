@@ -21,6 +21,18 @@ export async function POST(request: Request) {
       );
     }
 
+    // APR-008 Phase 3B: Fail-closed isolation (canonical scheduling endpoint is Google Sheets /api/schedule).
+    if (process.env.LEGACY_MONGODB_ROUTES_ENABLED !== 'true') {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'LEGACY_MONGODB_ROUTE_DISABLED',
+          message: 'Legacy MongoDB /api/campaigns/schedule route is disabled; use canonical Google Sheets /api/schedule.'
+        },
+        { status: 410, headers: { 'Cache-Control': 'no-store' } }
+      );
+    }
+
     const conn = await connectToDatabase();
     if (!conn || conn.connection?.readyState !== 1) {
       return NextResponse.json(
@@ -61,9 +73,9 @@ export async function POST(request: Request) {
       message: `Campaign successfully scheduled for ${scheduledDateObj.toLocaleString('en-IN')}`,
       campaign: newSchedule
     });
-  } catch (error: any) {
-    console.error("Schedule Campaign Error:", error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  } catch (error: unknown) {
+    console.error('Schedule Campaign Error:', error instanceof Error ? error.message : 'unknown');
+    return NextResponse.json({ success: false, error: 'Internal server error' }, { status: 500 });
   }
 }
 
@@ -71,6 +83,17 @@ export async function GET(request: Request) {
   try {
     const auth = await requireAuth(request);
     if (!auth.ok) return auth.response;
+
+    if (process.env.LEGACY_MONGODB_ROUTES_ENABLED !== 'true') {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'LEGACY_MONGODB_ROUTE_DISABLED',
+          message: 'Legacy MongoDB /api/campaigns/schedule route is disabled; use canonical Google Sheets /api/schedule.'
+        },
+        { status: 410, headers: { 'Cache-Control': 'no-store' } }
+      );
+    }
 
     const conn = await connectToDatabase();
     if (!conn || conn.connection?.readyState !== 1) {
@@ -88,6 +111,17 @@ export async function PATCH(request: Request) {
   try {
     const auth = await requireRole(request, ['ADMIN']);
     if (!auth.ok) return auth.response;
+
+    if (process.env.LEGACY_MONGODB_ROUTES_ENABLED !== 'true') {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'LEGACY_MONGODB_ROUTE_DISABLED',
+          message: 'Legacy MongoDB /api/campaigns/schedule route is disabled; use canonical Google Sheets /api/schedule.'
+        },
+        { status: 410, headers: { 'Cache-Control': 'no-store' } }
+      );
+    }
 
     const conn = await connectToDatabase();
     if (!conn || conn.connection?.readyState !== 1) {
@@ -128,7 +162,7 @@ export async function PATCH(request: Request) {
       message: `Campaign status updated to ${targetStatus}`,
       campaign: updated || { id: campaignId, status: targetStatus }
     });
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+  } catch {
+    return NextResponse.json({ success: false, error: 'Internal server error' }, { status: 500 });
   }
 }

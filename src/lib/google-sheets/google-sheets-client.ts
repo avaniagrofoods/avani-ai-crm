@@ -25,6 +25,7 @@ import {
   createQuotaError,
   createSchemaError,
   createUnavailableError,
+  createValidationError,
   executeWithControlledBackoff
 } from './sheet-error-handler';
 import { validateAndSanitizeSheetRecord } from './sheet-validation';
@@ -32,6 +33,76 @@ import { sheetsWriteMutex } from './sheet-idempotency';
 import { signAppsScriptGatewayRequest } from './google-auth';
 
 export type SheetsTransportMode = 'APPS_SCRIPT_GATEWAY' | 'MOCK_IN_MEMORY';
+
+export interface GatewayResponseEnvelope<TData extends Record<string, any> = Record<string, any>> {
+  ok: true;
+  status?: number;
+  code?: string;
+  requestId?: string;
+  data: TData;
+}
+
+/**
+ * Unwraps and validates the canonical Apps Script Gateway JSON envelope:
+ *   { ok: true, status: 200, code: 'OK', requestId: '...', data: { ... } }
+ * Fails closed with a non-retryable SheetsCrmError if the envelope or `data` object is missing/malformed.
+ */
+export function unwrapGatewayData<TData extends Record<string, any>>(
+  res: unknown,
+  action: string
+): TData {
+  if (!res || typeof res !== 'object' || Array.isArray(res)) {
+    throw new SheetsCrmError({
+      code: 'GOOGLE_SHEETS_UNAVAILABLE',
+      message: `Malformed gateway response for ${action}: expected JSON object.`,
+      httpStatus: 503,
+      retryable: false
+    });
+  }
+  const env = res as Record<string, any>;
+  if (env.ok !== true) {
+    const safeError =
+      typeof env.error === 'string' && env.error.trim()
+        ? env.error.trim().slice(0, 200)
+        : `Gateway response for ${action} did not indicate ok: true.`;
+    throw new SheetsCrmError({
+      code: 'GOOGLE_SHEETS_UNAVAILABLE',
+      message: safeError,
+      httpStatus: 503,
+      retryable: false
+    });
+  }
+  if (!env.data || typeof env.data !== 'object' || Array.isArray(env.data)) {
+    throw new SheetsCrmError({
+      code: 'GOOGLE_SHEETS_UNAVAILABLE',
+      message: `Malformed gateway response for ${action}: missing required "data" object envelope.`,
+      httpStatus: 503,
+      retryable: false
+    });
+  }
+  return env.data as TData;
+}
+
+/**
+ * Extracts and validates a required boolean mutation flag (`created`, `inserted`, `deleted`)
+ * from the nested `data` envelope returned by Google Apps Script gateway.gs.
+ */
+export function extractGatewayBooleanFlag(
+  res: unknown,
+  action: 'UPSERT_ROW' | 'INSERT_IF_ABSENT' | 'DELETE_ROW',
+  flagName: 'created' | 'inserted' | 'deleted'
+): { flag: boolean; data: Record<string, any> } {
+  const data = unwrapGatewayData<Record<string, any>>(res, action);
+  if (typeof data[flagName] !== 'boolean') {
+    throw new SheetsCrmError({
+      code: 'GOOGLE_SHEETS_UNAVAILABLE',
+      message: `Malformed gateway mutation response for ${action}: expected boolean "data.${flagName}", received ${typeof data[flagName]}.`,
+      httpStatus: 503,
+      retryable: false
+    });
+  }
+  return { flag: data[flagName] as boolean, data };
+}
 
 export interface SheetsTestFaultConfig {
   forceUnavailable?: boolean;
@@ -174,8 +245,9 @@ export class GoogleSheetsClient {
         throw createUnavailableError('GOOGLE_SHEETS_GATEWAY_URL is not configured.');
       }
       const res = await this.dispatchGatewayRequest({ action: 'HEALTH_CHECK' }, true);
+      unwrapGatewayData(res, 'HEALTH_CHECK');
       return {
-        online: Boolean(res?.ok),
+        online: true,
         mode,
         spreadsheetName: MASTER_SPREADSHEET_NAME,
         schemaVersion: SHEETS_SCHEMA_VERSION
@@ -204,13 +276,20 @@ export class GoogleSheetsClient {
     }
 
     const res = await this.dispatchGatewayRequest({ action: 'GET_ALL', tab }, true);
-    const data = res?.data ?? res;
-    if (Array.isArray(data?.headers)) {
+    const data = unwrapGatewayData<{ headers?: any[]; rows?: any[][] }>(res, 'GET_ALL');
+    if (Array.isArray(data.headers)) {
       const check = validateSheetHeaderRow(tab, data.headers);
       if (!check.valid) throw createSchemaError(check.error!);
     }
-    const rawRows: any[][] = Array.isArray(data?.rows) ? data.rows : [];
-    return rawRows.map((r) => rowValuesToObject<T>(tab, r));
+    if (!Array.isArray(data.rows)) {
+      throw new SheetsCrmError({
+        code: 'GOOGLE_SHEETS_UNAVAILABLE',
+        message: `Malformed gateway response for GET_ALL on tab "${tab}": missing "data.rows" array.`,
+        httpStatus: 503,
+        retryable: false
+      });
+    }
+    return data.rows.map((r) => rowValuesToObject<T>(tab, r));
   }
 
   /**
@@ -235,8 +314,16 @@ export class GoogleSheetsClient {
     }
 
     const res = await this.dispatchGatewayRequest({ action: 'GET_SNAPSHOT', tabs: uniqueTabs }, true);
-    const data = res?.data ?? res;
-    const tabPayload = data?.tabs ?? {};
+    const data = unwrapGatewayData<{ tabs?: Record<string, any> }>(res, 'GET_SNAPSHOT');
+    const tabPayload = data.tabs;
+    if (!tabPayload || typeof tabPayload !== 'object' || Array.isArray(tabPayload)) {
+      throw new SheetsCrmError({
+        code: 'GOOGLE_SHEETS_UNAVAILABLE',
+        message: 'Malformed gateway response for GET_SNAPSHOT: missing "data.tabs" object.',
+        httpStatus: 503,
+        retryable: false
+      });
+    }
     const out: Partial<Record<SheetTabName, T[]>> = {};
     for (const tab of uniqueTabs) {
       const entry = tabPayload[tab];
@@ -320,9 +407,10 @@ export class GoogleSheetsClient {
         },
         true
       );
+      const { flag: created } = extractGatewayBooleanFlag(res, 'UPSERT_ROW', 'created');
       return {
         record: (sanitized as unknown) as T,
-        created: Boolean(res?.created)
+        created
       };
     });
   }
@@ -382,9 +470,14 @@ export class GoogleSheetsClient {
         },
         true
       );
+      const { flag: inserted, data } = extractGatewayBooleanFlag(res, 'INSERT_IF_ABSENT', 'inserted');
+      const resolvedRecord =
+        !inserted && Array.isArray(data.existingRow) && data.existingRow.length === SHEET_COLUMNS[tab].length
+          ? rowValuesToObject<T>(tab, data.existingRow)
+          : ((sanitized as unknown) as T);
       return {
-        record: (sanitized as unknown) as T,
-        inserted: Boolean(res?.inserted)
+        record: resolvedRecord,
+        inserted
       };
     });
   }
@@ -416,7 +509,8 @@ export class GoogleSheetsClient {
         },
         true
       );
-      return Boolean(res?.deleted);
+      const { flag: deleted } = extractGatewayBooleanFlag(res, 'DELETE_ROW', 'deleted');
+      return deleted;
     });
   }
 
@@ -429,11 +523,14 @@ export class GoogleSheetsClient {
       throw createUnavailableError('GOOGLE_SHEETS_GATEWAY_URL is not configured in server environment.');
     }
 
+    const rawTimeoutMs = Number(process.env.GOOGLE_SHEETS_GATEWAY_TIMEOUT_MS);
+    const timeoutMs = Number.isFinite(rawTimeoutMs) && rawTimeoutMs >= 50 ? rawTimeoutMs : 10000;
+
     return executeWithControlledBackoff(
       async () => {
         const envelope = signAppsScriptGatewayRequest(payload);
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 10000);
+        const timeout = setTimeout(() => controller.abort(), timeoutMs);
         try {
           const response = await fetch(gatewayUrl, {
             method: 'POST',
@@ -451,19 +548,36 @@ export class GoogleSheetsClient {
             throw createUnavailableError(`Gateway returned HTTP ${response.status}`);
           }
 
-          const json = await response.json().catch(() => null);
-          if (!response.ok || !json || json.ok === false) {
+          let json: any = null;
+          let jsonParseFailed = false;
+          try {
+            json = await response.json();
+          } catch {
+            jsonParseFailed = true;
+          }
+
+          if (jsonParseFailed || !json || typeof json !== 'object' || Array.isArray(json)) {
+            throw new SheetsCrmError({
+              code: 'GOOGLE_SHEETS_UNAVAILABLE',
+              message: `Malformed JSON response from Google Sheets Gateway (HTTP ${response.status})`,
+              httpStatus: 503,
+              retryable: false
+            });
+          }
+
+          if (!response.ok || json.ok !== true) {
             const errCode = json?.code || json?.errorCode;
+            const errMsg = typeof json?.error === 'string' ? json.error.trim().slice(0, 200) : '';
             if (errCode === 'GOOGLE_SHEETS_QUOTA_EXCEEDED' || errCode === 'QUOTA_EXCEEDED' || json?.status === 429) {
-              throw createQuotaError(json?.error || 'Quota exceeded');
+              throw createQuotaError(errMsg || 'Quota exceeded');
             }
             if (errCode === 'GOOGLE_SHEETS_SCHEMA_INVALID' || errCode === 'SCHEMA_INVALID') {
-              throw createSchemaError(json?.error || 'Invalid sheet schema');
+              throw createSchemaError(errMsg || 'Invalid sheet schema');
             }
             if (errCode === 'GOOGLE_SHEETS_AUTH_FAILED' || json?.status === 401 || json?.status === 403) {
               throw new SheetsCrmError({
                 code: 'GOOGLE_SHEETS_AUTH_FAILED',
-                message: json?.error || 'Gateway authentication failed',
+                message: errMsg || 'Gateway authentication failed',
                 httpStatus: 401,
                 retryable: false
               });
@@ -471,17 +585,25 @@ export class GoogleSheetsClient {
             if (errCode === 'GOOGLE_SHEETS_FORMULA_INJECTION_BLOCKED') {
               throw new SheetsCrmError({
                 code: 'GOOGLE_SHEETS_FORMULA_INJECTION_BLOCKED',
-                message: json?.error || 'Formula injection blocked by gateway',
+                message: errMsg || 'Formula injection blocked by gateway',
                 httpStatus: 400,
                 retryable: false
               });
             }
-            throw createUnavailableError(json?.error || `Gateway error (HTTP ${response.status})`);
+            if (errCode === 'GOOGLE_SHEETS_VALIDATION_FAILED' || json?.status === 400) {
+              throw createValidationError(errMsg || 'Gateway request validation failed');
+            }
+            throw createUnavailableError(errMsg || `Gateway error (HTTP ${response.status})`);
           }
           return json;
         } catch (err: any) {
           if (err instanceof SheetsCrmError) throw err;
-          throw createUnavailableError(err?.message || 'Network request to Google Sheets Gateway failed');
+          const isAbort = err?.name === 'AbortError' || String(err?.message || '').toLowerCase().includes('abort');
+          throw createUnavailableError(
+            isAbort
+              ? `Google Sheets Gateway request timed out after ${timeoutMs}ms`
+              : err?.message || 'Network request to Google Sheets Gateway failed'
+          );
         } finally {
           clearTimeout(timeout);
         }
