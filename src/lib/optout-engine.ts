@@ -49,8 +49,8 @@ export class OptOutEngine {
       'थांबवा', 'नको', 'बंद करा', 'मेसेज पाठवू नका', 'संदेश थांबवा',
       'nako', 'nakaye', 'thamba', 'thambwa', 'band kara',
       // Hindi
-      'रोकें', 'रोको', 'बंद करो', 'संदेश मत भेजो', 'हटाओ', 'मैसेज मत करो',
-      'roken', 'roko', 'band karo', 'mat bhejo', 'hatao'
+      'रोकें', 'रोको', 'बंद करो', 'संदेश मत भेजो', 'हटाओ', 'मैसेज मत करो', 'नहीं चाहिए',
+      'roken', 'roko', 'band karo', 'mat bhejo', 'hatao', 'nahi chahiye', 'nhi chahiye'
     ];
 
     return optOutPhrases.some(phrase => lower === phrase || lower.includes(phrase));

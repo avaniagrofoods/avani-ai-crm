@@ -36,59 +36,87 @@ export interface ApprovedKnowledgeEntry {
 
 export const APPROVED_KNOWLEDGE_BASE: readonly ApprovedKnowledgeEntry[] = [
   {
-    id: 'KB-HOME',
-    product: 'Home Loan',
-    keywords: ['home loan', 'flat', 'house', 'housing', 'गृहकर्ज'],
-    summary: 'Home Loan advisory for purchase, construction, and balance transfer through partner banks and NBFCs across India.',
-    advisoryNote: 'Final sanction, LTV, and interest rate depend on partner bank underwriting, property legal/technical valuation, and applicant credit profile.'
+    id: 'KB-PERSONAL',
+    product: 'Personal Loan',
+    keywords: ['personal loan', 'salaried', 'पर्सनल लोन', 'वैयक्तिक'],
+    summary: 'Personal Loan advisory for salaried and eligible professionals with transparent documentation guidance across partner banks and NBFCs.',
+    advisoryNote: 'Loan amount, tenure, and rate are decided solely by the sanctioning bank/NBFC after KYC, income, and CIBIL credit review.'
   },
   {
     id: 'KB-BUSINESS',
     product: 'Business Loan',
-    keywords: ['business loan', 'msme', 'working capital', 'turnover', 'बिझनेस', 'व्यापार'],
-    summary: 'Business & MSME Loan consultancy supporting working capital, expansion, and machinery needs through partner lenders.',
-    advisoryNote: 'Eligibility and pricing are determined solely by partner lenders based on GST, ITR, audited financials, and banking conduct.'
-  },
-  {
-    id: 'KB-PERSONAL',
-    product: 'Personal Loan',
-    keywords: ['personal loan', 'salaried', 'पर्सनल लोन', 'वैयक्तिक'],
-    summary: 'Personal Loan advisory for salaried and eligible professionals with transparent documentation guidance.',
-    advisoryNote: 'Loan amount, tenure, and rate are decided solely by the sanctioning bank/NBFC after KYC, income, and CIBIL review.'
-  },
-  {
-    id: 'KB-MORTGAGE',
-    product: 'Mortgage Loan / LAP',
-    keywords: ['mortgage', 'lap', 'against property', 'मॉर्गिज', 'प्रॉपर्टी'],
-    summary: 'Loan Against Property (LAP) / Mortgage advisory for residential, commercial, and industrial properties.',
-    advisoryNote: 'Subject to clear 30-year title chain, valuation, and partner lender credit underwriting.'
+    keywords: ['business loan', 'व्यापार कर्ज', 'बिझनेस', 'व्यापार'],
+    summary: 'Business Loan consultancy supporting business expansion, machinery purchase, and capacity enhancement through partner lenders.',
+    advisoryNote: 'Eligibility and pricing are determined solely by partner lenders based on GST, ITR, audited balance sheets, and banking conduct.'
   },
   {
     id: 'KB-DOCTOR',
     product: 'Doctor Loan',
-    keywords: ['doctor', 'mbbs', 'md', 'bds', 'clinic', 'hospital', 'डॉक्टर'],
-    summary: 'Specialized Doctor Loan advisory for registered medical practitioners, clinics, and diagnostic equipment.',
+    keywords: ['doctor', 'doctor loan', 'mbbs', 'md', 'bds', 'clinic', 'hospital', 'डॉक्टर'],
+    summary: 'Specialized Doctor Loan advisory for registered medical practitioners, clinics, diagnostic centers, and medical equipment financing.',
     advisoryNote: 'Requires valid medical degree and Medical Council registration; sanction terms rest exclusively with partner banks/NBFCs.'
+  },
+  {
+    id: 'KB-HOME',
+    product: 'Home Loan',
+    keywords: ['home loan', 'flat', 'house', 'housing', 'construction', 'गृहकर्ज', 'होम लोन'],
+    summary: 'Home Loan advisory for property purchase, home construction, renovation, and balance transfer through leading partner banks.',
+    advisoryNote: 'Final sanction, LTV, and interest rate depend on partner bank underwriting, property legal/technical valuation, and applicant credit profile.'
+  },
+  {
+    id: 'KB-MORTGAGE',
+    product: 'Mortgage Loan',
+    keywords: ['mortgage', 'mortgage loan', 'मॉर्गिज'],
+    summary: 'Mortgage Loan advisory for unencumbered residential, commercial, and industrial properties with competitive terms.',
+    advisoryNote: 'Subject to clear 30-year title chain, legal scrutiny, property valuation, and partner lender credit underwriting.'
+  },
+  {
+    id: 'KB-LAP',
+    product: 'Loan Against Property (LAP)',
+    keywords: ['lap', 'loan against property', 'against property', 'प्रॉपर्टी कर्ज', 'प्रॉपर्टी तारण कर्ज'],
+    summary: 'Loan Against Property (LAP) guidance enabling long-tenure liquidity against residential, commercial, or industrial real estate.',
+    advisoryNote: 'Sanction and disbursal are subject to partner bank credit policies, property valuation, and verified repayment capacity.'
+  },
+  {
+    id: 'KB-WORKING-CAPITAL',
+    product: 'Working Capital Loan',
+    keywords: ['working capital', 'od limit', 'cc limit', 'cash credit', 'overdraft', 'वर्किंग कॅपिटल'],
+    summary: 'Working Capital advisory including Cash Credit (CC) limits, Overdraft (OD) facilities, and trade finance solutions.',
+    advisoryNote: 'Limits are assessed by partner banks against audited turnover, stock/debtors statements, and financial ratios.'
+  },
+  {
+    id: 'KB-MSME',
+    product: 'MSME Loan',
+    keywords: ['msme', 'msme loan', 'udyam', 'udyog aadhar', 'small business loan', 'उद्योग आधार', 'लघु उद्योग'],
+    summary: 'MSME Loan consultancy connecting micro, small, and medium enterprises with priority-sector lending schemes and partner institutions.',
+    advisoryNote: 'Lender terms, government interest subsidies, and collateral requirements depend on Udyam registration, business vintage, and lender policy.'
+  },
+  {
+    id: 'KB-PROFESSIONAL',
+    product: 'Professional Loan',
+    keywords: ['professional loan', 'ca loan', 'chartered accountant', 'lawyer', 'architect', 'icai', 'व्यावसायिक कर्ज'],
+    summary: 'Customized Professional Loan advisory for Chartered Accountants, Company Secretaries, Architects, and Advocates.',
+    advisoryNote: 'Requires proof of professional practice certificate/membership; loan approval and terms rest solely with partner financial institutions.'
   },
   {
     id: 'KB-EDU-INDIA',
     product: 'Education Loan — India',
-    keywords: ['education loan', 'college', 'tuition', 'शिक्षण कर्ज', 'एजुकेशन लोन'],
-    summary: 'Domestic Education Loan guidance for recognized Indian universities, colleges, and professional courses.',
-    advisoryNote: 'Sanction terms depend on institution recognition, co-applicant income, and partner bank policy.'
+    keywords: ['education loan', 'college', 'tuition', 'student loan', 'शिक्षण कर्ज', 'एजुकेशन लोन'],
+    summary: 'Domestic Education Loan guidance for recognized Indian universities, colleges, engineering, medical, and management courses.',
+    advisoryNote: 'Sanction terms depend on institution accreditation, entrance merit, co-applicant income, and partner bank policy.'
   },
   {
-    id: 'KB-EDU-GLOBAL',
-    product: 'Education Loan — Global Studies',
-    keywords: ['global', 'abroad', 'overseas', 'i-20', 'cas', 'परदेश', 'विदेश'],
-    summary: 'Overseas Education Loan advisory for accredited international universities with co-applicant and collateral guidance.',
+    id: 'KB-EDU-ABROAD',
+    product: 'Education Loan — Abroad',
+    keywords: ['abroad', 'overseas', 'global', 'i-20', 'cas', 'foreign study', 'परदेश', 'विदेश'],
+    summary: 'Overseas Education Loan advisory for accredited international universities in the US, UK, Canada, Europe, Australia, and worldwide.',
     advisoryNote: 'Final loan sanction and forex disbursement terms are subject to partner lender underwriting and university offer letter verification.'
   },
   {
     id: 'KB-INSTITUTIONAL',
-    product: 'School & College Institutional Funding',
-    keywords: ['school funding', 'college funding', 'trust', 'society', 'campus', 'शाळा', 'महाविद्यालय'],
-    summary: 'Institutional funding advisory for recognized schools, colleges, and educational trusts/societies.',
+    product: 'School and College Institutional Funding',
+    keywords: ['school funding', 'college funding', 'institutional funding', 'trust', 'society', 'campus', 'शाळा', 'महाविद्यालय'],
+    summary: 'Institutional funding advisory for recognized schools, colleges, higher-education institutes, and educational trusts/societies.',
     advisoryNote: 'Any preliminary funding estimate is indicative only and not a confirmed sanction, commitment, or revenue figure.'
   },
   {

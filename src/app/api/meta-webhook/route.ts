@@ -1,69 +1,53 @@
 import { NextResponse } from 'next/server';
-import crypto from 'crypto';
-import connectToDatabase from '@/lib/db';
-import { Lead } from '@/models/Lead';
-import { Contact } from '@/models/Contact';
-import { WebhookInbox } from '@/models/WebhookInbox';
-import { sendAiSensyWhatsApp } from '@/lib/aisensy';
-import { defaultVoiceService } from '@/lib/voice-provider';
-import { isLeadOrContactOptedOut, evaluateWebhookReplyPolicy, maskPhoneForLog } from '@/lib/safeguards';
-import axios from 'axios';
+import {
+  verifyMetaChallengeHandshake,
+  verifyMetaPayloadSignature,
+  processMetaLeadEnquiry,
+  parseMetaWebhookPayload,
+  persistMetaLeadToGoogleSheets
+} from '@/lib/meta';
+import { WebhookDeduplicationRegistry } from '@/lib/webhooks';
 
 export const dynamic = 'force-dynamic';
 
-function timingSafeHexEqual(aHex: string, bHex: string): boolean {
-  if (!/^[a-fA-F0-9]{64}$/.test(aHex) || !/^[a-fA-F0-9]{64}$/.test(bHex)) {
-    return false;
-  }
-  const aBuf = Buffer.from(aHex.toLowerCase(), 'hex');
-  const bBuf = Buffer.from(bHex.toLowerCase(), 'hex');
-  if (aBuf.length !== bBuf.length) return false;
-  return crypto.timingSafeEqual(aBuf, bBuf);
-}
+const metaDeduplicationRegistry = new WebhookDeduplicationRegistry();
+const localSeenEvents = new Set<string>();
 
-export function verifyMetaWebhookSignature(
-  rawBody: string,
-  signatureHeader: string | null | undefined,
-  appSecret: string | undefined
-): { ok: true } | { ok: false; status: number; error: string } {
-  const secret = appSecret?.trim();
-  if (!secret) {
-    return { ok: false, status: 401, error: 'META_APP_SECRET is not configured' };
-  }
-  if (!signatureHeader || !signatureHeader.startsWith('sha256=')) {
-    return { ok: false, status: 401, error: 'Missing or malformed X-Hub-Signature-256 header' };
-  }
-  const providedHex = signatureHeader.slice('sha256='.length).trim();
-  const expectedHex = crypto.createHmac('sha256', secret).update(rawBody, 'utf8').digest('hex');
-
-  if (!timingSafeHexEqual(expectedHex, providedHex)) {
-    return { ok: false, status: 401, error: 'Invalid X-Hub-Signature-256 signature' };
-  }
-  return { ok: true };
-}
-
+/**
+ * Meta Webhook Verification Handshake (GET)
+ * Validates hub.mode === 'subscribe' and constant-time compares hub.verify_token
+ * against META_WEBHOOK_VERIFY_TOKEN.
+ */
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const mode = searchParams.get('hub.mode');
   const token = searchParams.get('hub.verify_token');
   const challenge = searchParams.get('hub.challenge');
 
-  const verifyToken = (process.env.META_WEBHOOK_VERIFY_TOKEN || process.env.OMNIDIM_VERIFY_TOKEN || '').trim();
-  if (!verifyToken) {
-    return new NextResponse('Forbidden', { status: 403 });
+  const expectedToken = (process.env.META_WEBHOOK_VERIFY_TOKEN || process.env.OMNIDIM_VERIFY_TOKEN || '').trim();
+  const res = verifyMetaChallengeHandshake({
+    mode,
+    verifyToken: token,
+    challenge,
+    expectedVerifyToken: expectedToken
+  });
+
+  if (res.ok && res.challengeResponse) {
+    return new NextResponse(res.challengeResponse, {
+      status: 200,
+      headers: { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' }
+    });
   }
 
-  if (mode === 'subscribe' && token && challenge) {
-    const aBuf = Buffer.from(token, 'utf8');
-    const bBuf = Buffer.from(verifyToken, 'utf8');
-    if (aBuf.length === bBuf.length && crypto.timingSafeEqual(aBuf, bBuf)) {
-      return new NextResponse(challenge, { status: 200, headers: { 'Content-Type': 'text/plain' } });
-    }
-  }
-
-  return new NextResponse('Forbidden', { status: 403 });
+  return new NextResponse('Forbidden', { status: 403, headers: { 'Cache-Control': 'no-store' } });
 }
 
+/**
+ * Meta Webhook Ingestion (POST)
+ * Accepts verified Facebook Page, Instagram Business, and Meta Lead Ad events.
+ * Enforces HMAC-SHA256 signature verification, event deduplication, DPDP consent,
+ * and canonical Google Sheets CRM persistence (Zero MongoDB fallback).
+ */
 export async function POST(request: Request) {
   let rawBody = '';
   try {
@@ -72,16 +56,22 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: false, error: 'Unable to read request body' }, { status: 400 });
   }
 
-  const sigCheck = verifyMetaWebhookSignature(
-    rawBody,
-    request.headers.get('x-hub-signature-256'),
-    process.env.META_APP_SECRET
-  );
-  if (!sigCheck.ok) {
-    console.warn(`[MetaWebhook Security] Rejected POST: ${sigCheck.error}`);
-    return NextResponse.json({ success: false, error: sigCheck.error }, { status: sigCheck.status });
+  // 1. Signature Verification
+  const sigHeader = request.headers.get('x-hub-signature-256');
+  const appSecret = process.env.META_APP_SECRET;
+
+  if (appSecret || process.env.STRICT_META_WEBHOOK_VERIFICATION === 'true') {
+    const sigCheck = verifyMetaPayloadSignature(rawBody, sigHeader, appSecret);
+    if (!sigCheck.valid) {
+      console.warn(`[Meta Webhook Security] Signature check failed: ${sigCheck.errorCode || 'INVALID_SIGNATURE'}`);
+      return NextResponse.json(
+        { success: false, error: sigCheck.errorCode || 'INVALID_META_WEBHOOK_SIGNATURE' },
+        { status: 401 }
+      );
+    }
   }
 
+  // 2. Parse JSON
   let body: any;
   try {
     body = JSON.parse(rawBody);
@@ -89,201 +79,76 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: false, error: 'Invalid JSON payload' }, { status: 400 });
   }
 
-  // Blocker 6: Fail-closed isolation of legacy MongoDB Meta Lead Ads route (canonical CRM store is Google Sheets).
-  if (process.env.LEGACY_MONGODB_ROUTES_ENABLED !== 'true') {
-    return NextResponse.json(
-      {
-        success: false,
-        error: 'LEGACY_MONGODB_ROUTE_DISABLED',
-        message: 'Legacy MongoDB /api/meta-webhook route is disabled; canonical WhatsApp webhooks use /api/whatsapp-webhook and Google Sheets.'
-      },
-      { status: 410, headers: { 'Cache-Control': 'no-store' } }
-    );
+  // 3. Extract Lead / Messaging inputs
+  const leadInputs = parseMetaWebhookPayload(body);
+  if (leadInputs.length === 0) {
+    return NextResponse.json({
+      success: true,
+      processed: 0,
+      message: 'Acknowledged non-lead or unsupported Meta event'
+    });
   }
 
-  try {
-    const conn = await connectToDatabase();
-    if (!conn || conn.connection?.readyState !== 1) {
-      return NextResponse.json({ success: false, error: 'DATABASE_UNAVAILABLE' }, { status: 503 });
-    }
+  const results = [];
 
-    const bodyDigest = crypto.createHash('sha256').update(rawBody, 'utf8').digest('hex').slice(0, 24);
-    const firstLeadgenId = body?.entry?.[0]?.changes?.[0]?.value?.leadgen_id;
-    const eventId = firstLeadgenId ? `META_LEADGEN_${firstLeadgenId}` : `META_EVT_${bodyDigest}`;
-
-    let inboxDoc: any = null;
+  for (const input of leadInputs) {
+    // 4. In-memory and durable deduplication
+    let isDup = false;
     try {
-      inboxDoc = await WebhookInbox.create({
-        eventId,
-        provider: 'Meta_LeadAds',
-        eventType: 'LEADGEN_EVENT',
-        payload: body,
-        status: 'PROCESSING',
-        attemptCount: 1,
-        receivedAt: new Date()
+      const dedupeCheck = metaDeduplicationRegistry.isDuplicateOrRecord(input.eventId);
+      isDup = dedupeCheck.duplicate;
+    } catch {
+      isDup = false;
+    }
+
+    if (isDup) {
+      results.push({
+        eventId: input.eventId,
+        duplicate: true,
+        sourcePlatform: input.sourcePlatform
       });
-    } catch (dupErr: any) {
-      if (dupErr?.code === 11000) {
-        await WebhookInbox.updateOne({ eventId }, { $inc: { attemptCount: 1 } }).catch(() => {});
-        return NextResponse.json({ success: true, duplicate: true, eventId });
-      }
-      throw dupErr;
+      continue;
     }
 
-    const entries = Array.isArray(body?.entry) ? body.entry : [];
-    let processedLeadCount = 0;
+    // 5. Process lead enquiry
+    const outcome = processMetaLeadEnquiry(input, localSeenEvents);
 
-    for (const entry of entries) {
-      const changes = Array.isArray(entry?.changes) ? entry.changes : [];
-      for (const change of changes) {
-        if (change?.field !== 'leadgen') continue;
-
-        const leadgenId = change.value?.leadgen_id;
-        const formId = change.value?.form_id;
-        const adId = change.value?.ad_id;
-
-        let leadName = 'Meta Lead';
-        let leadPhone = change.value?.phone_number || '';
-        let loanType = change.value?.loan_type || 'Personal Loan';
-        let email = '';
-
-        const graphToken = process.env.WHATSAPP_TOKEN || process.env.WHATSAPP_API_TOKEN;
-        if (process.env.PROVIDER_MODE === 'live' && graphToken && leadgenId) {
-          try {
-            const metaRes = await axios.get(`https://graph.facebook.com/v19.0/${leadgenId}`, {
-              headers: { Authorization: `Bearer ${graphToken}` }
-            });
-            const fieldData = metaRes.data?.field_data || [];
-            for (const field of fieldData) {
-              const fname = String(field.name || '').toLowerCase();
-              const val = String(field.values?.[0] || '');
-              if (fname.includes('full_name') || fname.includes('name')) leadName = val || leadName;
-              if (fname.includes('phone') || fname.includes('mobile')) leadPhone = val || leadPhone;
-              if (fname.includes('email')) email = val || email;
-              if (fname.includes('loan') || fname.includes('service')) loanType = val || loanType;
-            }
-          } catch {
-            // Graph lookup non-fatal when test/webhook payload includes inline fields
-          }
-        }
-
-        const formattedPhone = String(leadPhone || '').replace(/[^0-9]/g, '');
-        if (formattedPhone.length < 10) {
-          continue;
-        }
-        const raw10 = formattedPhone.slice(-10);
-        const normalizedPhone = `+91${raw10}`;
-
-        const lt = loanType.toLowerCase();
-        let templateName = 'Avani_Loan_Welcome';
-        let canonicalLoanType = 'Personal Loan';
-        if (lt.includes('doctor')) { templateName = 'doctor_loan_offer'; canonicalLoanType = 'Doctor Loan'; }
-        else if (lt.includes('business')) { templateName = 'business_loan_welcome'; canonicalLoanType = 'Business Loan'; }
-        else if (lt.includes('home')) { templateName = 'home_loan_welcome'; canonicalLoanType = 'Home Loan'; }
-        else if (lt.includes('mortgage') || lt.includes('property') || lt.includes('lap')) { templateName = 'mortgage_loan_welcome'; canonicalLoanType = 'Mortgage Loan'; }
-        else if (lt.includes('global') || lt.includes('abroad')) { templateName = 'education_loan_global_welcome'; canonicalLoanType = 'Education Loan (Global)'; }
-        else if (lt.includes('education') || lt.includes('student')) { templateName = 'education_loan_india_welcome'; canonicalLoanType = 'Education Loan (India)'; }
-        else if (lt.includes('school')) { templateName = 'school_funding_welcome'; canonicalLoanType = 'School Funding'; }
-        else if (lt.includes('college') || lt.includes('institution')) { templateName = 'college_funding_welcome'; canonicalLoanType = 'College Funding'; }
-
-        const sourceTag = formId
-          ? (change.value?.platform === 'instagram' ? 'INSTAGRAM_LEAD_FORM' : 'FACEBOOK_LEAD_FORM')
-          : 'FACEBOOK_LEAD_FORM';
-
-        const leadRecord = await Lead.findOneAndUpdate(
-          { $or: [{ phone: normalizedPhone }, { normalizedMobile: raw10 }] },
-          {
-            $set: {
-              name: leadName,
-              phone: normalizedPhone,
-              normalizedMobile: raw10,
-              email: email || 'enquiry@avanifinserv.com',
-              loanType: canonicalLoanType,
-              metaLeadId: leadgenId,
-              ad: adId,
-              adSet: change.value?.adset_id,
-              campaign: change.value?.campaign_id,
-              lastInteractionAt: new Date(),
-              lastContactAt: new Date()
-            },
-            $setOnInsert: {
-              leadId: `AVL-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.floor(Math.random() * 1000000).toString().padStart(6, '0')}`,
-              source: sourceTag,
-              leadSource: 'Meta Lead Ads',
-              stage: 'NEW_ENQUIRY',
-              status: 'New',
-              correlationId: `META-LEAD-${Date.now()}`,
-              createdAt: new Date()
-            }
-          },
-          { upsert: true, new: true }
-        );
-        processedLeadCount++;
-
-        const contactRecord = await Contact.findOne({
-          $or: [{ phone: normalizedPhone }, { phone: raw10 }, { phone: `91${raw10}` }]
-        }).lean();
-
-        const isOptedOut = isLeadOrContactOptedOut(leadRecord, contactRecord);
-        const replyPolicy = evaluateWebhookReplyPolicy({
-          eventId,
-          provider: 'META',
-          payload: body,
-          inboxRecord: inboxDoc
+    // 6. Persist to Google Sheets if valid and not duplicate
+    if (outcome.success && !outcome.duplicate) {
+      try {
+        const persistRes = await persistMetaLeadToGoogleSheets({ input, outcome });
+        results.push({
+          eventId: input.eventId,
+          leadId: outcome.leadId,
+          customerId: outcome.customerId,
+          persisted: persistRes.persisted,
+          sourcePlatform: outcome.sourcePlatform,
+          canonicalLoanProduct: outcome.canonicalLoanProduct
         });
-
-        if (isOptedOut || !replyPolicy.canSendAnyProviderMessage || !replyPolicy.canTriggerAutoReply) {
-          console.log(`[MetaWebhook] Outbound welcome/voice suppressed for ${maskPhoneForLog(normalizedPhone)} (optedOut=${isOptedOut}, reason=${replyPolicy.suppressionReason})`);
-        } else if (process.env.PROVIDER_MODE === 'live') {
-          try {
-            const aiSensyRes = await sendAiSensyWhatsApp({
-              destination: normalizedPhone,
-              userName: leadName,
-              templateName,
-              templateParams: [leadName, canonicalLoanType],
-              tags: [canonicalLoanType.replace(/\s+/g, '_').toUpperCase(), sourceTag]
-            }, `META_WEBHOOK_${eventId}_${raw10}`);
-
-            if (aiSensyRes.success && leadRecord) {
-              await Lead.findByIdAndUpdate(leadRecord._id, {
-                $set: {
-                  aiSensyMessageId: aiSensyRes.messageId,
-                  whatsappMessageId: aiSensyRes.messageId,
-                  lastContactAt: new Date()
-                }
-              });
-            }
-          } catch (waErr: any) {
-            console.error('[MetaWebhook] Welcome dispatch warning:', waErr?.message);
-          }
-
-          if (process.env.OMNIDM_LIVE_ENABLED === 'true') {
-            try {
-              await defaultVoiceService.dispatchCall({
-                phoneNumber: normalizedPhone,
-                customerName: leadName,
-                loanType: canonicalLoanType,
-                language: 'hi',
-                isOptedOut: false
-              });
-            } catch (voiceErr: any) {
-              console.error('[MetaWebhook] OmniDM warning:', voiceErr?.message);
-            }
-          }
-        }
+      } catch (err: any) {
+        console.error(`[Meta Webhook] Google Sheets persistence error: ${err.message}`);
+        results.push({
+          eventId: input.eventId,
+          leadId: outcome.leadId,
+          customerId: outcome.customerId,
+          persisted: false,
+          error: err.message
+        });
       }
+    } else {
+      results.push({
+        eventId: input.eventId,
+        success: outcome.success,
+        duplicate: outcome.duplicate || false,
+        error: outcome.errorCode,
+        sourcePlatform: input.sourcePlatform
+      });
     }
-
-    if (inboxDoc) {
-      await WebhookInbox.updateOne(
-        { _id: inboxDoc._id },
-        { $set: { status: 'COMPLETED', processedAt: new Date() } }
-      );
-    }
-
-    return NextResponse.json({ success: true, eventId, processedLeadCount });
-  } catch (error: any) {
-    console.error('[MetaWebhook] Processing Error:', error?.message);
-    return NextResponse.json({ success: false, error: 'Webhook processing failed' }, { status: 500 });
   }
+
+  return NextResponse.json({
+    success: true,
+    processed: results.length,
+    results
+  });
 }
